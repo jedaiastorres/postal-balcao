@@ -226,21 +226,29 @@ async function insertOrder(order) {
     `INSERT INTO freight_orders(
       id, partner_email, status, payment_method, payment_status, payment_provider,
       payment_amount, payment_surcharge, cash_remittance_amount,
-      sale_price, partner_commission, postal_margin, provider_cost,
+      sale_price, addons_total, customer_subtotal,
+      point_revenue_total, postal_revenue_total, provider_revenue_total,
+      partner_commission, postal_margin, provider_cost,
       postal_company_id, carrier, service_name, deadline, quote_token,
       sender, recipient, items, invoice_number, package_data
     ) VALUES (
       $1,$2,$3,$4,$5,$6,
       $7,$8,$9,
-      $10,$11,$12,$13,
-      $14,$15,$16,$17,$18,
-      $19::jsonb,$20::jsonb,$21::jsonb,$22,$23::jsonb
+      $10,$11,$12,
+      $13,$14,$15,
+      $16,$17,$18,
+      $19,$20,$21,$22,$23,
+      $24::jsonb,$25::jsonb,$26::jsonb,$27,$28::jsonb
     )
     RETURNING *`,
     [
       order.id, order.partnerEmail, order.status, order.paymentMethod, order.paymentStatus, order.paymentProvider || null,
       order.paymentAmount || 0, order.paymentSurcharge || 0, order.cashRemittanceAmount || 0,
-      order.salePrice, order.partnerCommission, order.postalMargin, order.providerCost,
+      order.salePrice, order.addonsTotal || 0, order.customerSubtotal || order.salePrice || 0,
+      order.pointRevenueTotal || order.partnerCommission || 0,
+      order.postalRevenueTotal || order.postalMargin || 0,
+      order.providerRevenueTotal || order.providerCost || 0,
+      order.partnerCommission, order.postalMargin, order.providerCost,
       order.postalCompanyId || null, order.carrier || "", order.serviceName || "", order.deadline || 0, order.quoteToken,
       JSON.stringify(order.sender || {}), JSON.stringify(order.recipient || {}), JSON.stringify(order.items || []),
       order.invoiceNumber || "", JSON.stringify(order.packageData || {})
@@ -360,6 +368,293 @@ async function saveShipment(id, shipment) {
   return rows[0] || null;
 }
 
+async function listCatalogItems({ itemType = null, activeOnly = true } = {}) {
+  const db = requireDb();
+  const params = [];
+  const where = [];
+  if (itemType) {
+    params.push(itemType);
+    where.push(`item_type=${params.length}`);
+  }
+  if (activeOnly) where.push("active=TRUE");
+  const { rows } = await db.query(
+    `SELECT * FROM catalog_items ${where.length ? "WHERE " + where.join(" AND ") : ""}
+     ORDER BY category,name`,
+    params
+  );
+  return rows;
+}
+
+async function getCatalogItemByCode(code) {
+  const db = requireDb();
+  const { rows } = await db.query(
+    "SELECT * FROM catalog_items WHERE code=$1 LIMIT 1",
+    [code]
+  );
+  return rows[0] || null;
+}
+
+async function upsertCatalogItem(item) {
+  const db = requireDb();
+  const id = item.id || require("crypto").randomUUID();
+  const { rows } = await db.query(
+    `INSERT INTO catalog_items(
+      id,code,item_type,category,name,description,unit_price,cost_price,track_stock,
+      point_share_percent,postal_share_percent,provider_share_percent,
+      external_provider,external_ref,active,metadata
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb)
+    ON CONFLICT (code) DO UPDATE SET
+      item_type=EXCLUDED.item_type,
+      category=EXCLUDED.category,
+      name=EXCLUDED.name,
+      description=EXCLUDED.description,
+      unit_price=EXCLUDED.unit_price,
+      cost_price=EXCLUDED.cost_price,
+      track_stock=EXCLUDED.track_stock,
+      point_share_percent=EXCLUDED.point_share_percent,
+      postal_share_percent=EXCLUDED.postal_share_percent,
+      provider_share_percent=EXCLUDED.provider_share_percent,
+      external_provider=EXCLUDED.external_provider,
+      external_ref=EXCLUDED.external_ref,
+      active=EXCLUDED.active,
+      metadata=EXCLUDED.metadata,
+      updated_at=NOW()
+    RETURNING *`,
+    [
+      id,
+      item.code,
+      item.itemType,
+      item.category || "OUTROS",
+      item.name,
+      item.description || "",
+      item.unitPrice || 0,
+      item.costPrice || 0,
+      Boolean(item.trackStock),
+      item.pointSharePercent ?? 100,
+      item.postalSharePercent ?? 0,
+      item.providerSharePercent ?? 0,
+      item.externalProvider || null,
+      item.externalRef || null,
+      item.active !== false,
+      JSON.stringify(item.metadata || {})
+    ]
+  );
+  return rows[0];
+}
+
+async function getPartnerCatalog(partnerEmail) {
+  const db = requireDb();
+  const { rows } = await db.query(
+    `SELECT
+       c.*,
+       COALESCE(i.quantity,0) AS stock_quantity,
+       COALESCE(i.reserved_quantity,0) AS reserved_quantity,
+       COALESCE(i.min_quantity,0) AS min_quantity,
+       (COALESCE(i.quantity,0)-COALESCE(i.reserved_quantity,0)) AS available_quantity
+     FROM catalog_items c
+     LEFT JOIN partner_inventory i
+       ON i.item_id=c.id AND i.partner_email=$1
+     WHERE c.active=TRUE
+     ORDER BY c.item_type,c.category,c.name`,
+    [partnerEmail]
+  );
+  return rows;
+}
+
+async function setInventory(partnerEmail, itemId, quantity, minQuantity = 0, note = "Ajuste de estoque") {
+  const db = requireDb();
+  await db.query("BEGIN");
+  try {
+    const { rows } = await db.query(
+      `INSERT INTO partner_inventory(partner_email,item_id,quantity,min_quantity)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (partner_email,item_id) DO UPDATE
+         SET quantity=EXCLUDED.quantity,
+             min_quantity=EXCLUDED.min_quantity,
+             updated_at=NOW()
+       RETURNING *`,
+      [partnerEmail,itemId,quantity,minQuantity]
+    );
+    await db.query(
+      `INSERT INTO inventory_movements(
+        id,partner_email,item_id,movement_type,quantity,reference_type,reference_id,note
+      ) VALUES ($1,$2,$3,'ADJUSTMENT',$4,'MANUAL',NULL,$5)`,
+      [require("crypto").randomUUID(),partnerEmail,itemId,quantity,note]
+    );
+    await db.query("COMMIT");
+    return rows[0];
+  } catch (error) {
+    await db.query("ROLLBACK");
+    throw error;
+  }
+}
+
+async function receiveInventory(partnerEmail, itemId, quantity, note = "Recebimento de produtos") {
+  const db = requireDb();
+  await db.query("BEGIN");
+  try {
+    const { rows } = await db.query(
+      `INSERT INTO partner_inventory(partner_email,item_id,quantity)
+       VALUES ($1,$2,$3)
+       ON CONFLICT (partner_email,item_id) DO UPDATE
+         SET quantity=partner_inventory.quantity + EXCLUDED.quantity,
+             updated_at=NOW()
+       RETURNING *`,
+      [partnerEmail,itemId,quantity]
+    );
+    await db.query(
+      `INSERT INTO inventory_movements(
+        id,partner_email,item_id,movement_type,quantity,reference_type,note
+      ) VALUES ($1,$2,$3,'IN',$4,'RECEIPT',$5)`,
+      [require("crypto").randomUUID(),partnerEmail,itemId,quantity,note]
+    );
+    await db.query("COMMIT");
+    return rows[0];
+  } catch (error) {
+    await db.query("ROLLBACK");
+    throw error;
+  }
+}
+
+async function insertOrderAddons(orderId, partnerEmail, addons) {
+  const db = requireDb();
+  if (!Array.isArray(addons) || !addons.length) return [];
+  const inserted = [];
+  await db.query("BEGIN");
+  try {
+    for (const addon of addons) {
+      const { rows } = await db.query(
+        `INSERT INTO order_addons(
+          id,order_id,item_id,item_code,item_type,item_name,quantity,unit_price,total_price,
+          point_revenue,postal_revenue,provider_revenue,metadata
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb)
+        RETURNING *`,
+        [
+          require("crypto").randomUUID(),
+          orderId,
+          addon.itemId || null,
+          addon.itemCode,
+          addon.itemType,
+          addon.itemName,
+          addon.quantity,
+          addon.unitPrice,
+          addon.totalPrice,
+          addon.pointRevenue,
+          addon.postalRevenue,
+          addon.providerRevenue,
+          JSON.stringify(addon.metadata || {})
+        ]
+      );
+      inserted.push(rows[0]);
+
+      if (addon.trackStock && addon.itemId) {
+        const lock = await db.query(
+          `SELECT quantity,reserved_quantity FROM partner_inventory
+           WHERE partner_email=$1 AND item_id=$2
+           FOR UPDATE`,
+          [partnerEmail,addon.itemId]
+        );
+        const inv = lock.rows[0];
+        const available = Number(inv?.quantity || 0) - Number(inv?.reserved_quantity || 0);
+        if (!inv || available < Number(addon.quantity)) {
+          throw new Error(`Estoque insuficiente para ${addon.itemName}.`);
+        }
+        await db.query(
+          `UPDATE partner_inventory
+           SET reserved_quantity=reserved_quantity+$3, updated_at=NOW()
+           WHERE partner_email=$1 AND item_id=$2`,
+          [partnerEmail,addon.itemId,addon.quantity]
+        );
+        await db.query(
+          `INSERT INTO inventory_movements(
+            id,partner_email,item_id,movement_type,quantity,reference_type,reference_id,note
+          ) VALUES ($1,$2,$3,'RESERVE',$4,'ORDER',$5,'Reserva para venda')`,
+          [require("crypto").randomUUID(),partnerEmail,addon.itemId,addon.quantity,orderId]
+        );
+      }
+    }
+    await db.query("COMMIT");
+    return inserted;
+  } catch (error) {
+    await db.query("ROLLBACK");
+    throw error;
+  }
+}
+
+async function getOrderAddons(orderId) {
+  const db = requireDb();
+  const { rows } = await db.query(
+    "SELECT * FROM order_addons WHERE order_id=$1 ORDER BY created_at",
+    [orderId]
+  );
+  return rows;
+}
+
+async function consumeOrderInventory(orderId, partnerEmail) {
+  const db = requireDb();
+  const addons = await getOrderAddons(orderId);
+  await db.query("BEGIN");
+  try {
+    for (const addon of addons.filter(a => a.item_id)) {
+      const { rows } = await db.query(
+        "SELECT track_stock FROM catalog_items WHERE id=$1",
+        [addon.item_id]
+      );
+      if (!rows[0]?.track_stock) continue;
+      await db.query(
+        `UPDATE partner_inventory SET
+         quantity=quantity-$3,
+         reserved_quantity=GREATEST(0,reserved_quantity-$3),
+         updated_at=NOW()
+         WHERE partner_email=$1 AND item_id=$2`,
+        [partnerEmail,addon.item_id,addon.quantity]
+      );
+      await db.query(
+        `INSERT INTO inventory_movements(
+          id,partner_email,item_id,movement_type,quantity,reference_type,reference_id,note
+        ) VALUES ($1,$2,$3,'OUT',$4,'ORDER',$5,'Venda confirmada')`,
+        [require("crypto").randomUUID(),partnerEmail,addon.item_id,addon.quantity,orderId]
+      );
+    }
+    await db.query("COMMIT");
+  } catch (error) {
+    await db.query("ROLLBACK");
+    throw error;
+  }
+}
+
+async function releaseOrderInventory(orderId, partnerEmail) {
+  const db = requireDb();
+  const addons = await getOrderAddons(orderId);
+  await db.query("BEGIN");
+  try {
+    for (const addon of addons.filter(a => a.item_id)) {
+      const { rows } = await db.query(
+        "SELECT track_stock FROM catalog_items WHERE id=$1",
+        [addon.item_id]
+      );
+      if (!rows[0]?.track_stock) continue;
+      await db.query(
+        `UPDATE partner_inventory SET
+         reserved_quantity=GREATEST(0,reserved_quantity-$3),
+         updated_at=NOW()
+         WHERE partner_email=$1 AND item_id=$2`,
+        [partnerEmail,addon.item_id,addon.quantity]
+      );
+      await db.query(
+        `INSERT INTO inventory_movements(
+          id,partner_email,item_id,movement_type,quantity,reference_type,reference_id,note
+        ) VALUES ($1,$2,$3,'RELEASE',$4,'ORDER',$5,'Reserva liberada')`,
+        [require("crypto").randomUUID(),partnerEmail,addon.item_id,addon.quantity,orderId]
+      );
+    }
+    await db.query("COMMIT");
+  } catch (error) {
+    await db.query("ROLLBACK");
+    throw error;
+  }
+}
+
 async function insertWebhookEvent({ id, provider, eventType, checkoutId, payload }) {
   const db = requireDb();
   const { rowCount } = await db.query(
@@ -409,6 +704,16 @@ module.exports = {
   markPaid,
   updateStatus,
   saveShipment,
+  listCatalogItems,
+  getCatalogItemByCode,
+  upsertCatalogItem,
+  getPartnerCatalog,
+  setInventory,
+  receiveInventory,
+  insertOrderAddons,
+  getOrderAddons,
+  consumeOrderInventory,
+  releaseOrderInventory,
   insertWebhookEvent,
   getPendingWebhookEvents,
   markWebhookProcessed
