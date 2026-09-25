@@ -381,6 +381,99 @@ function validateFreightParties(sender, recipient, items) {
   }
 }
 
+async function resolveRequestedAddons(partnerEmail, requestedAddons) {
+  const requested = Array.isArray(requestedAddons) ? requestedAddons : [];
+  if (!requested.length) return [];
+
+  const catalog = await db.getPartnerCatalog(partnerEmail);
+  const byCode = new Map(catalog.map(item => [String(item.code), item]));
+  const resolved = [];
+
+  for (const request of requested) {
+    const code = String(request.code || "").trim();
+    const quantity = Math.max(0, Number(request.quantity || 0));
+    if (!code || quantity <= 0) continue;
+
+    const item = byCode.get(code);
+    if (!item || item.active !== true) throw new Error("Produto ou serviço não disponível: " + code);
+
+    if (item.track_stock && Number(item.available_quantity || 0) < quantity) {
+      throw new Error("Estoque insuficiente para " + item.name + ".");
+    }
+
+    const unitPrice = round2(Number(item.effective_unit_price ?? item.unit_price ?? 0));
+    if (unitPrice < 0) throw new Error("Preço inválido para " + item.name + ".");
+
+    const totalPrice = round2(unitPrice * quantity);
+    const pointPct = Math.max(0, Number(item.point_share_percent || 0)) / 100;
+    const postalPct = Math.max(0, Number(item.postal_share_percent || 0)) / 100;
+    const providerPct = Math.max(0, Number(item.provider_share_percent || 0)) / 100;
+    if (pointPct + postalPct + providerPct > 1.00001) {
+      throw new Error("Divisão financeira inválida no item " + item.name + ".");
+    }
+
+    resolved.push({
+      itemId: item.id,
+      itemCode: item.code,
+      itemType: item.item_type,
+      itemName: item.name,
+      quantity,
+      unitPrice,
+      totalPrice,
+      pointRevenue: round2(totalPrice * pointPct),
+      postalRevenue: round2(totalPrice * postalPct),
+      providerRevenue: round2(totalPrice * providerPct),
+      trackStock: Boolean(item.track_stock),
+      metadata: item.metadata || {}
+    });
+  }
+
+  return resolved;
+}
+
+function summarizeFinancials(selection, addons, paymentMethod) {
+  const freightPrice = round2(Number(selection.salePrice || 0));
+  const freightPoint = round2(Number(selection.partnerCommission || 0));
+  const freightProvider = round2(Number(selection.providerCost || 0));
+  const freightPostal = round2(Math.max(0, freightPrice - freightPoint - freightProvider));
+
+  const addonsTotal = round2(addons.reduce((s, a) => s + Number(a.totalPrice || 0), 0));
+  const addonPoint = round2(addons.reduce((s, a) => s + Number(a.pointRevenue || 0), 0));
+  const addonPostal = round2(addons.reduce((s, a) => s + Number(a.postalRevenue || 0), 0));
+  const addonProvider = round2(addons.reduce((s, a) => s + Number(a.providerRevenue || 0), 0));
+
+  const customerSubtotal = round2(freightPrice + addonsTotal);
+  const pointRevenueTotal = round2(freightPoint + addonPoint);
+  const postalRevenueTotal = round2(freightPostal + addonPostal);
+  const providerRevenueTotal = round2(freightProvider + addonProvider);
+
+  let feeBase = customerSubtotal;
+  let feeMethod = paymentMethod;
+  if (paymentMethod === "DINHEIRO") {
+    feeBase = round2(customerSubtotal - pointRevenueTotal);
+    feeMethod = "CASH_REMITTANCE";
+  }
+
+  const grossed = asaas.grossUp(feeBase, feeMethod);
+  const paymentSurcharge = round2(grossed.surcharge);
+  const totalToCustomer = round2(customerSubtotal + paymentSurcharge);
+  const cashRemittanceBase = paymentMethod === "DINHEIRO"
+    ? round2(customerSubtotal - pointRevenueTotal)
+    : 0;
+
+  return {
+    freightPrice,
+    addonsTotal,
+    customerSubtotal,
+    pointRevenueTotal,
+    postalRevenueTotal,
+    providerRevenueTotal,
+    paymentSurcharge,
+    totalToCustomer,
+    cashRemittanceBase
+  };
+}
+
 async function processAsaasWebhookEvent(eventRow) {
   const payload = eventRow.payload || {};
   const eventType = String(eventRow.event_type || payload.event || "");
