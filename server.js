@@ -898,6 +898,11 @@ app.get("/api/integrations/v1/catalog/items", requireIntegrationAuth, async (req
 app.put("/api/integrations/v1/catalog/items/:code", requireIntegrationAuth, async (req, res) => {
   try {
     const body = req.body || {};
+    const code = String(req.params.code || "").trim();
+    const name = String(body.name || "").trim();
+    if (!code || !name) {
+      return res.status(400).json({ error: "Código e nome são obrigatórios." });
+    }
     const itemType = String(body.itemType || "PRODUCT").toUpperCase();
     if (!["PRODUCT", "SERVICE"].includes(itemType)) {
       return res.status(400).json({ error: "itemType deve ser PRODUCT ou SERVICE." });
@@ -911,10 +916,10 @@ app.put("/api/integrations/v1/catalog/items/:code", requireIntegrationAuth, asyn
     }
 
     const item = await db.upsertCatalogItem({
-      code: String(req.params.code || "").trim(),
+      code,
       itemType,
       category: String(body.category || "OUTROS").toUpperCase(),
-      name: String(body.name || "").trim(),
+      name,
       description: String(body.description || ""),
       unitPrice: Number(body.unitPrice || 0),
       costPrice: Number(body.costPrice || 0),
@@ -927,7 +932,6 @@ app.put("/api/integrations/v1/catalog/items/:code", requireIntegrationAuth, asyn
       active: body.active !== false,
       metadata: body.metadata || {}
     });
-    if (!item.code || !item.name) return res.status(400).json({ error: "Código e nome são obrigatórios." });
     res.json({ ok: true, version: "v1", item });
   } catch (error) {
     console.error("integration catalog upsert error:", error.message);
