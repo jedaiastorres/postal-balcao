@@ -369,7 +369,7 @@ nav{display:grid;gap:5px;margin-bottom:18px}
 .inventory-form label{display:grid;gap:6px;font-size:11px;font-weight:800;color:#656b78}
 .inventory-form input,.inventory-form select{height:44px;border:1px solid var(--line);border-radius:12px;padding:0 12px;background:#fbfbfc;outline:none}
 .inventory-list{display:grid;gap:9px}
-.inventory-row{display:grid;grid-template-columns:1.6fr .55fr .55fr .55fr;gap:12px;align-items:center;padding:13px 14px;border:1px solid var(--line);border-radius:14px;background:#fbfbfc}
+.inventory-row{display:grid;grid-template-columns:1.6fr .55fr .55fr .55fr auto;gap:12px;align-items:center;padding:13px 14px;border:1px solid var(--line);border-radius:14px;background:#fbfbfc}
 .inventory-row>div:first-child{display:grid;gap:2px}
 .inventory-row>div:not(:first-child) span{display:block;font-size:9px;color:var(--muted);font-weight:800;text-transform:uppercase}
 .inventory-row>div:not(:first-child) strong{display:block;margin-top:3px;font-size:14px}
@@ -387,3 +387,5 @@ nav{display:grid;gap:5px;margin-bottom:18px}
   .addon-item,.inventory-row{grid-template-columns:1fr}
   .addon-main,.inventory-row>div:first-child{grid-column:auto}
 }
+
+.inventory-actions .ghost{padding:9px 11px;font-size:11px}
