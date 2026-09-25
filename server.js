@@ -17,7 +17,7 @@ const SESSION_SECRET = process.env.APP_SESSION_SECRET || "postal-v1-dev-secret-c
 const DEMO_AUTH = String(process.env.APP_DEMO_AUTH || "true").toLowerCase() === "true";
 const ENABLE_SHIPMENT_CREATION = String(process.env.ENABLE_SHIPMENT_CREATION || "false").toLowerCase() === "true";
 
-const POSTAL_MARKUP = Math.max(0, Number(process.env.POSTAL_MARKUP_PERCENT || 8)) / 100;
+const POSTAL_MARGIN = Math.min(0.50, Math.max(0, Number(process.env.POSTAL_MARKUP_PERCENT || 12) / 100));
 const PARTNER_COMMISSION = Math.min(0.20, Math.max(0, Number(process.env.PARTNER_COMMISSION_PERCENT || 10) / 100));
 
 app.disable("x-powered-by");
@@ -128,12 +128,17 @@ function round2(n) {
 }
 
 function sellPriceFromCost(cost) {
-  const subtotal = cost * (1 + POSTAL_MARKUP);
-  const finalPrice = PARTNER_COMMISSION >= 0.999 ? subtotal : subtotal / (1 - PARTNER_COMMISSION);
+  // A comissão do ponto e a margem Postal são percentuais do preço final.
+  // Ex.: custo 68%, ponto 20%, Postal 12% = 100% do preço ao consumidor.
+  const retainedShare = 1 - PARTNER_COMMISSION - POSTAL_MARGIN;
+  if (retainedShare <= 0) throw new Error("Configuração de margens inválida.");
+  const finalPrice = cost / retainedShare;
   const partnerCommission = finalPrice * PARTNER_COMMISSION;
+  const postalMargin = finalPrice * POSTAL_MARGIN;
   return {
     salePrice: round2(finalPrice),
-    partnerCommission: round2(partnerCommission)
+    partnerCommission: round2(partnerCommission),
+    postalMargin: round2(postalMargin)
   };
 }
 
