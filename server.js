@@ -236,7 +236,10 @@ app.get("/api/public-config", (_req, res) => {
     demoAuth: DEMO_AUTH,
     commissionPercent: round2(PARTNER_COMMISSION * 100),
     receiptWidthMm: RECEIPT_WIDTH_MM,
-    shipmentCreationEnabled: ENABLE_SHIPMENT_CREATION
+    shipmentCreationEnabled: ENABLE_SHIPMENT_CREATION,
+    paymentsProvider: "ASAAS",
+    paymentsConfigured: asaas.configured(),
+    databaseConfigured: Boolean(process.env.DATABASE_URL)
   });
 });
 
