@@ -1318,6 +1318,8 @@ async function seedDefaultCatalog() {
   ];
 
   for (const item of defaults) {
+    const existing = await db.getCatalogItemByCode(item.code);
+    if (existing) continue;
     await db.upsertCatalogItem({
       code: item.code,
       itemType: "PRODUCT",
