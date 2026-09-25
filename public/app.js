@@ -471,6 +471,18 @@ function buildReceiptHtml(data) {
   <div class="no-print"><button class="print-btn" onclick="window.print()">IMPRIMIR</button></div></div></body></html>`;
 }
 
+function showReceiptPreview(data) {
+  const modal = $("#receiptPreviewModal");
+  const frame = $("#receiptPreviewFrame");
+  if (!modal || !frame) return;
+  frame.srcdoc = buildReceiptHtml(data);
+  modal.classList.remove("hidden");
+}
+
+function closeReceiptPreview() {
+  $("#receiptPreviewModal")?.classList.add("hidden");
+}
+
 function openReceipt(data, autoPrint = false) {
   const target = window.open("", "_blank");
   if (!target) {
@@ -543,7 +555,7 @@ $("#previewReceiptBtn")?.addEventListener("click", () => {
     toast("Selecione um frete antes de visualizar o comprovante.", "error");
     return;
   }
-  openReceipt(receiptPayload(true), false);
+  showReceiptPreview(receiptPayload(true));
 });
 
 $("#shipmentForm")?.addEventListener("submit", async event => {
@@ -624,6 +636,14 @@ $("#shipmentForm")?.addEventListener("submit", async event => {
     btn.disabled = !state.config?.shipmentCreationEnabled;
     btn.textContent = state.config?.shipmentCreationEnabled ? "Gerar postagem e rastreio" : "Emissão em homologação";
   }
+});
+
+$("#closeReceiptPreviewBtn")?.addEventListener("click", closeReceiptPreview);
+$("#receiptPreviewModal")?.addEventListener("click", event => {
+  if (event.target.id === "receiptPreviewModal") closeReceiptPreview();
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") closeReceiptPreview();
 });
 
 $("#printReceiptBtn")?.addEventListener("click", () => {
