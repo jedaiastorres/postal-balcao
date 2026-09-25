@@ -3,12 +3,16 @@ const $$ = (s) => [...document.querySelectorAll(s)];
 
 const state = {
   config: null,
-  recent: JSON.parse(localStorage.getItem("postal_recent_quotes") || "[]")
+  recent: JSON.parse(localStorage.getItem("postal_recent_quotes") || "[]"),
+  currentQuote: null,
+  selectedOption: null,
+  shipmentResult: null
 };
 
 const viewMap = {
   dashboard: { el: "#dashboardView", title: "Visão geral" },
   quote: { el: "#quoteView", title: "Simular Frete" },
+  shipment: { el: "#shipmentView", title: "Nova Postagem" },
   orders: { placeholder: ["Meus Envios", "A próxima etapa conecta a criação do envio, rastreamento e impressão da etiqueta 10x14."] },
   receive: { placeholder: ["Receber Pacote", "Aqui o atendente fará a leitura do código e confirmará que a encomenda entrou fisicamente no ponto Postal."] },
   returns: { placeholder: ["Devolução", "Fluxo de logística reversa e devoluções ficará centralizado nesta área."] },
@@ -167,6 +171,9 @@ $("#quoteForm").addEventListener("submit", async (event) => {
       method: "POST",
       body: JSON.stringify(payload)
     });
+    state.currentQuote = payload;
+    state.selectedOption = null;
+    state.shipmentResult = null;
     renderResults(result, payload);
     saveRecent(result, payload);
     refreshDashboard();
@@ -231,6 +238,7 @@ function renderResults(result, payload) {
     });
 
     card.querySelector(".select-btn").addEventListener("click", () => {
+      state.selectedOption = option;
       list.querySelectorAll(".result-card").forEach(el => {
         el.classList.remove("selected");
         const button = el.querySelector(".select-btn");
