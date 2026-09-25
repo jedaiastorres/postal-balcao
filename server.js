@@ -501,6 +501,9 @@ async function processAsaasWebhookEvent(eventRow) {
   try {
     if (eventType === "CHECKOUT_PAID") {
       const paidOrder = await db.markPaid(order.id, ENABLE_SHIPMENT_CREATION ? "PAYMENT_CONFIRMED" : "PAID_WAITING_SHIPMENT");
+      if (order.payment_method !== "DINHEIRO") {
+        await db.consumeOrderInventory(order.id, order.partner_email);
+      }
       if (ENABLE_SHIPMENT_CREATION) {
         try {
           await createShipmentFromOrder(paidOrder);
@@ -510,8 +513,10 @@ async function processAsaasWebhookEvent(eventRow) {
         }
       }
     } else if (eventType === "CHECKOUT_CANCELED") {
+      if (order.payment_method !== "DINHEIRO") await db.releaseOrderInventory(order.id, order.partner_email);
       await db.updateStatus(order.id, "PAYMENT_CANCELED", "CANCELED");
     } else if (eventType === "CHECKOUT_EXPIRED") {
+      if (order.payment_method !== "DINHEIRO") await db.releaseOrderInventory(order.id, order.partner_email);
       await db.updateStatus(order.id, "PAYMENT_EXPIRED", "EXPIRED");
     }
 
