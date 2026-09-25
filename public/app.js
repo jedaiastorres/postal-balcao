@@ -380,6 +380,165 @@ function contentData() {
   }));
 }
 
+function selectedAddonPayload() {
+  return [...state.selectedAddons.entries()]
+    .filter(([, quantity]) => Number(quantity) > 0)
+    .map(([code, quantity]) => ({ code, quantity: Number(quantity) }));
+}
+
+async function loadShipmentCatalog() {
+  const host = $("#addonsCatalog");
+  if (!host) return;
+  host.innerHTML = '<div class="empty-state">Carregando produtos e serviços...</div>';
+  try {
+    const result = await api("/api/catalog");
+    state.catalog = result.items || [];
+    renderShipmentCatalog();
+  } catch (err) {
+    host.innerHTML = `<div class="empty-state">Não foi possível carregar o catálogo. ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderShipmentCatalog() {
+  const host = $("#addonsCatalog");
+  if (!host) return;
+  const items = (state.catalog || []).filter(item => {
+    if (item.itemType === "PRODUCT") {
+      return Number(item.unitPrice || 0) > 0 && Number(item.availableQuantity || 0) > 0;
+    }
+    return Number(item.unitPrice || 0) >= 0;
+  });
+
+  if (!items.length) {
+    host.innerHTML = '<div class="empty-state">Nenhum produto com estoque e preço disponível. Use Produtos & Estoque para receber embalagens e definir preço.</div>';
+    return;
+  }
+
+  host.innerHTML = "";
+  items.forEach(item => {
+    const row = document.createElement("div");
+    row.className = "addon-item";
+    const current = Number(state.selectedAddons.get(item.code) || 0);
+    const stockText = item.itemType === "PRODUCT"
+      ? `${Number(item.availableQuantity || 0)} disponível(is)`
+      : "Serviço";
+    row.innerHTML = `
+      <div class="addon-main">
+        <span class="addon-type">${item.itemType === "PRODUCT" ? "PRODUTO" : "SERVIÇO"} · ${escapeHtml(item.category || "")}</span>
+        <strong>${escapeHtml(item.name)}</strong>
+        <small>${escapeHtml(item.description || stockText)}</small>
+      </div>
+      <div class="addon-stock">${escapeHtml(stockText)}</div>
+      <div class="addon-price">${money(item.unitPrice)}</div>
+      <label class="addon-qty">Qtd.
+        <input type="number" min="0" step="1" value="${current}" />
+      </label>
+    `;
+
+    const input = row.querySelector("input");
+    input.max = item.itemType === "PRODUCT" ? String(item.availableQuantity || 0) : "999";
+    input.addEventListener("input", async () => {
+      let qty = Math.max(0, Number(input.value || 0));
+      if (item.itemType === "PRODUCT") qty = Math.min(qty, Number(item.availableQuantity || 0));
+      input.value = String(qty);
+      if (qty > 0) state.selectedAddons.set(item.code, qty);
+      else state.selectedAddons.delete(item.code);
+      await refreshPaymentPreview();
+    });
+    host.appendChild(row);
+  });
+}
+
+async function refreshPaymentPreview() {
+  const option = state.selectedOption;
+  if (!option) return;
+
+  $("#paymentFreight").textContent = money(option.precoVenda);
+  const method = $("#paymentMethod")?.value || "";
+  if (!method) {
+    const addonsTotal = selectedAddonPayload().reduce((sum, selected) => {
+      const item = state.catalog.find(x => x.code === selected.code);
+      return sum + Number(item?.unitPrice || 0) * Number(selected.quantity || 0);
+    }, 0);
+    $("#paymentAddons").textContent = money(addonsTotal);
+    $("#paymentFee").textContent = "Selecione o pagamento";
+    $("#paymentTotal").textContent = money(Number(option.precoVenda || 0) + addonsTotal);
+    $("#shipPrice").textContent = money(Number(option.precoVenda || 0) + addonsTotal);
+    return;
+  }
+
+  try {
+    const preview = await api("/api/payment-preview", {
+      method: "POST",
+      body: JSON.stringify({
+        selectionToken: option.selectionToken,
+        paymentMethod: method,
+        addons: selectedAddonPayload()
+      })
+    });
+    $("#paymentFreight").textContent = money(preview.freightPrice);
+    $("#paymentAddons").textContent = money(preview.addonsTotal);
+    $("#paymentFee").textContent = money(preview.paymentFee);
+    $("#paymentTotal").textContent = money(preview.total);
+    $("#shipPrice").textContent = money(preview.total);
+
+    const note = $("#paymentMethodNote");
+    if (method === "DINHEIRO") {
+      note.textContent = `O cliente paga ${money(preview.total)} em dinheiro. O ponto mantém sua receita e depois repassa ${money(preview.cashRemittance)} via PIX para liberar a etiqueta.`;
+    } else {
+      note.textContent = `A taxa do Asaas (${money(preview.paymentFee)}) já foi somada. A receita do ponto e a margem da Postal permanecem preservadas.`;
+    }
+  } catch (err) {
+    $("#paymentFee").textContent = "—";
+    toast(err.message, "error");
+  }
+}
+
+async function loadInventory() {
+  const host = $("#inventoryList");
+  const select = $("#inventoryProduct");
+  if (!host || !select) return;
+  host.innerHTML = '<div class="empty-state">Atualizando estoque...</div>';
+
+  try {
+    const result = await api("/api/inventory");
+    state.inventory = result.items || [];
+    const products = state.inventory.filter(item => item.itemType === "PRODUCT" && item.trackStock);
+
+    select.innerHTML = products.length
+      ? products.map(item => `<option value="${escapeHtml(item.code)}">${escapeHtml(item.name)}</option>`).join("")
+      : '<option value="">Nenhum produto cadastrado</option>';
+
+    if (!state.inventory.length) {
+      host.innerHTML = '<div class="empty-state">Nenhum item no catálogo.</div>';
+      return;
+    }
+
+    host.innerHTML = "";
+    state.inventory.forEach(item => {
+      const row = document.createElement("div");
+      row.className = "inventory-row";
+      const low = item.trackStock && Number(item.availableQuantity || 0) <= Number(item.minQuantity || 0);
+      row.innerHTML = `
+        <div>
+          <span class="addon-type">${item.itemType === "PRODUCT" ? "PRODUTO" : "SERVIÇO"} · ${escapeHtml(item.category || "")}</span>
+          <strong>${escapeHtml(item.name)}</strong>
+          <small>${escapeHtml(item.code)}</small>
+        </div>
+        <div><span>Preço</span><strong>${money(item.unitPrice)}</strong></div>
+        <div><span>Disponível</span><strong class="${low ? "stock-low" : ""}">${Number(item.availableQuantity || 0)}</strong></div>
+        <div><span>Reservado</span><strong>${Number(item.reservedQuantity || 0)}</strong></div>
+      `;
+      host.appendChild(row);
+    });
+
+    const selected = products[0];
+    if (selected) $("#inventorySalePrice").value = Number(selected.unitPrice || 0).toFixed(2);
+  } catch (err) {
+    host.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
 function prepareShipmentView() {
   if (!state.selectedOption || !state.currentQuote) return false;
   $("#shipCarrier").textContent = state.selectedOption.transportadora;
