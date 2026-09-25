@@ -49,6 +49,11 @@ async function initDb() {
       cash_remittance_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
 
       sale_price NUMERIC(12,2) NOT NULL,
+      addons_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+      customer_subtotal NUMERIC(12,2) NOT NULL DEFAULT 0,
+      point_revenue_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+      postal_revenue_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+      provider_revenue_total NUMERIC(12,2) NOT NULL DEFAULT 0,
       partner_commission NUMERIC(12,2) NOT NULL,
       postal_margin NUMERIC(12,2) NOT NULL,
       provider_cost NUMERIC(12,2) NOT NULL,
@@ -85,6 +90,72 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS freight_orders_checkout_idx
       ON freight_orders(payment_checkout_id);
 
+    CREATE TABLE IF NOT EXISTS catalog_items (
+      id UUID PRIMARY KEY,
+      code TEXT UNIQUE NOT NULL,
+      item_type TEXT NOT NULL CHECK (item_type IN ('PRODUCT','SERVICE')),
+      category TEXT NOT NULL DEFAULT 'OUTROS',
+      name TEXT NOT NULL,
+      description TEXT,
+      unit_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+      cost_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+      track_stock BOOLEAN NOT NULL DEFAULT FALSE,
+      point_share_percent NUMERIC(6,3) NOT NULL DEFAULT 100,
+      postal_share_percent NUMERIC(6,3) NOT NULL DEFAULT 0,
+      provider_share_percent NUMERIC(6,3) NOT NULL DEFAULT 0,
+      external_provider TEXT,
+      external_ref TEXT,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS partner_inventory (
+      partner_email TEXT NOT NULL,
+      item_id UUID NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+      quantity NUMERIC(12,3) NOT NULL DEFAULT 0,
+      reserved_quantity NUMERIC(12,3) NOT NULL DEFAULT 0,
+      min_quantity NUMERIC(12,3) NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY(partner_email,item_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS inventory_movements (
+      id UUID PRIMARY KEY,
+      partner_email TEXT NOT NULL,
+      item_id UUID NOT NULL REFERENCES catalog_items(id),
+      movement_type TEXT NOT NULL,
+      quantity NUMERIC(12,3) NOT NULL,
+      reference_type TEXT,
+      reference_id TEXT,
+      note TEXT,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS inventory_movements_partner_idx
+      ON inventory_movements(partner_email, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS order_addons (
+      id UUID PRIMARY KEY,
+      order_id UUID NOT NULL REFERENCES freight_orders(id) ON DELETE CASCADE,
+      item_id UUID REFERENCES catalog_items(id),
+      item_code TEXT NOT NULL,
+      item_type TEXT NOT NULL,
+      item_name TEXT NOT NULL,
+      quantity NUMERIC(12,3) NOT NULL,
+      unit_price NUMERIC(12,2) NOT NULL,
+      total_price NUMERIC(12,2) NOT NULL,
+      point_revenue NUMERIC(12,2) NOT NULL DEFAULT 0,
+      postal_revenue NUMERIC(12,2) NOT NULL DEFAULT 0,
+      provider_revenue NUMERIC(12,2) NOT NULL DEFAULT 0,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS order_addons_order_idx ON order_addons(order_id);
+
     CREATE TABLE IF NOT EXISTS payment_webhook_events (
       id TEXT PRIMARY KEY,
       provider TEXT NOT NULL,
@@ -99,6 +170,14 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS payment_webhook_pending_idx
       ON payment_webhook_events(provider, processed_at)
       WHERE processed_at IS NULL;
+  `);
+
+  await pool.query(`
+    ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS addons_total NUMERIC(12,2) NOT NULL DEFAULT 0;
+    ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS customer_subtotal NUMERIC(12,2) NOT NULL DEFAULT 0;
+    ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS point_revenue_total NUMERIC(12,2) NOT NULL DEFAULT 0;
+    ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS postal_revenue_total NUMERIC(12,2) NOT NULL DEFAULT 0;
+    ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS provider_revenue_total NUMERIC(12,2) NOT NULL DEFAULT 0;
   `);
 
   return true;
