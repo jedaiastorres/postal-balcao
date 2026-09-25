@@ -567,6 +567,203 @@ app.post("/api/prazo", requireAuth, async (req, res) => {
   }
 });
 
+app.get("/api/orders", requireAuth, async (req, res) => {
+  try {
+    const orders = await db.listOrders(req.user.email, Number(req.query.limit || 100));
+    res.json({ orders: orders.map(publicOrder) });
+  } catch (error) {
+    console.error("list orders error:", error.message);
+    res.status(503).json({ error: "Não foi possível carregar Meus Fretes." });
+  }
+});
+
+app.get("/api/orders/:id", requireAuth, async (req, res) => {
+  try {
+    const order = await db.getOrder(req.params.id, req.user.email);
+    if (!order) return res.status(404).json({ error: "Frete não encontrado." });
+    res.json({ order: publicOrder(order) });
+  } catch (error) {
+    console.error("get order error:", error.message);
+    res.status(503).json({ error: "Não foi possível consultar o frete." });
+  }
+});
+
+app.post("/api/orders", requireAuth, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const selection = verifySelectionToken(body.selectionToken);
+    if (!selection || !Number.isFinite(Number(selection.providerCost))) {
+      return res.status(400).json({ error: "A cotação expirou. Calcule o frete novamente." });
+    }
+
+    const paymentMethod = String(body.paymentMethod || "").toUpperCase();
+    if (!["PIX", "CARTAO", "DINHEIRO"].includes(paymentMethod)) {
+      return res.status(400).json({ error: "Selecione PIX, cartão ou dinheiro." });
+    }
+
+    const sender = body.sender || {};
+    const recipient = body.recipient || {};
+    const items = Array.isArray(body.items) ? body.items : [];
+    validateFreightParties(sender, recipient, items);
+
+    if (cleanDigits(sender.cep) !== selection.package.cepFrom || cleanDigits(recipient.cep) !== selection.package.cepTo) {
+      return res.status(400).json({ error: "Os CEPs mudaram após a cotação. Calcule novamente." });
+    }
+
+    const salePrice = round2(Number(selection.salePrice));
+    const partnerCommission = round2(Number(selection.partnerCommission));
+    const providerCost = round2(Number(selection.providerCost));
+    const postalMargin = round2(Math.max(0, salePrice - partnerCommission - providerCost));
+    const orderId = crypto.randomUUID();
+    const invoiceNumber = String(body.invoiceNumber || "").trim();
+    const partner = await db.ensurePartner(req.user.email);
+    const partnerWalletId = String(partner?.asaas_wallet_id || ASAAS_DEFAULT_PARTNER_WALLET_ID || "").trim();
+
+    const baseOrder = {
+      id: orderId,
+      partnerEmail: req.user.email,
+      paymentMethod,
+      paymentProvider: paymentMethod === "DINHEIRO" ? "CASH" : "ASAAS",
+      salePrice,
+      partnerCommission,
+      postalMargin,
+      providerCost,
+      postalCompanyId: selection.postalCompanyId,
+      carrier: String(body.carrier || ""),
+      serviceName: String(selection.service || ""),
+      deadline: Number(selection.deadline || 0),
+      quoteToken: body.selectionToken,
+      sender,
+      recipient,
+      items,
+      invoiceNumber,
+      packageData: selection.package
+    };
+
+    if (paymentMethod === "DINHEIRO") {
+      const remittanceBase = round2(salePrice - partnerCommission);
+      const order = await db.insertOrder({
+        ...baseOrder,
+        status: "CASH_REMITTANCE_PENDING",
+        paymentStatus: "CASH_AT_POINT",
+        paymentAmount: salePrice,
+        paymentSurcharge: 0,
+        cashRemittanceAmount: remittanceBase
+      });
+      return res.status(201).json({
+        order: publicOrder(order),
+        nextAction: "PAY_REMITTANCE",
+        message: "Dinheiro registrado. A etiqueta só será gerada após o repasse do ponto."
+      });
+    }
+
+    const order = await db.insertOrder({
+      ...baseOrder,
+      status: "PAYMENT_SETUP_PENDING",
+      paymentStatus: "PENDING",
+      paymentAmount: 0,
+      paymentSurcharge: 0,
+      cashRemittanceAmount: 0
+    });
+
+    if (!asaas.configured()) {
+      return res.status(201).json({
+        order: publicOrder(order),
+        paymentSetupRequired: true,
+        message: "Asaas ainda precisa da chave de API para liberar cobranças."
+      });
+    }
+
+    if (!partnerWalletId) {
+      const pending = await db.updateStatus(order.id, "PARTNER_FINANCIAL_SETUP_REQUIRED", "PENDING");
+      return res.status(201).json({
+        order: publicOrder(pending),
+        paymentSetupRequired: true,
+        message: "Este ponto ainda não possui carteira Asaas vinculada para receber a comissão automaticamente."
+      });
+    }
+
+    const checkout = await asaas.createCheckout({
+      orderId,
+      billingType: paymentMethod,
+      amount: salePrice,
+      itemName: "Frete Postal Serviços",
+      itemDescription: String(body.carrier || "") + " - " + String(selection.service || ""),
+      partnerWalletId,
+      reserveWalletId: ASAAS_RESERVE_WALLET_ID || null,
+      partnerCommission,
+      providerCost,
+      customerData: {
+        name: sender.name,
+        cpfCnpj: sender.document,
+        email: sender.email,
+        phone: sender.phone
+      }
+    });
+
+    const updated = await db.setCheckout(order.id, {
+      checkoutId: checkout.id,
+      checkoutUrl: checkout.url,
+      paymentAmount: checkout.grossAmount,
+      surcharge: checkout.surcharge,
+      status: "PAYMENT_PENDING",
+      paymentStatus: "PENDING"
+    });
+
+    res.status(201).json({
+      order: publicOrder(updated),
+      checkoutUrl: checkout.url,
+      nextAction: "OPEN_CHECKOUT"
+    });
+  } catch (error) {
+    console.error("create order error:", error.status, error.providerData || error.message);
+    res.status(error.status && error.status < 500 ? error.status : 500).json({
+      error: error.message || "Não foi possível iniciar o pagamento do frete."
+    });
+  }
+});
+
+app.post("/api/orders/:id/remittance", requireAuth, async (req, res) => {
+  try {
+    const order = await db.getOrder(req.params.id, req.user.email);
+    if (!order) return res.status(404).json({ error: "Frete não encontrado." });
+    if (order.payment_method !== "DINHEIRO") return res.status(400).json({ error: "Este frete não é de pagamento em dinheiro." });
+    if (order.status === "LABEL_AVAILABLE") return res.json({ order: publicOrder(order), alreadyPaid: true });
+    if (order.payment_checkout_url && order.payment_status === "PENDING") {
+      return res.json({ order: publicOrder(order), checkoutUrl: order.payment_checkout_url });
+    }
+    if (!asaas.configured()) return res.status(503).json({ error: "Asaas ainda não configurado." });
+
+    const remittanceBase = round2(Number(order.cash_remittance_amount || 0));
+    const checkout = await asaas.createCheckout({
+      orderId: order.id,
+      billingType: "PIX",
+      amount: remittanceBase,
+      itemName: "Repasse de frete Postal",
+      itemDescription: "Repasse do ponto com comissão já descontada",
+      partnerWalletId: null,
+      reserveWalletId: ASAAS_RESERVE_WALLET_ID || null,
+      partnerCommission: 0,
+      providerCost: Number(order.provider_cost || 0),
+      customerData: null
+    });
+
+    const updated = await db.setCheckout(order.id, {
+      checkoutId: checkout.id,
+      checkoutUrl: checkout.url,
+      paymentAmount: checkout.grossAmount,
+      surcharge: checkout.surcharge,
+      status: "CASH_REMITTANCE_PAYMENT_PENDING",
+      paymentStatus: "PENDING"
+    });
+
+    res.json({ order: publicOrder(updated), checkoutUrl: checkout.url });
+  } catch (error) {
+    console.error("cash remittance error:", error.status, error.providerData || error.message);
+    res.status(500).json({ error: error.message || "Não foi possível gerar o repasse." });
+  }
+});
+
 /**
  * CRIACAO DO ENVIO
  * POST /cart
