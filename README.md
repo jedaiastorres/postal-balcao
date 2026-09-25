@@ -1,6 +1,6 @@
 # Postal Balcão
 
-Plataforma web da Postal Serviços para pontos parceiros, com cotação via ConectEnvios API V1.
+Plataforma web da Postal Serviços para pontos parceiros, com cotação via ConectEnvios API V1. Precificação atual: 20% de comissão do ponto e 12% de margem Postal sobre o preço final.
 
 ## Integração
 
