@@ -7,7 +7,10 @@ const state = {
   currentQuote: null,
   selectedOption: null,
   shipmentResult: null,
-  orders: []
+  orders: [],
+  catalog: [],
+  selectedAddons: new Map(),
+  inventory: []
 };
 
 const viewMap = {
@@ -15,6 +18,7 @@ const viewMap = {
   quote: { el: "#quoteView", title: "Simular Frete" },
   shipment: { el: "#shipmentView", title: "Nova Postagem" },
   orders: { el: "#ordersView", title: "Meus Fretes" },
+  inventory: { el: "#inventoryView", title: "Produtos & Estoque" },
   receive: { placeholder: ["Receber Pacote", "Aqui o atendente fará a leitura do código e confirmará que a encomenda entrou fisicamente no ponto Postal."] },
   returns: { placeholder: ["Devolução", "Fluxo de logística reversa e devoluções ficará centralizado nesta área."] },
   cash: { placeholder: ["Meu Caixa", "Extrato de comissões, saldo, fechamento diário e solicitação de saque serão exibidos aqui."] },
@@ -134,6 +138,7 @@ function navigate(name) {
   }
   $(".sidebar").classList.remove("open");
   if (name === "orders") loadOrders();
+  if (name === "inventory") loadInventory();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
