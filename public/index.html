@@ -59,7 +59,7 @@
       <nav>
         <button class="nav-item active" data-view="dashboard"><span>▦</span> Dashboard</button>
         <button class="nav-item" data-view="quote"><span>ϟ</span> Simular Frete</button>
-        <button class="nav-item" data-view="orders"><span>□</span> Meus Envios</button>
+        <button class="nav-item" data-view="orders"><span>□</span> Meus Fretes</button>
         <button class="nav-item" data-view="receive"><span>⇩</span> Receber Pacote</button>
         <button class="nav-item" data-view="returns"><span>↻</span> Devolução</button>
       </nav>
@@ -67,6 +67,7 @@
       <div class="nav-section">FINANCEIRO</div>
       <nav>
         <button class="nav-item" data-view="cash"><span>R$</span> Meu Caixa</button>
+        <button class="nav-item" data-view="inventory"><span>▤</span> Produtos & Estoque</button>
         <button class="nav-item" data-view="clients"><span>♙</span> Clientes</button>
       </nav>
 
@@ -241,6 +242,50 @@
         </div>
       </section>
 
+      <section id="inventoryView" class="view hidden">
+        <div class="orders-head">
+          <div>
+            <div class="eyebrow">PRODUTOS & ESTOQUE</div>
+            <h1>Estoque do ponto</h1>
+            <p>Receba caixas e envelopes, defina preço de venda e acompanhe saldo disponível e estoque mínimo.</p>
+          </div>
+          <button id="refreshInventoryBtn" class="ghost" type="button">Atualizar</button>
+        </div>
+
+        <div class="inventory-layout">
+          <article class="form-panel inventory-receive-panel">
+            <div class="form-panel-head">
+              <span class="step-number">+</span>
+              <div><h3>Receber produto</h3><p>Registre uma entrada e defina o preço de venda do ponto.</p></div>
+            </div>
+            <form id="inventoryReceiveForm" class="inventory-form">
+              <label>Produto*
+                <select id="inventoryProduct" required></select>
+              </label>
+              <label>Quantidade recebida*
+                <input id="inventoryQuantity" type="number" min="0.001" step="0.001" required />
+              </label>
+              <label>Preço de venda unitário*
+                <div class="money-field"><span>R$</span><input id="inventorySalePrice" type="number" min="0" step="0.01" required /></div>
+              </label>
+              <label>Observação
+                <input id="inventoryNote" placeholder="Ex.: Recebimento lote 01" />
+              </label>
+              <button class="primary" type="submit">Dar entrada no estoque</button>
+            </form>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <div><span class="eyebrow">SALDO ATUAL</span><h3>Produtos do ponto</h3></div>
+            </div>
+            <div id="inventoryList" class="inventory-list">
+              <div class="empty-state">Carregando estoque...</div>
+            </div>
+          </article>
+        </div>
+      </section>
+
       <section id="ordersView" class="view hidden">
         <div class="orders-head">
           <div>
@@ -328,9 +373,22 @@
             <button id="addContentItemBtn" class="ghost" type="button">+ Adicionar item</button>
           </article>
 
+          <article class="form-panel addons-panel">
+            <div class="form-panel-head">
+              <span class="step-number">4</span>
+              <div>
+                <h3>Produtos e serviços adicionais</h3>
+                <p>Acrescente caixas, envelopes ou outros serviços do catálogo. Produtos físicos saem do estoque do ponto.</p>
+              </div>
+            </div>
+            <div id="addonsCatalog" class="addons-catalog">
+              <div class="empty-state">Carregando catálogo...</div>
+            </div>
+          </article>
+
           <article class="review-panel">
             <div>
-              <div class="eyebrow">4 · CONFERÊNCIA</div>
+              <div class="eyebrow">5 · CONFERÊNCIA E PAGAMENTO</div>
               <h3>Antes de gerar a postagem</h3>
               <p>Após a confirmação, o sistema liberará código de rastreio, etiqueta A6 e o comprovante térmico para entregar ao remetente.</p>
             </div>
@@ -344,7 +402,13 @@
                 </select>
               </label>
               <div id="paymentMethodNote" class="payment-method-note">
-                Escolha como o remetente vai pagar. A etiqueta só é liberada após a confirmação financeira.
+                Escolha como o remetente vai pagar. A taxa do meio de pagamento é somada ao total para preservar as margens do ponto e da Postal.
+              </div>
+              <div class="payment-breakdown">
+                <div><span>Frete</span><strong id="paymentFreight">—</strong></div>
+                <div><span>Produtos/serviços</span><strong id="paymentAddons">R$ 0,00</strong></div>
+                <div><span>Taxa de pagamento</span><strong id="paymentFee">—</strong></div>
+                <div class="payment-total"><span>Total a cobrar</span><strong id="paymentTotal">—</strong></div>
               </div>
             </div>
             <div class="review-actions">
