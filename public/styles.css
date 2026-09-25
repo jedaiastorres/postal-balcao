@@ -253,6 +253,7 @@ nav{display:grid;gap:5px;margin-bottom:18px}
 .success-actions{display:grid;gap:10px}
 @media(max-width:900px){
   .shipment-grid{grid-template-columns:1fr}
+  .review-payment{min-width:0}
   .shipment-selected-bar{grid-template-columns:repeat(2,1fr)}
   .review-panel{display:grid}
   .review-actions{min-width:0}
@@ -271,3 +272,13 @@ nav{display:grid;gap:5px;margin-bottom:18px}
   .document-choice{display:grid}
   .invoice-field{min-width:0;margin-left:0}
 }
+
+
+.review-payment{display:grid;gap:10px;min-width:230px}
+.review-payment>label:first-child{display:grid;gap:6px;font-size:11px;font-weight:800;color:#656b78}
+.review-payment select{height:44px;border:1px solid var(--line);border-radius:12px;padding:0 12px;background:#fff;color:var(--ink);outline:none}
+.review-payment select:focus{border-color:rgba(215,8,59,.45);box-shadow:0 0 0 3px rgba(215,8,59,.06)}
+.confirm-payment{display:flex!important;align-items:flex-start;gap:8px!important;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 11px;color:var(--ink)!important;font-size:11px!important;line-height:1.35}
+.confirm-payment input{margin-top:2px;accent-color:var(--postal)}
+.link-like{text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+.success-actions .ghost{min-height:42px}
