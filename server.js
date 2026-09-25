@@ -69,6 +69,33 @@ function verifySession(token) {
   }
 }
 
+function signSelectionToken(payload) {
+  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const sig = crypto.createHmac("sha256", SESSION_SECRET).update("quote." + body).digest("base64url");
+  return body + "." + sig;
+}
+
+function verifySelectionToken(token) {
+  if (!token || !token.includes(".")) return null;
+  const parts = token.split(".");
+  const body = parts[0];
+  const sig = parts[1] || "";
+  const expected = crypto.createHmac("sha256", SESSION_SECRET).update("quote." + body).digest("base64url");
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
+    if (!payload.exp || Date.now() > payload.exp) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function cleanDigits(value) {
+  return String(value || "").replace(/\D/g, "");
+}
 function requireAuth(req, res, next) {
   const session = verifySession(parseCookies(req).postal_session);
   if (!session) return res.status(401).json({ error: "Sessão expirada. Entre novamente." });
