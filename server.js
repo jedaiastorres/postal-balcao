@@ -189,21 +189,51 @@ function extractShippingItems(payload) {
   return [];
 }
 
-function normalizeQuote(payload) {
+function normalizeQuote(payload, quoteContext = {}) {
   const items = extractShippingItems(payload);
 
   return items.map(item => {
-    const cost = parseMoney(item.price ?? item.postal_service_price ?? item.value);
+    // A ConectEnvios devolve price_discounted como o valor efetivo negociado.
+    const cost = parseMoney(item.price_discounted ?? item.price ?? item.postal_service_price ?? item.value);
     if (!Number.isFinite(cost) || cost <= 0) return null;
 
+    const postalCompanyId = Number(item.postal_company_id ?? item.company_id ?? item.id ?? 0);
+    const carrierName = item.company_name ?? item.postal_company_name ?? item.company ?? "Transportadora";
+    const serviceName = item.name ?? item.service_name ?? item.postal_service_name ?? item.service ?? "Serviço";
+    const deadline = Number(item.deadline ?? item.postal_service_deadline ?? 0);
     const pricing = sellPriceFromCost(cost);
+
+    const quoteToken = signSession({
+      kind: "quote",
+      postalCompanyId,
+      carrierName,
+      serviceName,
+      serviceCode: item.code ?? "",
+      deadline,
+      salePrice: pricing.salePrice,
+      partnerCommission: pricing.partnerCommission,
+      package: {
+        type: "box",
+        weight: Number(quoteContext.weight || 0),
+        width: Number(quoteContext.width || 0),
+        height: Number(quoteContext.height || 0),
+        length: Number(quoteContext.length || 0),
+        declaredValue: Number(quoteContext.declaredValue || 0),
+        cepFrom: String(quoteContext.cepFrom || ""),
+        cepTo: String(quoteContext.cepTo || "")
+      },
+      exp: Date.now() + 30 * 60 * 1000
+    });
+
     return {
-      postalCompanyId: Number(item.postal_company_id ?? item.company_id ?? item.id ?? 0),
-      transportadora: item.company_name ?? item.postal_company_name ?? item.company ?? "Transportadora",
-      produto: item.service_name ?? item.postal_service_name ?? item.service ?? "Serviço",
-      prazoEntrega: Number(item.deadline ?? item.postal_service_deadline ?? 0),
+      postalCompanyId,
+      transportadora: carrierName,
+      produto: serviceName,
+      codigoServico: item.code ?? "",
+      prazoEntrega: deadline,
       precoVenda: pricing.salePrice,
-      comissaoParceiro: pricing.partnerCommission
+      comissaoParceiro: pricing.partnerCommission,
+      quoteToken
     };
   }).filter(Boolean).sort((a, b) => a.precoVenda - b.precoVenda);
 }
@@ -409,29 +439,132 @@ app.post("/api/prazo", requireAuth, async (req, res) => {
 app.post("/api/envios", requireAuth, async (req, res) => {
   if (!ENABLE_SHIPMENT_CREATION) {
     return res.status(403).json({
-      error: "Criacao de envios reais esta bloqueada nesta V1. Ative enable_shipment_creation=true apos homologacao."
+      error: "A emissão real ainda está em homologação. Tente novamente após a liberação."
     });
   }
-  if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
+  if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN não configurado." });
 
   try {
     const body = req.body || {};
-    if (!Array.isArray(body.package) || !body.package.length) {
-      return res.status(400).json({ error: "O envio deve conter ao menos um item no array package." });
+    const quote = verifySession(body.quoteToken);
+
+    if (!quote || quote.kind !== "quote") {
+      return res.status(400).json({ error: "A cotação expirou. Faça uma nova cotação antes de postar." });
+    }
+
+    const sender = body.sender || {};
+    const recipient = body.recipient || {};
+    const content = Array.isArray(body.declaration) ? body.declaration : [];
+
+    const requiredSender = ["name", "document", "phone", "number", "address", "neighborhood"];
+    const requiredRecipient = ["name", "document", "phone", "number", "address", "neighborhood"];
+    const missingSender = requiredSender.filter(k => !String(sender[k] || "").trim());
+    const missingRecipient = requiredRecipient.filter(k => !String(recipient[k] || "").trim());
+
+    if (missingSender.length || missingRecipient.length) {
+      return res.status(400).json({ error: "Preencha todos os dados obrigatórios do remetente e destinatário." });
+    }
+    if (!content.length || content.some(item => !String(item.description || "").trim() || Number(item.quantity) <= 0 || Number(item.value) < 0)) {
+      return res.status(400).json({ error: "Informe ao menos um item válido na declaração de conteúdo." });
+    }
+    if (!body.paymentConfirmed) {
+      return res.status(400).json({ error: "Confirme o recebimento do pagamento antes de gerar a postagem." });
+    }
+
+    const pkgData = quote.package || {};
+    const packagePayload = {
+      name: String(body.shipmentName || `Postal - ${sender.name} para ${recipient.name}`).slice(0, 120),
+      type: pkgData.type || "box",
+      weight: Number(pkgData.weight),
+      width: Number(pkgData.width),
+      height: Number(pkgData.height),
+      length: Number(pkgData.length),
+      extra_notify: true,
+      extra_in_hand: false,
+      extra_declared_value: Number(pkgData.declaredValue || 0),
+
+      addr_from_document: String(sender.document).replace(/\D/g, ""),
+      addr_from_phone: String(sender.phone).replace(/\D/g, ""),
+      addr_from_name: String(sender.name).trim(),
+      addr_from_cep: String(pkgData.cepFrom).replace(/\D/g, ""),
+      addr_from_number: String(sender.number).trim(),
+      addr_from_address: String(sender.address).trim(),
+      addr_from_neighborhood: String(sender.neighborhood).trim(),
+      addr_from_complement: String(sender.complement || "").trim(),
+
+      addr_to_document: String(recipient.document).replace(/\D/g, ""),
+      addr_to_phone: String(recipient.phone).replace(/\D/g, ""),
+      addr_to_name: String(recipient.name).trim(),
+      addr_to_cep: String(pkgData.cepTo).replace(/\D/g, ""),
+      addr_to_number: String(recipient.number).trim(),
+      addr_to_address: String(recipient.address).trim(),
+      addr_to_neighborhood: String(recipient.neighborhood).trim(),
+      addr_to_complement: String(recipient.complement || "").trim(),
+
+      postal_service_name: String(quote.serviceName),
+      postal_company_id: Number(quote.postalCompanyId),
+      declaration: content.map(item => ({
+        description: String(item.description).trim(),
+        quantity: Math.max(1, Math.round(Number(item.quantity))),
+        value: round2(Number(item.value))
+      }))
+    };
+
+    if (String(body.receipt || "").trim()) {
+      packagePayload.receipt = String(body.receipt).trim();
     }
 
     const result = await providerFetch("/cart", {
       method: "POST",
-      body: JSON.stringify(body),
+      body: JSON.stringify({ package: [packagePayload] }),
       timeout: 45000
     });
 
-    res.json(result.data);
+    const providerResponse = result.data || {};
+    if (providerResponse.error === true) {
+      console.error("ConectEnvios cart error:", providerResponse);
+      return res.status(422).json({ error: "A ConectEnvios recusou os dados da postagem. Revise os campos informados." });
+    }
+
+    const cart = providerResponse.data || providerResponse;
+    const pkg = Array.isArray(cart.packages) ? cart.packages[0] : null;
+    if (!pkg) {
+      console.error("ConectEnvios cart response without package:", providerResponse);
+      return res.status(502).json({ error: "A postagem foi enviada, mas a API não retornou os dados do pacote." });
+    }
+
+    res.json({
+      ok: true,
+      cartId: cart.id || null,
+      packageId: pkg.id || null,
+      trackingCode: pkg.postal_service_track || "",
+      carrier: quote.carrierName,
+      service: quote.serviceName,
+      deadline: Number(quote.deadline || 0),
+      salePrice: Number(quote.salePrice || 0),
+      partnerCommission: Number(quote.partnerCommission || 0),
+      paymentMethod: String(body.paymentMethod || ""),
+      publicTrackingUrl: pkg.public_tracking_url || "",
+      publicPrintUrl: cart.public_print_url || "",
+      labelUrl: pkg.api_print_url || "",
+      labelUrlA6: pkg.api_print_url_a6 || "",
+      declarationUrl: pkg.api_declaration_url || "",
+      plpId: pkg.plp_id || "",
+      cities: {
+        from: pkg.addr_from_city_name || "",
+        to: pkg.addr_to_city_name || ""
+      },
+      postedAt: pkg.created_at || cart.created_at || new Date().toISOString()
+    });
   } catch (error) {
     console.error("create shipment error:", error.status, error.providerData || error.message);
-    res.status(error.status || 502).json({ error: "Falha ao criar envio na ConectEnvios." });
+    const providerMessage = error.providerData?.message;
+    res.status(error.status || 502).json({
+      error: typeof providerMessage === "string" ? providerMessage : "Falha ao criar envio na ConectEnvios."
+    });
   }
 });
+
 
 // Consulta carrinho.
 app.get("/api/carrinhos/:id", requireAuth, async (req, res) => {
