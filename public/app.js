@@ -181,41 +181,78 @@ $("#quoteForm").addEventListener("submit", async (event) => {
 });
 
 function renderResults(result, payload) {
-  $("#resultsInfo").textContent = `${result.options.length} opção(ões) • comissão ${result.commissionPercent}%`;
+  $("#resultsInfo").textContent = `${result.options.length} opção(ões) • ordenadas por menor preço`;
   const list = $("#resultsList");
   list.innerHTML = "";
+  $("#selectionSummary")?.classList.add("hidden");
 
   const minPrice = Math.min(...result.options.map(o => o.precoVenda));
   const minDays = Math.min(...result.options.map(o => o.prazoEntrega || 999));
 
-  result.options.forEach(option => {
+  result.options.forEach((option, index) => {
     const card = document.createElement("article");
     card.className = "result-card";
-    const badge = option.precoVenda === minPrice ? "Menor preço" : (option.prazoEntrega === minDays ? "Mais rápido" : "");
+    card.dataset.optionIndex = String(index);
+
+    let badge = "";
+    if (option.precoVenda === minPrice) badge = "Menor preço";
+    else if (option.prazoEntrega === minDays) badge = "Mais rápido";
+
     card.innerHTML = `
       <div class="result-brand">
         <strong>${escapeHtml(option.transportadora)}</strong>
-        <span>${escapeHtml(option.produto)} ${badge ? "• " + badge : ""}</span>
+        <span>${escapeHtml(option.produto)}</span>
+        ${badge ? `<em class="result-badge">${badge}</em>` : ""}
       </div>
       <div class="result-block">
         <span>Prazo</span>
         <strong>${option.prazoEntrega || "—"} dias</strong>
       </div>
-      <div class="result-block result-price">
-        <span>Preço ao cliente</span>
-        <strong>${money(option.precoVenda)}</strong>
-      </div>
-      <div class="result-block result-commission">
-        <span>Sua comissão</span>
-        <strong>${money(option.comissaoParceiro)}</strong>
+      <div class="result-block result-price price-reveal" tabindex="0" role="button"
+           aria-label="Preço ao cliente ${money(option.precoVenda)}. Passe o mouse ou toque para ver a comissão do ponto.">
+        <span class="price-total-label">Preço ao cliente</span>
+        <strong class="price-total">${money(option.precoVenda)}</strong>
+        <span class="price-commission-label">Sua comissão</span>
+        <strong class="price-commission">${money(option.comissaoParceiro)}</strong>
+        <small>Passe o mouse ou toque para ver a comissão</small>
       </div>
       <button class="select-btn" type="button">Selecionar</button>
     `;
-    card.querySelector(".select-btn").addEventListener("click", () => {
-      toast("Serviço selecionado. A emissão real entra na próxima etapa após homologarmos o fluxo de postagem.");
+
+    const priceReveal = card.querySelector(".price-reveal");
+    priceReveal.addEventListener("click", () => {
+      priceReveal.classList.toggle("show-commission");
     });
+    priceReveal.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        priceReveal.classList.toggle("show-commission");
+      }
+    });
+
+    card.querySelector(".select-btn").addEventListener("click", () => {
+      list.querySelectorAll(".result-card").forEach(el => {
+        el.classList.remove("selected");
+        const button = el.querySelector(".select-btn");
+        if (button) button.textContent = "Selecionar";
+      });
+      card.classList.add("selected");
+      card.querySelector(".select-btn").textContent = "Selecionado";
+
+      const summary = $("#selectionSummary");
+      if (summary) {
+        $("#selectedCarrier").textContent = option.transportadora;
+        $("#selectedService").textContent = option.produto;
+        $("#selectedDeadline").textContent = `${option.prazoEntrega || "—"} dias`;
+        $("#selectedPrice").textContent = money(option.precoVenda);
+        summary.classList.remove("hidden");
+        summary.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    });
+
     list.appendChild(card);
   });
+
   $("#resultsWrap").classList.remove("hidden");
   $("#resultsWrap").scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -275,5 +312,9 @@ function escapeHtml(value) {
     .replaceAll('"',"&quot;")
     .replaceAll("'","&#039;");
 }
+
+$("#continueShipmentBtn")?.addEventListener("click", () => {
+  toast("Frete reservado no atendimento. O próximo passo será preencher remetente, destinatário e conteúdo.");
+});
 
 checkSession();
