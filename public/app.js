@@ -565,6 +565,25 @@ $("#previewReceiptBtn")?.addEventListener("click", () => {
   showReceiptPreview(receiptPayload(true));
 });
 
+$("#paymentMethod")?.addEventListener("change", () => {
+  const method = $("#paymentMethod").value;
+  const note = $("#paymentMethodNote");
+  const btn = $("#createShipmentBtn");
+  if (method === "DINHEIRO") {
+    note.textContent = "O cliente paga em dinheiro. O ponto fica com sua comissão e o frete vai para Meus Fretes como repasse pendente. A etiqueta não será gerada agora.";
+    btn.textContent = "Registrar dinheiro e salvar frete";
+  } else if (method === "PIX") {
+    note.textContent = "Será aberto o checkout seguro do Asaas para PIX. A etiqueta só será liberada após o webhook confirmar o pagamento.";
+    btn.textContent = "Continuar para PIX";
+  } else if (method === "CARTAO") {
+    note.textContent = "Será aberto o checkout seguro do Asaas para cartão. A etiqueta só será liberada após a confirmação do pagamento.";
+    btn.textContent = "Continuar para cartão";
+  } else {
+    note.textContent = "Escolha como o remetente vai pagar. A etiqueta só é liberada após a confirmação financeira.";
+    btn.textContent = "Continuar para pagamento";
+  }
+});
+
 $("#shipmentForm")?.addEventListener("submit", async event => {
   event.preventDefault();
   if (!state.selectedOption?.selectionToken) {
@@ -573,15 +592,10 @@ $("#shipmentForm")?.addEventListener("submit", async event => {
   }
 
   const paymentMethod = $("#paymentMethod").value;
-  const paymentConfirmed = $("#paymentConfirmed").checked;
   const declaration = contentData();
 
   if (!paymentMethod) {
     toast("Selecione a forma de pagamento.", "error");
-    return;
-  }
-  if (!paymentConfirmed) {
-    toast("Confirme o recebimento do pagamento.", "error");
     return;
   }
   if (!declaration.length || declaration.some(item => !item.description || item.quantity <= 0 || item.value < 0)) {
@@ -590,8 +604,9 @@ $("#shipmentForm")?.addEventListener("submit", async event => {
   }
 
   const btn = $("#createShipmentBtn");
+  const originalText = btn.textContent;
   btn.disabled = true;
-  btn.textContent = "Gerando postagem...";
+  btn.textContent = paymentMethod === "DINHEIRO" ? "Salvando frete..." : "Criando pagamento...";
 
   const payload = {
     selectionToken: state.selectedOption.selectionToken,
@@ -600,48 +615,36 @@ $("#shipmentForm")?.addEventListener("submit", async event => {
     recipient: partyData("recipient"),
     items: declaration,
     invoiceNumber: currentInvoiceNumber(),
-    paymentMethod,
-    paymentConfirmed
+    paymentMethod
   };
 
   try {
-    const result = await api("/api/envios", { method: "POST", body: JSON.stringify(payload) });
-    state.shipmentResult = result;
+    const result = await api("/api/orders", { method: "POST", body: JSON.stringify(payload) });
 
-    $("#shipmentForm").classList.add("hidden");
-    $("#shipmentSuccess").classList.remove("hidden");
-    $("#successTracking").textContent = result.trackingCode || "Código ainda não retornado";
-
-    const trackingLink = $("#trackingLink");
-    if (result.publicTrackingUrl) {
-      trackingLink.href = result.publicTrackingUrl;
-      trackingLink.classList.remove("hidden");
-    } else {
-      trackingLink.classList.add("hidden");
+    if (result.nextAction === "OPEN_CHECKOUT" && result.checkoutUrl) {
+      toast("Pagamento criado. A etiqueta será liberada somente depois da confirmação.");
+      window.location.href = result.checkoutUrl;
+      return;
     }
 
-    const saved = JSON.parse(localStorage.getItem("postal_shipments") || "[]");
-    saved.unshift({
-      packageId: result.packageId,
-      cartId: result.cartId,
-      trackingCode: result.trackingCode,
-      carrier: result.carrier,
-      service: result.service,
-      price: result.salePrice,
-      deadline: result.deadline,
-      postedAt: result.postedAt || result.createdAt,
-      sender: payload.sender.name,
-      recipient: payload.recipient.name
-    });
-    localStorage.setItem("postal_shipments", JSON.stringify(saved.slice(0, 50)));
+    if (result.nextAction === "PAY_REMITTANCE") {
+      toast("Dinheiro registrado. O frete ficou pendente em Meus Fretes até o ponto fazer o repasse.");
+      navigate("orders");
+      return;
+    }
 
-    $("#shipmentSuccess").scrollIntoView({ behavior: "smooth", block: "start" });
-    toast("Postagem gerada. Imprima o comprovante térmico e entregue ao remetente.");
+    if (result.paymentSetupRequired) {
+      toast(result.message || "A configuração financeira deste ponto ainda precisa ser concluída.", "error");
+      navigate("orders");
+      return;
+    }
+
+    navigate("orders");
   } catch (err) {
     toast(err.message, "error");
   } finally {
-    btn.disabled = !state.config?.shipmentCreationEnabled;
-    btn.textContent = state.config?.shipmentCreationEnabled ? "Gerar postagem e rastreio" : "Emissão em homologação";
+    btn.disabled = false;
+    btn.textContent = originalText;
   }
 });
 
