@@ -950,7 +950,22 @@ app.use((_req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Postal Balcao V1.1 disponivel na porta ${PORT}`);
-  console.log(`ConectEnvios: ${TOKEN ? "configurada" : "modo demonstracao"}`);
+async function start() {
+  await db.initDb();
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Postal Balcao V1.3 disponivel na porta ${PORT}`);
+    console.log(`ConectEnvios: ${TOKEN ? "configurada" : "modo demonstracao"}`);
+    console.log(`Asaas: ${asaas.configured() ? "configurado" : "aguardando chave"}`);
+    console.log(`Banco: ${process.env.DATABASE_URL ? "PostgreSQL configurado" : "nao configurado"}`);
+  });
+
+  setInterval(() => {
+    processPendingAsaasEvents().catch(error => console.error("webhook worker error:", error.message));
+  }, 10000).unref();
+}
+
+start().catch(error => {
+  console.error("Falha ao iniciar Postal Balcao:", error);
+  process.exit(1);
 });
