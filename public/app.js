@@ -530,7 +530,33 @@ async function loadInventory() {
         <div><span>Preço</span><strong>${money(item.unitPrice)}</strong></div>
         <div><span>Disponível</span><strong class="${low ? "stock-low" : ""}">${Number(item.availableQuantity || 0)}</strong></div>
         <div><span>Reservado</span><strong>${Number(item.reservedQuantity || 0)}</strong></div>
+        <div class="inventory-actions"><button type="button" class="ghost">Ajustar</button></div>
       `;
+      row.querySelector(".inventory-actions button")?.addEventListener("click", async () => {
+        const currentQty = Number(item.stockQuantity || 0);
+        const qtyText = window.prompt("Estoque físico atual:", String(currentQty));
+        if (qtyText == null) return;
+        const priceText = window.prompt("Preço de venda unitário:", Number(item.unitPrice || 0).toFixed(2));
+        if (priceText == null) return;
+        const minText = window.prompt("Estoque mínimo para alerta:", String(Number(item.minQuantity || 0)));
+        if (minText == null) return;
+        try {
+          await api("/api/inventory/adjust", {
+            method: "POST",
+            body: JSON.stringify({
+              code: item.code,
+              quantity: Number(qtyText),
+              salePrice: Number(String(priceText).replace(",", ".")),
+              minQuantity: Number(minText),
+              note: "Ajuste manual pelo ponto"
+            })
+          });
+          toast("Estoque ajustado.");
+          await loadInventory();
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      });
       host.appendChild(row);
     });
 
