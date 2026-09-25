@@ -260,9 +260,14 @@ async function insertOrder(order) {
 async function listOrders(partnerEmail, limit = 100) {
   const db = requireDb();
   const { rows } = await db.query(
-    `SELECT * FROM freight_orders
-     WHERE partner_email=$1
-     ORDER BY created_at DESC
+    `SELECT f.*,
+       COALESCE((
+         SELECT jsonb_agg(to_jsonb(a) ORDER BY a.created_at)
+         FROM order_addons a WHERE a.order_id=f.id
+       ), '[]'::jsonb) AS addons
+     FROM freight_orders f
+     WHERE f.partner_email=$1
+     ORDER BY f.created_at DESC
      LIMIT $2`,
     [partnerEmail, Math.max(1, Math.min(250, Number(limit) || 100))]
   );
@@ -272,9 +277,14 @@ async function listOrders(partnerEmail, limit = 100) {
 async function getOrder(id, partnerEmail = null) {
   const db = requireDb();
   const params = [id];
-  let sql = "SELECT * FROM freight_orders WHERE id=$1";
+  let sql = `SELECT f.*,
+    COALESCE((
+      SELECT jsonb_agg(to_jsonb(a) ORDER BY a.created_at)
+      FROM order_addons a WHERE a.order_id=f.id
+    ), '[]'::jsonb) AS addons
+    FROM freight_orders f WHERE f.id=$1`;
   if (partnerEmail) {
-    sql += " AND partner_email=$2";
+    sql += " AND f.partner_email=$2";
     params.push(partnerEmail);
   }
   sql += " LIMIT 1";
