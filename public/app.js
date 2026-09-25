@@ -565,6 +565,178 @@ $("#previewReceiptBtn")?.addEventListener("click", () => {
   showReceiptPreview(receiptPayload(true));
 });
 
+function orderStatusMeta(status) {
+  const map = {
+    CASH_REMITTANCE_PENDING: ["Repasse pendente", "warning", "O cliente pagou em dinheiro. Faça o repasse para liberar a etiqueta."],
+    CASH_REMITTANCE_PAYMENT_PENDING: ["Aguardando PIX do ponto", "warning", "O repasse foi criado e ainda não foi confirmado."],
+    PAYMENT_SETUP_PENDING: ["Pagamento em configuração", "muted", "Aguardando integração financeira."],
+    PARTNER_FINANCIAL_SETUP_REQUIRED: ["Conta financeira pendente", "warning", "Este ponto ainda precisa ser vinculado a uma carteira Asaas."],
+    PAYMENT_PENDING: ["Aguardando pagamento", "warning", "A etiqueta não será criada enquanto o pagamento não for confirmado."],
+    PAYMENT_CONFIRMED: ["Pagamento confirmado", "info", "Pagamento recebido. Preparando a postagem."],
+    PAID_WAITING_SHIPMENT: ["Pago • etiqueta pendente", "info", "Pagamento confirmado. A emissão da etiqueta está aguardando liberação operacional."],
+    LABEL_AVAILABLE: ["Etiqueta disponível", "success", "Pagamento e postagem confirmados."],
+    SHIPMENT_ERROR: ["Revisão necessária", "danger", "O pagamento foi confirmado, mas houve erro ao gerar a postagem."],
+    PAYMENT_CANCELED: ["Pagamento cancelado", "muted", "O checkout foi cancelado."],
+    PAYMENT_EXPIRED: ["Pagamento expirado", "muted", "O checkout expirou. Gere um novo pagamento quando necessário."]
+  };
+  return map[status] || [status || "Pendente", "muted", ""];
+}
+
+function paymentMethodLabel(method) {
+  return ({ PIX: "PIX", CARTAO: "Cartão", DINHEIRO: "Dinheiro" })[method] || method || "-";
+}
+
+function receiptPayloadFromOrder(order) {
+  const p = order.packageData || {};
+  return {
+    preview: false,
+    createdAt: order.shippedAt || order.paidAt || order.createdAt || new Date().toISOString(),
+    trackingCode: order.trackingCode || "",
+    publicTrackingUrl: order.publicTrackingUrl || "",
+    cartId: "",
+    packageId: "",
+    carrier: order.carrier || "",
+    service: order.serviceName || "",
+    deadline: order.deadline || 0,
+    salePrice: order.salePrice || 0,
+    declaredValue: Number(p.declaredValue || 0),
+    weightKg: Number(p.weightGrams || 0) / 1000,
+    dimensions: `${p.length || "-"} x ${p.width || "-"} x ${p.height || "-"} cm`,
+    invoiceNumber: order.invoiceNumber || "",
+    paymentMethod: paymentMethodLabel(order.paymentMethod),
+    sender: order.sender || {},
+    recipient: order.recipient || {},
+    items: order.items || []
+  };
+}
+
+async function payCashRemittance(orderId, button) {
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "Gerando PIX...";
+  try {
+    const result = await api(`/api/orders/${orderId}/remittance`, { method: "POST", body: "{}" });
+    if (result.checkoutUrl) {
+      window.location.href = result.checkoutUrl;
+      return;
+    }
+    await loadOrders();
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+}
+
+function renderOrders() {
+  const host = $("#ordersList");
+  if (!host) return;
+  const orders = state.orders || [];
+
+  const pendingStatuses = new Set(["CASH_REMITTANCE_PENDING","CASH_REMITTANCE_PAYMENT_PENDING","PAYMENT_PENDING","PAYMENT_SETUP_PENDING","PARTNER_FINANCIAL_SETUP_REQUIRED","PAID_WAITING_SHIPMENT","PAYMENT_CONFIRMED"]);
+  const commissionStatuses = new Set(["CASH_REMITTANCE_PENDING","CASH_REMITTANCE_PAYMENT_PENDING","PAYMENT_CONFIRMED","PAID_WAITING_SHIPMENT","LABEL_AVAILABLE","SHIPMENT_ERROR"]);
+  $("#ordersPendingCount").textContent = orders.filter(o => pendingStatuses.has(o.status)).length;
+  $("#ordersReadyCount").textContent = orders.filter(o => o.status === "LABEL_AVAILABLE").length;
+  $("#ordersCommissionTotal").textContent = money(orders.filter(o => commissionStatuses.has(o.status)).reduce((s,o) => s + Number(o.partnerCommission || 0), 0));
+
+  if (!orders.length) {
+    host.innerHTML = `<div class="orders-empty"><strong>Nenhum frete registrado ainda.</strong><span>Faça uma cotação e conclua os dados da postagem.</span><button class="primary" type="button" data-empty-new>Fazer primeira cotação</button></div>`;
+    host.querySelector("[data-empty-new]")?.addEventListener("click", () => navigate("quote"));
+    return;
+  }
+
+  host.innerHTML = "";
+  orders.forEach(order => {
+    const [label, tone, description] = orderStatusMeta(order.status);
+    const card = document.createElement("article");
+    card.className = "order-card";
+    const date = new Date(order.createdAt).toLocaleString("pt-BR");
+    const route = `${escapeHtml(order.sender?.city || maskCep(order.sender?.cep))} → ${escapeHtml(order.recipient?.city || maskCep(order.recipient?.cep))}`;
+    card.innerHTML = `
+      <div class="order-top">
+        <div>
+          <div class="order-id">#${escapeHtml(order.id.slice(0,8).toUpperCase())} · ${escapeHtml(date)}</div>
+          <h3>${escapeHtml(order.carrier)} <span>${escapeHtml(order.serviceName)}</span></h3>
+          <p>${route}</p>
+        </div>
+        <span class="order-status ${tone}">${escapeHtml(label)}</span>
+      </div>
+      <div class="order-metrics">
+        <div><span>Total</span><strong>${money(order.salePrice)}</strong></div>
+        <div><span>Sua comissão</span><strong>${money(order.partnerCommission)}</strong></div>
+        <div><span>Pagamento</span><strong>${escapeHtml(paymentMethodLabel(order.paymentMethod))}</strong></div>
+        <div><span>Rastreio</span><strong>${escapeHtml(order.trackingCode || "—")}</strong></div>
+      </div>
+      <div class="order-bottom">
+        <span>${escapeHtml(description)}</span>
+        <div class="order-actions"></div>
+      </div>
+    `;
+    const actions = card.querySelector(".order-actions");
+
+    if (order.status === "CASH_REMITTANCE_PENDING") {
+      const due = Number(order.cashRemittanceAmount || 0);
+      const btn = document.createElement("button");
+      btn.className = "primary";
+      btn.type = "button";
+      btn.textContent = `Pagar ${money(due)} e liberar etiqueta`;
+      btn.addEventListener("click", () => payCashRemittance(order.id, btn));
+      actions.appendChild(btn);
+    }
+
+    if (order.paymentCheckoutUrl && ["PAYMENT_PENDING","CASH_REMITTANCE_PAYMENT_PENDING"].includes(order.status)) {
+      const btn = document.createElement("button");
+      btn.className = "primary";
+      btn.type = "button";
+      btn.textContent = "Abrir pagamento";
+      btn.addEventListener("click", () => { window.location.href = order.paymentCheckoutUrl; });
+      actions.appendChild(btn);
+    }
+
+    if (order.status === "LABEL_AVAILABLE") {
+      const labelBtn = document.createElement("button");
+      labelBtn.className = "primary";
+      labelBtn.type = "button";
+      labelBtn.textContent = "Imprimir etiqueta A6";
+      labelBtn.addEventListener("click", () => openProviderDocument(order.labelA6Url || order.labelA4Url));
+      actions.appendChild(labelBtn);
+
+      const receiptBtn = document.createElement("button");
+      receiptBtn.className = "ghost";
+      receiptBtn.type = "button";
+      receiptBtn.textContent = "Comprovante 80 mm";
+      receiptBtn.addEventListener("click", () => openReceipt(receiptPayloadFromOrder(order), true));
+      actions.appendChild(receiptBtn);
+
+      if (order.publicTrackingUrl) {
+        const track = document.createElement("a");
+        track.className = "ghost link-like";
+        track.href = order.publicTrackingUrl;
+        track.target = "_blank";
+        track.rel = "noopener";
+        track.textContent = "Rastrear";
+        actions.appendChild(track);
+      }
+    }
+
+    host.appendChild(card);
+  });
+}
+
+async function loadOrders() {
+  const host = $("#ordersList");
+  if (!host) return;
+  host.innerHTML = `<div class="empty-state">Atualizando seus fretes...</div>`;
+  try {
+    const result = await api("/api/orders");
+    state.orders = result.orders || [];
+    renderOrders();
+  } catch (err) {
+    host.innerHTML = `<div class="orders-empty"><strong>Não foi possível carregar Meus Fretes.</strong><span>${escapeHtml(err.message)}</span></div>`;
+  }
+}
+
 $("#paymentMethod")?.addEventListener("change", () => {
   const method = $("#paymentMethod").value;
   const note = $("#paymentMethodNote");
