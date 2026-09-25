@@ -229,7 +229,6 @@ app.get("/api/public-config", (_req, res) => {
     providerConfigured: Boolean(TOKEN),
     demoAuth: DEMO_AUTH,
     commissionPercent: round2(PARTNER_COMMISSION * 100),
-    postalMarginPercent: round2(POSTAL_MARGIN * 100),
     receiptWidthMm: RECEIPT_WIDTH_MM,
     shipmentCreationEnabled: ENABLE_SHIPMENT_CREATION
   });
@@ -362,7 +361,7 @@ app.get("/api/cep/:cep", requireAuth, async (req, res) => {
   if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
   try {
     const cep = String(req.params.cep || "").replace(/\D/g, "");
-    const result = await providerFetch(`/cep?cep=${encodeURIComponent(cep)}`, { method: "GET" });
+    const result = await providerFetch(`/cep/address/?cep=${encodeURIComponent(cep)}`, { method: "GET" });
     res.json(result.data);
   } catch (error) {
     console.error("cep error:", error.status, error.providerData || error.message);
