@@ -907,24 +907,51 @@ async function loadOrders() {
   }
 }
 
-$("#paymentMethod")?.addEventListener("change", () => {
+$("#paymentMethod")?.addEventListener("change", async () => {
   const method = $("#paymentMethod").value;
-  const note = $("#paymentMethodNote");
   const btn = $("#createShipmentBtn");
-  if (method === "DINHEIRO") {
-    note.textContent = "O cliente paga em dinheiro. O ponto fica com sua comissão e o frete vai para Meus Fretes como repasse pendente. A etiqueta não será gerada agora.";
-    btn.textContent = "Registrar dinheiro e salvar frete";
-  } else if (method === "PIX") {
-    note.textContent = "Será aberto o checkout seguro do Asaas para PIX. A etiqueta só será liberada após o webhook confirmar o pagamento.";
-    btn.textContent = "Continuar para PIX";
-  } else if (method === "CARTAO") {
-    note.textContent = "Será aberto o checkout seguro do Asaas para cartão. A etiqueta só será liberada após a confirmação do pagamento.";
-    btn.textContent = "Continuar para cartão";
-  } else {
-    note.textContent = "Escolha como o remetente vai pagar. A etiqueta só é liberada após a confirmação financeira.";
-    btn.textContent = "Continuar para pagamento";
+  if (method === "DINHEIRO") btn.textContent = "Registrar dinheiro e salvar frete";
+  else if (method === "PIX") btn.textContent = "Continuar para PIX";
+  else if (method === "CARTAO") btn.textContent = "Continuar para cartão";
+  else btn.textContent = "Continuar para pagamento";
+  await refreshPaymentPreview();
+});
+
+$("#inventoryReceiveForm")?.addEventListener("submit", async event => {
+  event.preventDefault();
+  const btn = event.currentTarget.querySelector("button[type='submit']");
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Registrando...";
+
+  try {
+    await api("/api/inventory/receive", {
+      method: "POST",
+      body: JSON.stringify({
+        code: $("#inventoryProduct").value,
+        quantity: Number($("#inventoryQuantity").value || 0),
+        salePrice: Number($("#inventorySalePrice").value || 0),
+        note: $("#inventoryNote").value.trim()
+      })
+    });
+    $("#inventoryQuantity").value = "";
+    $("#inventoryNote").value = "";
+    toast("Entrada de estoque registrada.");
+    await loadInventory();
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
   }
 });
+
+$("#inventoryProduct")?.addEventListener("change", () => {
+  const item = state.inventory.find(x => x.code === $("#inventoryProduct").value);
+  if (item) $("#inventorySalePrice").value = Number(item.unitPrice || 0).toFixed(2);
+});
+
+$("#refreshInventoryBtn")?.addEventListener("click", loadInventory);
 
 $("#shipmentForm")?.addEventListener("submit", async event => {
   event.preventDefault();
@@ -957,7 +984,8 @@ $("#shipmentForm")?.addEventListener("submit", async event => {
     recipient: partyData("recipient"),
     items: declaration,
     invoiceNumber: currentInvoiceNumber(),
-    paymentMethod
+    paymentMethod,
+    addons: selectedAddonPayload()
   };
 
   try {
