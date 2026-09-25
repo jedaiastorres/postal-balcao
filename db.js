@@ -117,6 +117,7 @@ async function initDb() {
       quantity NUMERIC(12,3) NOT NULL DEFAULT 0,
       reserved_quantity NUMERIC(12,3) NOT NULL DEFAULT 0,
       min_quantity NUMERIC(12,3) NOT NULL DEFAULT 0,
+      sale_price NUMERIC(12,2),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY(partner_email,item_id)
     );
@@ -178,6 +179,7 @@ async function initDb() {
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS point_revenue_total NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS postal_revenue_total NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS provider_revenue_total NUMERIC(12,2) NOT NULL DEFAULT 0;
+    ALTER TABLE partner_inventory ADD COLUMN IF NOT EXISTS sale_price NUMERIC(12,2);
   `);
 
   return true;
@@ -460,6 +462,7 @@ async function getPartnerCatalog(partnerEmail) {
        COALESCE(i.quantity,0) AS stock_quantity,
        COALESCE(i.reserved_quantity,0) AS reserved_quantity,
        COALESCE(i.min_quantity,0) AS min_quantity,
+       COALESCE(i.sale_price,c.unit_price) AS effective_unit_price,
        (COALESCE(i.quantity,0)-COALESCE(i.reserved_quantity,0)) AS available_quantity
      FROM catalog_items c
      LEFT JOIN partner_inventory i
@@ -471,19 +474,20 @@ async function getPartnerCatalog(partnerEmail) {
   return rows;
 }
 
-async function setInventory(partnerEmail, itemId, quantity, minQuantity = 0, note = "Ajuste de estoque") {
+async function setInventory(partnerEmail, itemId, quantity, minQuantity = 0, note = "Ajuste de estoque", salePrice = null) {
   const db = requireDb();
   await db.query("BEGIN");
   try {
     const { rows } = await db.query(
-      `INSERT INTO partner_inventory(partner_email,item_id,quantity,min_quantity)
-       VALUES ($1,$2,$3,$4)
+      `INSERT INTO partner_inventory(partner_email,item_id,quantity,min_quantity,sale_price)
+       VALUES ($1,$2,$3,$4,$5)
        ON CONFLICT (partner_email,item_id) DO UPDATE
          SET quantity=EXCLUDED.quantity,
              min_quantity=EXCLUDED.min_quantity,
+             sale_price=COALESCE(EXCLUDED.sale_price,partner_inventory.sale_price),
              updated_at=NOW()
        RETURNING *`,
-      [partnerEmail,itemId,quantity,minQuantity]
+      [partnerEmail,itemId,quantity,minQuantity,salePrice]
     );
     await db.query(
       `INSERT INTO inventory_movements(
@@ -499,18 +503,19 @@ async function setInventory(partnerEmail, itemId, quantity, minQuantity = 0, not
   }
 }
 
-async function receiveInventory(partnerEmail, itemId, quantity, note = "Recebimento de produtos") {
+async function receiveInventory(partnerEmail, itemId, quantity, note = "Recebimento de produtos", salePrice = null) {
   const db = requireDb();
   await db.query("BEGIN");
   try {
     const { rows } = await db.query(
-      `INSERT INTO partner_inventory(partner_email,item_id,quantity)
-       VALUES ($1,$2,$3)
+      `INSERT INTO partner_inventory(partner_email,item_id,quantity,sale_price)
+       VALUES ($1,$2,$3,$4)
        ON CONFLICT (partner_email,item_id) DO UPDATE
          SET quantity=partner_inventory.quantity + EXCLUDED.quantity,
+             sale_price=COALESCE(EXCLUDED.sale_price,partner_inventory.sale_price),
              updated_at=NOW()
        RETURNING *`,
-      [partnerEmail,itemId,quantity]
+      [partnerEmail,itemId,quantity,salePrice]
     );
     await db.query(
       `INSERT INTO inventory_movements(
