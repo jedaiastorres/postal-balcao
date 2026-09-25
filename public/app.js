@@ -6,14 +6,15 @@ const state = {
   recent: JSON.parse(localStorage.getItem("postal_recent_quotes") || "[]"),
   currentQuote: null,
   selectedOption: null,
-  shipmentResult: null
+  shipmentResult: null,
+  orders: []
 };
 
 const viewMap = {
   dashboard: { el: "#dashboardView", title: "Visão geral" },
   quote: { el: "#quoteView", title: "Simular Frete" },
   shipment: { el: "#shipmentView", title: "Nova Postagem" },
-  orders: { placeholder: ["Meus Envios", "A próxima etapa conecta a criação do envio, rastreamento e impressão da etiqueta 10x14."] },
+  orders: { el: "#ordersView", title: "Meus Fretes" },
   receive: { placeholder: ["Receber Pacote", "Aqui o atendente fará a leitura do código e confirmará que a encomenda entrou fisicamente no ponto Postal."] },
   returns: { placeholder: ["Devolução", "Fluxo de logística reversa e devoluções ficará centralizado nesta área."] },
   cash: { placeholder: ["Meu Caixa", "Extrato de comissões, saldo, fechamento diário e solicitação de saque serão exibidos aqui."] },
@@ -64,6 +65,15 @@ function showApp(email) {
   $("#appView").classList.remove("hidden");
   $("#partnerEmail").textContent = email || "parceiro";
   refreshDashboard();
+
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("payment")) {
+    navigate("orders");
+    toast(params.get("payment") === "success"
+      ? "Pagamento concluído. Estamos confirmando pelo webhook."
+      : "Pagamento não concluído. Você pode tentar novamente em Meus Fretes.");
+    history.replaceState({}, "", window.location.pathname);
+  }
 }
 
 function showLogin() {
@@ -123,6 +133,7 @@ function navigate(name) {
     $("#pageTitle").textContent = spec.placeholder[0];
   }
   $(".sidebar").classList.remove("open");
+  if (name === "orders") loadOrders();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
