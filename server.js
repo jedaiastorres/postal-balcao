@@ -228,6 +228,8 @@ app.get("/api/public-config", (_req, res) => {
     providerConfigured: Boolean(TOKEN),
     demoAuth: DEMO_AUTH,
     commissionPercent: round2(PARTNER_COMMISSION * 100),
+    postalMarginPercent: round2(POSTAL_MARGIN * 100),
+    receiptWidthMm: RECEIPT_WIDTH_MM,
     shipmentCreationEnabled: ENABLE_SHIPMENT_CREATION
   });
 });
@@ -319,7 +321,21 @@ app.post("/api/cotacao", requireAuth, async (req, res) => {
       }
     }
 
-    const options = normalizeQuote(providerData);
+    const options = normalizeQuote(providerData).map(option => ({
+      ...option,
+      selectionToken: signSelectionToken({
+        exp: Date.now() + 2 * 60 * 60 * 1000,
+        postalCompanyId: option.postalCompanyId,
+        service: option.produto,
+        deadline: option.prazoEntrega,
+        salePrice: option.precoVenda,
+        partnerCommission: option.comissaoParceiro,
+        package: {
+          weightGrams, width, height, length, cepFrom, cepTo,
+          declaredValue: Number(body.vlDeclarado || 0)
+        }
+      })
+    }));
     if (!options.length) {
       return res.status(422).json({ error: "Nenhuma opção de envio disponível para os dados informados." });
     }
