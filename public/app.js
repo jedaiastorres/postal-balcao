@@ -357,7 +357,7 @@ function partyData(prefix) {
 }
 
 function contentData() {
-  return $(".content-item").map(row => ({
+  return $$(".content-item").map(row => ({
     description: row.querySelector(".item-description").value.trim(),
     quantity: Number(row.querySelector(".item-quantity").value || 1),
     value: Number(row.querySelector(".item-value").value || 0)
