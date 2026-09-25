@@ -369,6 +369,57 @@ function validateFreightParties(sender, recipient, items) {
   }
 }
 
+async function processAsaasWebhookEvent(eventRow) {
+  const payload = eventRow.payload || {};
+  const eventType = String(eventRow.event_type || payload.event || "");
+  const checkoutId = String(eventRow.checkout_id || payload.checkout?.id || "");
+  const order = checkoutId ? await db.getOrderByCheckoutId(checkoutId) : null;
+
+  if (!order) {
+    await db.markWebhookProcessed(eventRow.id, "Pedido não encontrado para o checkout.");
+    return;
+  }
+
+  try {
+    if (eventType === "CHECKOUT_PAID") {
+      const paidOrder = await db.markPaid(order.id, ENABLE_SHIPMENT_CREATION ? "PAYMENT_CONFIRMED" : "PAID_WAITING_SHIPMENT");
+      if (ENABLE_SHIPMENT_CREATION) {
+        try {
+          await createShipmentFromOrder(paidOrder);
+        } catch (shipmentError) {
+          console.error("shipment after payment error:", shipmentError.providerData || shipmentError.message);
+          await db.updateStatus(order.id, "SHIPMENT_ERROR", "PAID");
+        }
+      }
+    } else if (eventType === "CHECKOUT_CANCELED") {
+      await db.updateStatus(order.id, "PAYMENT_CANCELED", "CANCELED");
+    } else if (eventType === "CHECKOUT_EXPIRED") {
+      await db.updateStatus(order.id, "PAYMENT_EXPIRED", "EXPIRED");
+    }
+
+    await db.markWebhookProcessed(eventRow.id, null);
+  } catch (error) {
+    await db.markWebhookProcessed(eventRow.id, String(error.message || error));
+    throw error;
+  }
+}
+
+async function processPendingAsaasEvents() {
+  if (!process.env.DATABASE_URL) return;
+  try {
+    const events = await db.getPendingWebhookEvents("ASAAS", 20);
+    for (const eventRow of events) {
+      try {
+        await processAsaasWebhookEvent(eventRow);
+      } catch (error) {
+        console.error("Asaas event processing error:", eventRow.id, error.message);
+      }
+    }
+  } catch (error) {
+    console.error("pending webhook processor error:", error.message);
+  }
+}
+
 app.get("/health", (_req, res) => {
   res.json({
     ok: true,
