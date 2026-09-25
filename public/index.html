@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#d7083b" />
+  <title>Postal Serviços | Balcão Parceiro</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="toast" class="toast" aria-live="polite"></div>
+
+  <section id="loginView" class="login-shell">
+    <div class="login-brand">
+      <div class="brand-mark large">
+        <svg viewBox="0 0 64 48" aria-hidden="true">
+          <path d="M6 8h52v32H6z" fill="none" stroke="currentColor" stroke-width="5" rx="4"/>
+          <path d="M8 11l24 19L56 11" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-name">POSTAL</div>
+        <div class="brand-sub">SERVIÇOS</div>
+      </div>
+    </div>
+    <div class="login-card">
+      <div class="eyebrow">REDE DE PONTOS PARCEIROS</div>
+      <h1>Transforme seu balcão em um ponto de envios.</h1>
+      <p>Faça cotações, receba encomendas e acompanhe sua comissão em um único lugar.</p>
+      <form id="loginForm" class="stack">
+        <label>E-mail
+          <input id="loginEmail" type="email" autocomplete="username" value="parceiro@postalservicos.com.br" required />
+        </label>
+        <label>Senha
+          <input id="loginPassword" type="password" autocomplete="current-password" value="postal123" required />
+        </label>
+        <button class="primary full" type="submit">Entrar no painel</button>
+        <div id="demoLoginHint" class="demo-hint">Acesso demonstrativo: parceiro@postalservicos.com.br / postal123</div>
+      </form>
+    </div>
+  </section>
+
+  <div id="appView" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="side-brand">
+        <div class="brand-mark">
+          <svg viewBox="0 0 64 48" aria-hidden="true">
+            <path d="M6 8h52v32H6z" fill="none" stroke="currentColor" stroke-width="5"/>
+            <path d="M8 11l24 19L56 11" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div>
+          <div class="brand-name">POSTAL</div>
+          <div class="brand-sub">SERVIÇOS</div>
+        </div>
+      </div>
+
+      <div class="nav-section">LOGÍSTICA</div>
+      <nav>
+        <button class="nav-item active" data-view="dashboard"><span>▦</span> Dashboard</button>
+        <button class="nav-item" data-view="quote"><span>ϟ</span> Simular Frete</button>
+        <button class="nav-item" data-view="orders"><span>□</span> Meus Envios</button>
+        <button class="nav-item" data-view="receive"><span>⇩</span> Receber Pacote</button>
+        <button class="nav-item" data-view="returns"><span>↻</span> Devolução</button>
+      </nav>
+
+      <div class="nav-section">FINANCEIRO</div>
+      <nav>
+        <button class="nav-item" data-view="cash"><span>R$</span> Meu Caixa</button>
+        <button class="nav-item" data-view="clients"><span>♙</span> Clientes</button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="partner-mini">
+          <strong>Ponto parceiro</strong>
+          <span id="partnerEmail">—</span>
+        </div>
+        <button id="logoutBtn" class="ghost full">Sair</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button id="mobileMenu" class="mobile-menu" aria-label="Abrir menu">☰</button>
+        <div>
+          <div class="page-kicker">POSTAL SERVIÇOS</div>
+          <h2 id="pageTitle">Visão geral</h2>
+        </div>
+        <div class="status-wrap">
+          <div id="apiBadge" class="status-badge"><span class="dot"></span> Verificando API</div>
+          <div class="avatar">P</div>
+        </div>
+      </header>
+
+      <section id="dashboardView" class="view">
+        <div class="hero">
+          <div>
+            <div class="eyebrow">BALCÃO PARCEIRO</div>
+            <h1>Olá! Seu ponto está pronto para vender fretes.</h1>
+            <p>Faça uma cotação e mostre ao cliente preço, prazo e sua comissão de forma simples.</p>
+          </div>
+          <button class="primary" data-go="quote">+ Nova cotação</button>
+        </div>
+
+        <div class="cards-4">
+          <article class="metric-card">
+            <span>Postagens hoje</span>
+            <strong id="metricQuotes">0</strong>
+            <small>Cotações realizadas</small>
+          </article>
+          <article class="metric-card">
+            <span>Fretes cotados</span>
+            <strong id="metricRevenue">R$ 0,00</strong>
+            <small>Menores ofertas salvas</small>
+          </article>
+          <article class="metric-card">
+            <span>Comissão potencial</span>
+            <strong id="metricCommission">R$ 0,00</strong>
+            <small id="commissionCaption">Regra do ponto</small>
+          </article>
+          <article class="metric-card">
+            <span>Aguardando coleta</span>
+            <strong>0</strong>
+            <small>Módulo de postagem na próxima etapa</small>
+          </article>
+        </div>
+
+        <div class="panel-grid">
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <span class="eyebrow">MOVIMENTO</span>
+                <h3>Últimas cotações</h3>
+              </div>
+              <button class="link-btn" data-go="quote">Cotação nova</button>
+            </div>
+            <div id="recentQuotes" class="empty-state">Nenhuma cotação realizada ainda.</div>
+          </article>
+          <article class="panel accent-panel">
+            <div class="eyebrow">RENDA EXTRA</div>
+            <h3>Seu balcão vira um ponto Postal.</h3>
+            <p>Você atende o cliente, gera o frete e recebe comissão. A Postal organiza a coleta e a operação logística.</p>
+            <div class="mini-stat">
+              <span>Comissão configurada</span>
+              <strong id="commissionBig">—</strong>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="quoteView" class="view hidden">
+        <div class="quote-head">
+          <div>
+            <div class="eyebrow">COTAÇÃO DE FRETE</div>
+            <h1>Simular Frete</h1>
+            <p>Informe os dados do pacote. O custo da ConectEnvios fica protegido no servidor; o balcão vê apenas o preço de venda e sua comissão.</p>
+          </div>
+        </div>
+
+        <form id="quoteForm" class="quote-panel">
+          <div class="package-type">
+            <span>Tipo de embalagem</span>
+            <strong>Caixa</strong>
+          </div>
+
+          <div class="dimension-grid">
+            <label class="field-card">
+              <span>ALTURA*</span>
+              <div class="number-line"><input id="altura" name="altura" type="number" min="1" step="0.1" value="10" required /><em>cm</em></div>
+              <small>Informe a altura do pacote.</small>
+            </label>
+            <label class="field-card">
+              <span>LARGURA*</span>
+              <div class="number-line"><input id="largura" name="largura" type="number" min="1" step="0.1" value="15" required /><em>cm</em></div>
+              <small>Informe a largura do pacote.</small>
+            </label>
+            <label class="field-card">
+              <span>COMPRIMENTO*</span>
+              <div class="number-line"><input id="comprimento" name="comprimento" type="number" min="1" step="0.1" value="20" required /><em>cm</em></div>
+              <small>Informe o comprimento do pacote.</small>
+            </label>
+            <div class="box-preview">
+              <div>
+                <span>DIMENSÕES TOTAIS</span>
+                <strong id="dimensionTotal">45 cm</strong>
+              </div>
+              <div class="cube">
+                <div class="cube-top"></div>
+                <div class="cube-front"></div>
+                <div class="cube-side"></div>
+                <i class="tape"></i>
+              </div>
+            </div>
+          </div>
+
+          <div class="route-grid">
+            <label class="route-card">
+              <span>ORIGEM*</span>
+              <input id="cepOrigem" name="cepOrigem" inputmode="numeric" value="68515000" maxlength="9" required />
+              <small>CEP do remetente / ponto de postagem</small>
+            </label>
+            <div class="route-arrow">→</div>
+            <label class="route-card">
+              <span>DESTINO*</span>
+              <input id="cepDestino" name="cepDestino" inputmode="numeric" placeholder="00000-000" maxlength="9" required />
+              <small>CEP de destino da encomenda</small>
+            </label>
+          </div>
+
+          <div class="bottom-fields">
+            <label><span>Peso*</span><div class="inline-input"><input id="peso" name="peso" type="number" min="0.01" step="0.01" value="1" required /><em>kg</em></div></label>
+            <label><span>Valor declarado*</span><div class="inline-input"><em>R$</em><input id="vlDeclarado" name="vlDeclarado" type="number" min="0" step="0.01" value="100" required /></div></label>
+            <div class="quote-action">
+              <span id="quoteModeLabel">Pronto para cotar</span>
+              <button id="quoteBtn" class="primary xl" type="submit">Calcular frete</button>
+            </div>
+          </div>
+        </form>
+
+        <div id="resultsWrap" class="results-wrap hidden">
+          <div class="results-title">
+            <div>
+              <div class="eyebrow">OPÇÕES DISPONÍVEIS</div>
+              <h2>Escolha com o cliente</h2>
+            </div>
+            <span id="resultsInfo" class="soft-pill"></span>
+          </div>
+          <div id="resultsList" class="results-list"></div>
+        </div>
+      </section>
+
+      <section id="placeholderView" class="view hidden">
+        <div class="placeholder-card">
+          <div class="placeholder-icon">↗</div>
+          <div class="eyebrow">MÓDULO PREPARADO</div>
+          <h1 id="placeholderTitle">Em desenvolvimento</h1>
+          <p id="placeholderText">Esta área entra na próxima etapa da plataforma.</p>
+          <button class="primary" data-go="quote">Fazer uma cotação</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
