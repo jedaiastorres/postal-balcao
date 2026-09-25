@@ -1147,7 +1147,7 @@ app.post("/api/orders/:id/remittance", requireAuth, async (req, res) => {
       partnerWalletId: null,
       reserveWalletId: ASAAS_RESERVE_WALLET_ID || null,
       partnerCommission: 0,
-      providerCost: Number(order.provider_cost || 0),
+      providerCost: Number(order.provider_revenue_total || order.provider_cost || 0),
       customerData: null
     });
 
