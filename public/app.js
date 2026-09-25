@@ -372,6 +372,8 @@ function prepareShipmentView() {
   $("#shipPrice").textContent = money(state.selectedOption.precoVenda);
   $("#senderCep").value = maskCep(state.currentQuote.cepOrigem);
   $("#recipientCep").value = maskCep(state.currentQuote.cepDestino);
+  fillAddressFromCep("sender");
+  fillAddressFromCep("recipient");
   $("#shipmentForm").classList.remove("hidden");
   $("#shipmentSuccess").classList.add("hidden");
   $("#paymentMethod").value = "";
@@ -511,7 +513,30 @@ $(`input[name="documentType"]`).forEach(radio => radio.addEventListener("change"
   $("#invoiceNumber").required = invoice;
 }));
 
-["senderCep","recipientCep"].forEach(id => $(`#${id}`)?.addEventListener("input", e => formatCepInput(e.target)));
+async function fillAddressFromCep(prefix) {
+  const cepInput = $(`#${prefix}Cep`);
+  const cep = onlyDigits(cepInput?.value);
+  if (cep.length !== 8) return;
+  try {
+    const response = await api(`/api/cep/${cep}`);
+    const data = response?.data || response;
+    if (!data || typeof data !== "object") return;
+    const address = $(`#${prefix}Address`);
+    const neighborhood = $(`#${prefix}Neighborhood`);
+    const city = $(`#${prefix}City`);
+    if (data.address && !address.value.trim()) address.value = data.address;
+    if (data.neighborhood && !neighborhood.value.trim()) neighborhood.value = data.neighborhood;
+    if (data.city_title) city.value = `${data.city_title}${data.state_abbreviation ? "/" + data.state_abbreviation : ""}`;
+  } catch (err) {
+    console.warn("CEP lookup failed:", err.message);
+  }
+}
+
+["senderCep","recipientCep"].forEach(id => {
+  const input = $(`#${id}`);
+  input?.addEventListener("input", e => formatCepInput(e.target));
+  input?.addEventListener("blur", () => fillAddressFromCep(id.startsWith("sender") ? "sender" : "recipient"));
+});
 
 $("#previewReceiptBtn")?.addEventListener("click", () => {
   if (!state.selectedOption) {
@@ -605,6 +630,6 @@ $("#printReceiptBtn")?.addEventListener("click", () => {
   if (!state.shipmentResult) return;
   openReceipt(receiptPayload(false), true);
 });
-$("#printLabelBtn")?.addEventListener("click", () => openProviderDocument(state.shipmentResult?.labelUrlA6 || state.shipmentResult?.labelUrl || state.shipmentResult?.publicPrintUrl));
+$("#printLabelBtn")?.addEventListener("click", () => openProviderDocument(state.shipmentResult?.labelA6Url || state.shipmentResult?.labelA4Url));
 
 checkSession();
