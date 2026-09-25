@@ -996,6 +996,9 @@ app.post("/api/orders", requireAuth, async (req, res) => {
       return res.status(400).json({ error: "Os CEPs mudaram após a cotação. Calcule novamente." });
     }
 
+    const addons = await resolveRequestedAddons(req.user.email, body.addons);
+    const financials = summarizeFinancials(selection, addons, paymentMethod);
+
     const salePrice = round2(Number(selection.salePrice));
     const partnerCommission = round2(Number(selection.partnerCommission));
     const providerCost = round2(Number(selection.providerCost));
@@ -1011,6 +1014,11 @@ app.post("/api/orders", requireAuth, async (req, res) => {
       paymentMethod,
       paymentProvider: paymentMethod === "DINHEIRO" ? "CASH" : "ASAAS",
       salePrice,
+      addonsTotal: financials.addonsTotal,
+      customerSubtotal: financials.customerSubtotal,
+      pointRevenueTotal: financials.pointRevenueTotal,
+      postalRevenueTotal: financials.postalRevenueTotal,
+      providerRevenueTotal: financials.providerRevenueTotal,
       partnerCommission,
       postalMargin,
       providerCost,
@@ -1027,19 +1035,23 @@ app.post("/api/orders", requireAuth, async (req, res) => {
     };
 
     if (paymentMethod === "DINHEIRO") {
-      const remittanceBase = round2(salePrice - partnerCommission);
       const order = await db.insertOrder({
         ...baseOrder,
         status: "CASH_REMITTANCE_PENDING",
         paymentStatus: "CASH_AT_POINT",
-        paymentAmount: salePrice,
-        paymentSurcharge: 0,
-        cashRemittanceAmount: remittanceBase
+        paymentAmount: financials.totalToCustomer,
+        paymentSurcharge: financials.paymentSurcharge,
+        cashRemittanceAmount: financials.cashRemittanceBase
       });
+
+      await db.insertOrderAddons(order.id, req.user.email, addons);
+      await db.consumeOrderInventory(order.id, req.user.email);
+
+      const complete = await db.getOrder(order.id, req.user.email);
       return res.status(201).json({
-        order: publicOrder(order),
+        order: publicOrder(complete),
         nextAction: "PAY_REMITTANCE",
-        message: "Dinheiro registrado. A etiqueta só será gerada após o repasse do ponto."
+        message: "Dinheiro registrado. A comissão do ponto foi preservada e a etiqueta aguarda o repasse."
       });
     }
 
@@ -1047,14 +1059,17 @@ app.post("/api/orders", requireAuth, async (req, res) => {
       ...baseOrder,
       status: "PAYMENT_SETUP_PENDING",
       paymentStatus: "PENDING",
-      paymentAmount: 0,
-      paymentSurcharge: 0,
+      paymentAmount: financials.totalToCustomer,
+      paymentSurcharge: financials.paymentSurcharge,
       cashRemittanceAmount: 0
     });
 
+    await db.insertOrderAddons(order.id, req.user.email, addons);
+
     if (!asaas.configured()) {
+      const complete = await db.getOrder(order.id, req.user.email);
       return res.status(201).json({
-        order: publicOrder(order),
+        order: publicOrder(complete),
         paymentSetupRequired: true,
         message: "Asaas ainda precisa da chave de API para liberar cobranças."
       });
@@ -1062,23 +1077,24 @@ app.post("/api/orders", requireAuth, async (req, res) => {
 
     if (!partnerWalletId) {
       const pending = await db.updateStatus(order.id, "PARTNER_FINANCIAL_SETUP_REQUIRED", "PENDING");
+      const complete = await db.getOrder(pending.id, req.user.email);
       return res.status(201).json({
-        order: publicOrder(pending),
+        order: publicOrder(complete),
         paymentSetupRequired: true,
-        message: "Este ponto ainda não possui carteira Asaas vinculada para receber a comissão automaticamente."
+        message: "Este ponto ainda não possui carteira Asaas vinculada para receber sua parte automaticamente."
       });
     }
 
     const checkout = await asaas.createCheckout({
       orderId,
       billingType: paymentMethod,
-      amount: salePrice,
-      itemName: "Frete Postal Serviços",
+      amount: financials.customerSubtotal,
+      itemName: "Postal Balcão",
       itemDescription: String(body.carrier || "") + " - " + String(selection.service || ""),
       partnerWalletId,
       reserveWalletId: ASAAS_RESERVE_WALLET_ID || null,
-      partnerCommission,
-      providerCost,
+      partnerCommission: financials.pointRevenueTotal,
+      providerCost: financials.providerRevenueTotal,
       customerData: {
         name: sender.name,
         cpfCnpj: sender.document,
@@ -1096,8 +1112,9 @@ app.post("/api/orders", requireAuth, async (req, res) => {
       paymentStatus: "PENDING"
     });
 
+    const complete = await db.getOrder(updated.id, req.user.email);
     res.status(201).json({
-      order: publicOrder(updated),
+      order: publicOrder(complete),
       checkoutUrl: checkout.url,
       nextAction: "OPEN_CHECKOUT"
     });
