@@ -388,7 +388,6 @@ function prepareShipmentView() {
   $("#shipmentForm").classList.remove("hidden");
   $("#shipmentSuccess").classList.add("hidden");
   $("#paymentMethod").value = "";
-  $("#paymentConfirmed").checked = false;
   $("#trackingLink")?.classList.add("hidden");
 
   if (!$("#contentItems").children.length) {
@@ -396,16 +395,13 @@ function prepareShipmentView() {
   }
 
   const createBtn = $("#createShipmentBtn");
+  createBtn.disabled = false;
+  createBtn.textContent = "Continuar para pagamento";
+
   const lockNote = $("#shipmentLockNote");
-  if (state.config?.shipmentCreationEnabled) {
-    createBtn.disabled = false;
-    createBtn.textContent = "Gerar postagem";
-    lockNote.textContent = "A emissão está liberada.";
-  } else {
-    createBtn.disabled = true;
-    createBtn.textContent = "Emissão em homologação";
-    lockNote.textContent = "A geração real permanece bloqueada por segurança enquanto validamos o fluxo.";
-  }
+  lockNote.textContent = state.config?.paymentsConfigured
+    ? "A etiqueta só será criada após a confirmação do pagamento."
+    : "A integração Asaas está preparada e aguarda a chave da conta para processar cobranças.";
   return true;
 }
 
