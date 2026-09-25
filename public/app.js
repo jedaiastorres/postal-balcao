@@ -10,7 +10,8 @@ const state = {
   orders: [],
   catalog: [],
   selectedAddons: new Map(),
-  inventory: []
+  inventory: [],
+  paymentPreview: null
 };
 
 const viewMap = {
@@ -476,6 +477,7 @@ async function refreshPaymentPreview() {
         addons: selectedAddonPayload()
       })
     });
+    state.paymentPreview = preview;
     $("#paymentFreight").textContent = money(preview.freightPrice);
     $("#paymentAddons").textContent = money(preview.addonsTotal);
     $("#paymentFee").textContent = money(preview.paymentFee);
@@ -554,6 +556,7 @@ function prepareShipmentView() {
   $("#paymentMethod").value = "";
   $("#trackingLink")?.classList.add("hidden");
   state.selectedAddons = new Map();
+  state.paymentPreview = null;
   $("#paymentFreight").textContent = money(state.selectedOption.precoVenda);
   $("#paymentAddons").textContent = money(0);
   $("#paymentFee").textContent = "Selecione o pagamento";
@@ -594,7 +597,18 @@ function receiptPayload(preview = false) {
     carrier: o.transportadora || r.carrier || "",
     service: o.produto || r.service || "",
     deadline: o.prazoEntrega || r.deadline || "",
-    salePrice: o.precoVenda || r.salePrice || 0,
+    salePrice: state.paymentPreview?.total || o.precoVenda || r.salePrice || 0,
+    freightPrice: state.paymentPreview?.freightPrice || o.precoVenda || r.salePrice || 0,
+    addonsTotal: state.paymentPreview?.addonsTotal || 0,
+    paymentFee: state.paymentPreview?.paymentFee || 0,
+    addons: selectedAddonPayload().map(selected => {
+      const item = state.catalog.find(x => x.code === selected.code);
+      return {
+        name: item?.name || selected.code,
+        quantity: selected.quantity,
+        totalPrice: Number(item?.unitPrice || 0) * Number(selected.quantity || 0)
+      };
+    }),
     declaredValue: Number(q.vlDeclarado || 0),
     weightKg: Number(q.peso || 0),
     dimensions: `${q.comprimento || "-"} x ${q.largura || "-"} x ${q.altura || "-"} cm`,
@@ -620,6 +634,9 @@ function buildReceiptHtml(data) {
   const items = (data.items || []).map(item =>
     `<div class="item"><span>${escapeHtml(item.description)} x${Number(item.quantity || 1)}</span><b>${money(Number(item.value || 0))}</b></div>`
   ).join("");
+  const extras = (data.addons || []).map(item =>
+    `<div class="item"><span>${escapeHtml(item.name)} x${Number(item.quantity || 1)}</span><b>${money(Number(item.totalPrice || 0))}</b></div>`
+  ).join("");
   const preview = data.preview ? '<div class="preview">PRÉVIA — SEM VALIDADE</div>' : "";
   const trackingUrl = data.publicTrackingUrl ? `<div class="tiny">${escapeHtml(data.publicTrackingUrl)}</div>` : "";
   const invoice = data.invoiceNumber ?
@@ -643,7 +660,12 @@ function buildReceiptHtml(data) {
   <div class="dash"></div><div class="section">DESTINATÁRIO</div><div class="person">${escapeHtml(recipient.name)}</div><div>Doc.: ${escapeHtml(recipient.document)}</div><div>Tel.: ${escapeHtml(recipient.phone)}</div>${recipient.email ? `<div>E-mail: ${escapeHtml(recipient.email)}</div>` : ""}<div class="small">${escapeHtml(addressText(recipient))}</div>
   <div class="dash"></div><div class="section">ENVIO</div><div class="row"><span>Transportadora</span><b>${escapeHtml(data.carrier)}</b></div><div class="row"><span>Serviço</span><b>${escapeHtml(data.service)}</b></div><div class="row"><span>Prazo estimado</span><b>${escapeHtml(data.deadline ? data.deadline + " dias úteis" : "-")}</b></div><div class="row"><span>Peso</span><b>${escapeHtml(data.weightKg + " kg")}</b></div><div class="row"><span>Dimensões</span><b>${escapeHtml(data.dimensions)}</b></div><div class="row"><span>Valor declarado</span><b>${money(data.declaredValue)}</b></div>${invoice}
   <div class="dash"></div><div class="section">CONTEÚDO</div>${items || '<div class="small">Conteúdo não informado</div>'}
-  <div class="dash"></div><div class="row total"><span>TOTAL PAGO</span><b>${money(data.salePrice)}</b></div><div class="row"><span>Pagamento</span><b>${escapeHtml(data.paymentMethod || "-")}</b></div>${ids}
+  ${extras ? `<div class="dash"></div><div class="section">PRODUTOS / SERVIÇOS</div>${extras}` : ""}
+  <div class="dash"></div>
+  <div class="row"><span>Frete</span><b>${money(data.freightPrice || data.salePrice)}</b></div>
+  ${Number(data.addonsTotal || 0) ? `<div class="row"><span>Adicionais</span><b>${money(data.addonsTotal)}</b></div>` : ""}
+  ${Number(data.paymentFee || 0) ? `<div class="row"><span>Taxa pagamento</span><b>${money(data.paymentFee)}</b></div>` : ""}
+  <div class="row total"><span>TOTAL PAGO</span><b>${money(data.salePrice)}</b></div><div class="row"><span>Pagamento</span><b>${escapeHtml(data.paymentMethod || "-")}</b></div>${ids}
   <div class="dash"></div><div class="footer">Guarde este comprovante até a conclusão da entrega.<br>Acompanhe pelo código de rastreio.<br>Este comprovante não substitui documento fiscal.</div>
   <div class="no-print"><button class="print-btn" onclick="window.print()">IMPRIMIR</button></div></div></body></html>`;
 }
@@ -768,7 +790,15 @@ function receiptPayloadFromOrder(order) {
     carrier: order.carrier || "",
     service: order.serviceName || "",
     deadline: order.deadline || 0,
-    salePrice: order.salePrice || 0,
+    salePrice: order.totalToCustomer || order.salePrice || 0,
+    freightPrice: order.salePrice || 0,
+    addonsTotal: order.addonsTotal || 0,
+    paymentFee: order.paymentSurcharge || 0,
+    addons: (order.addons || []).map(addon => ({
+      name: addon.itemName,
+      quantity: addon.quantity,
+      totalPrice: addon.totalPrice
+    })),
     declaredValue: Number(p.declaredValue || 0),
     weightKg: Number(p.weightGrams || 0) / 1000,
     dimensions: `${p.length || "-"} x ${p.width || "-"} x ${p.height || "-"} cm`,
