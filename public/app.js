@@ -420,7 +420,7 @@ function receiptPayload(preview = false) {
     weightKg: Number(q.peso || 0),
     dimensions: `${q.comprimento || "-"} x ${q.largura || "-"} x ${q.altura || "-"} cm`,
     invoiceNumber: currentInvoiceNumber(),
-    paymentMethod: $("#paymentMethod")?.value || r.paymentMethod || "",
+    paymentMethod: r.paymentMethod || $("#paymentMethod")?.value || "",
     sender: partyData("sender"),
     recipient: partyData("recipient"),
     items: contentData()
@@ -523,7 +523,7 @@ $("#previewReceiptBtn")?.addEventListener("click", () => {
 
 $("#shipmentForm")?.addEventListener("submit", async event => {
   event.preventDefault();
-  if (!state.selectedOption?.quoteToken) {
+  if (!state.selectedOption?.selectionToken) {
     toast("A cotação expirou. Calcule novamente.", "error");
     return;
   }
@@ -550,11 +550,12 @@ $("#shipmentForm")?.addEventListener("submit", async event => {
   btn.textContent = "Gerando postagem...";
 
   const payload = {
-    quoteToken: state.selectedOption.quoteToken,
+    selectionToken: state.selectedOption.selectionToken,
+    carrier: state.selectedOption.transportadora,
     sender: partyData("sender"),
     recipient: partyData("recipient"),
-    declaration,
-    receipt: currentInvoiceNumber(),
+    items: declaration,
+    invoiceNumber: currentInvoiceNumber(),
     paymentMethod,
     paymentConfirmed
   };
@@ -584,7 +585,7 @@ $("#shipmentForm")?.addEventListener("submit", async event => {
       service: result.service,
       price: result.salePrice,
       deadline: result.deadline,
-      postedAt: result.postedAt,
+      postedAt: result.postedAt || result.createdAt,
       sender: payload.sender.name,
       recipient: payload.recipient.name
     });
