@@ -736,6 +736,223 @@ app.post("/api/prazo", requireAuth, async (req, res) => {
   }
 });
 
+app.get("/api/catalog", requireAuth, async (req, res) => {
+  try {
+    const items = await db.getPartnerCatalog(req.user.email);
+    res.json({
+      items: items.map(item => ({
+        code: item.code,
+        itemType: item.item_type,
+        category: item.category,
+        name: item.name,
+        description: item.description || "",
+        unitPrice: Number(item.effective_unit_price ?? item.unit_price ?? 0),
+        trackStock: Boolean(item.track_stock),
+        stockQuantity: Number(item.stock_quantity || 0),
+        reservedQuantity: Number(item.reserved_quantity || 0),
+        availableQuantity: Number(item.available_quantity || 0),
+        minQuantity: Number(item.min_quantity || 0),
+        externalProvider: item.external_provider || "",
+        metadata: item.metadata || {}
+      }))
+    });
+  } catch (error) {
+    console.error("catalog error:", error.message);
+    res.status(503).json({ error: "Não foi possível carregar produtos e serviços." });
+  }
+});
+
+app.post("/api/payment-preview", requireAuth, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const selection = verifySelectionToken(body.selectionToken);
+    if (!selection || !Number.isFinite(Number(selection.providerCost))) {
+      return res.status(400).json({ error: "A cotação expirou. Calcule o frete novamente." });
+    }
+
+    const paymentMethod = String(body.paymentMethod || "").toUpperCase();
+    if (!["PIX", "CARTAO", "DINHEIRO"].includes(paymentMethod)) {
+      return res.status(400).json({ error: "Selecione a forma de pagamento." });
+    }
+
+    const addons = await resolveRequestedAddons(req.user.email, body.addons);
+    const financials = summarizeFinancials(selection, addons, paymentMethod);
+
+    res.json({
+      freightPrice: financials.freightPrice,
+      addonsTotal: financials.addonsTotal,
+      subtotal: financials.customerSubtotal,
+      paymentFee: financials.paymentSurcharge,
+      total: financials.totalToCustomer,
+      pointRevenue: financials.pointRevenueTotal,
+      cashRemittance: paymentMethod === "DINHEIRO"
+        ? round2(financials.cashRemittanceBase + financials.paymentSurcharge)
+        : 0
+    });
+  } catch (error) {
+    console.error("payment preview error:", error.message);
+    res.status(400).json({ error: error.message || "Não foi possível calcular o pagamento." });
+  }
+});
+
+app.get("/api/inventory", requireAuth, async (req, res) => {
+  try {
+    const items = await db.getPartnerCatalog(req.user.email);
+    res.json({
+      items: items.map(item => ({
+        code: item.code,
+        itemType: item.item_type,
+        category: item.category,
+        name: item.name,
+        description: item.description || "",
+        trackStock: Boolean(item.track_stock),
+        unitPrice: Number(item.effective_unit_price ?? item.unit_price ?? 0),
+        stockQuantity: Number(item.stock_quantity || 0),
+        reservedQuantity: Number(item.reserved_quantity || 0),
+        availableQuantity: Number(item.available_quantity || 0),
+        minQuantity: Number(item.min_quantity || 0)
+      }))
+    });
+  } catch (error) {
+    console.error("inventory error:", error.message);
+    res.status(503).json({ error: "Não foi possível carregar o estoque." });
+  }
+});
+
+app.post("/api/inventory/receive", requireAuth, async (req, res) => {
+  try {
+    const code = String(req.body.code || "").trim();
+    const quantity = Number(req.body.quantity || 0);
+    const salePrice = req.body.salePrice === "" || req.body.salePrice == null ? null : Number(req.body.salePrice);
+    if (!code || !Number.isFinite(quantity) || quantity <= 0) {
+      return res.status(400).json({ error: "Informe produto e quantidade válida." });
+    }
+    if (salePrice != null && (!Number.isFinite(salePrice) || salePrice < 0)) {
+      return res.status(400).json({ error: "Preço de venda inválido." });
+    }
+
+    const item = await db.getCatalogItemByCode(code);
+    if (!item || !item.active) return res.status(404).json({ error: "Produto não encontrado." });
+    if (!item.track_stock) return res.status(400).json({ error: "Este item não controla estoque físico." });
+
+    const inventory = await db.receiveInventory(
+      req.user.email,
+      item.id,
+      quantity,
+      String(req.body.note || "Recebimento pelo ponto"),
+      salePrice
+    );
+    res.json({ ok: true, inventory });
+  } catch (error) {
+    console.error("receive inventory error:", error.message);
+    res.status(500).json({ error: "Não foi possível receber o estoque." });
+  }
+});
+
+app.post("/api/inventory/adjust", requireAuth, async (req, res) => {
+  try {
+    const code = String(req.body.code || "").trim();
+    const quantity = Number(req.body.quantity || 0);
+    const minQuantity = Math.max(0, Number(req.body.minQuantity || 0));
+    const salePrice = req.body.salePrice === "" || req.body.salePrice == null ? null : Number(req.body.salePrice);
+    if (!code || !Number.isFinite(quantity) || quantity < 0) {
+      return res.status(400).json({ error: "Informe produto e estoque atual válido." });
+    }
+
+    const item = await db.getCatalogItemByCode(code);
+    if (!item || !item.active) return res.status(404).json({ error: "Produto não encontrado." });
+    if (!item.track_stock) return res.status(400).json({ error: "Este item não controla estoque físico." });
+
+    const inventory = await db.setInventory(
+      req.user.email,
+      item.id,
+      quantity,
+      minQuantity,
+      String(req.body.note || "Ajuste pelo ponto"),
+      salePrice
+    );
+    res.json({ ok: true, inventory });
+  } catch (error) {
+    console.error("adjust inventory error:", error.message);
+    res.status(500).json({ error: "Não foi possível ajustar o estoque." });
+  }
+});
+
+// API versionada para futuras integrações de produtos, serviços e ofertas financeiras.
+app.get("/api/integrations/v1/catalog/items", requireIntegrationAuth, async (req, res) => {
+  try {
+    const itemType = req.query.type ? String(req.query.type).toUpperCase() : null;
+    const items = await db.listCatalogItems({ itemType, activeOnly: false });
+    res.json({ version: "v1", items });
+  } catch (error) {
+    res.status(500).json({ error: "Falha ao consultar catálogo." });
+  }
+});
+
+app.put("/api/integrations/v1/catalog/items/:code", requireIntegrationAuth, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const itemType = String(body.itemType || "PRODUCT").toUpperCase();
+    if (!["PRODUCT", "SERVICE"].includes(itemType)) {
+      return res.status(400).json({ error: "itemType deve ser PRODUCT ou SERVICE." });
+    }
+    const pointShare = Number(body.pointSharePercent ?? (itemType === "PRODUCT" ? 100 : 0));
+    const postalShare = Number(body.postalSharePercent ?? 0);
+    const providerShare = Number(body.providerSharePercent ?? 0);
+    if ([pointShare, postalShare, providerShare].some(v => !Number.isFinite(v) || v < 0) ||
+        pointShare + postalShare + providerShare > 100.0001) {
+      return res.status(400).json({ error: "Divisão financeira inválida." });
+    }
+
+    const item = await db.upsertCatalogItem({
+      code: String(req.params.code || "").trim(),
+      itemType,
+      category: String(body.category || "OUTROS").toUpperCase(),
+      name: String(body.name || "").trim(),
+      description: String(body.description || ""),
+      unitPrice: Number(body.unitPrice || 0),
+      costPrice: Number(body.costPrice || 0),
+      trackStock: Boolean(body.trackStock),
+      pointSharePercent: pointShare,
+      postalSharePercent: postalShare,
+      providerSharePercent: providerShare,
+      externalProvider: body.externalProvider || null,
+      externalRef: body.externalRef || null,
+      active: body.active !== false,
+      metadata: body.metadata || {}
+    });
+    if (!item.code || !item.name) return res.status(400).json({ error: "Código e nome são obrigatórios." });
+    res.json({ ok: true, version: "v1", item });
+  } catch (error) {
+    console.error("integration catalog upsert error:", error.message);
+    res.status(500).json({ error: "Falha ao salvar item." });
+  }
+});
+
+app.post("/api/integrations/v1/inventory/receive", requireIntegrationAuth, async (req, res) => {
+  try {
+    const partnerEmail = String(req.body.partnerEmail || "").trim();
+    const code = String(req.body.code || "").trim();
+    const quantity = Number(req.body.quantity || 0);
+    if (!partnerEmail || !code || !Number.isFinite(quantity) || quantity <= 0) {
+      return res.status(400).json({ error: "partnerEmail, code e quantity são obrigatórios." });
+    }
+    const item = await db.getCatalogItemByCode(code);
+    if (!item || !item.track_stock) return res.status(404).json({ error: "Produto de estoque não encontrado." });
+    const inventory = await db.receiveInventory(
+      partnerEmail,
+      item.id,
+      quantity,
+      String(req.body.note || "Recebimento via integração"),
+      req.body.salePrice == null ? null : Number(req.body.salePrice)
+    );
+    res.json({ ok: true, version: "v1", inventory });
+  } catch (error) {
+    console.error("integration inventory receive error:", error.message);
+    res.status(500).json({ error: "Falha ao registrar estoque." });
+  }
+});
+
 app.get("/api/orders", requireAuth, async (req, res) => {
   try {
     const orders = await db.listOrders(req.user.email, Number(req.query.limit || 100));
