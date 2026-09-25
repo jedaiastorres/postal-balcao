@@ -4,6 +4,8 @@ const express = require("express");
 const helmet = require("helmet");
 const crypto = require("crypto");
 const path = require("path");
+const db = require("./db");
+const asaas = require("./asaas");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
