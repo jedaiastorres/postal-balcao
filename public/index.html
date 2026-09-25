@@ -241,6 +241,27 @@
         </div>
       </section>
 
+      <section id="ordersView" class="view hidden">
+        <div class="orders-head">
+          <div>
+            <div class="eyebrow">MEUS FRETES</div>
+            <h1>Postagens e pagamentos</h1>
+            <p>Consulte pagamentos pendentes, repasses em dinheiro e etiquetas disponíveis para impressão.</p>
+          </div>
+          <button class="primary" data-go="quote" type="button">+ Novo frete</button>
+        </div>
+
+        <div class="orders-summary">
+          <div><span>Aguardando pagamento</span><strong id="ordersPendingCount">0</strong></div>
+          <div><span>Etiquetas disponíveis</span><strong id="ordersReadyCount">0</strong></div>
+          <div><span>Comissão acumulada</span><strong id="ordersCommissionTotal">R$ 0,00</strong></div>
+        </div>
+
+        <div id="ordersList" class="orders-list">
+          <div class="empty-state">Carregando seus fretes...</div>
+        </div>
+      </section>
+
       <section id="shipmentView" class="view hidden">
         <div class="shipment-head">
           <div>
@@ -320,18 +341,16 @@
                   <option value="PIX">PIX</option>
                   <option value="CARTAO">Cartão</option>
                   <option value="DINHEIRO">Dinheiro</option>
-                  <option value="OUTRO">Outro</option>
                 </select>
               </label>
-              <label class="confirm-payment">
-                <input id="paymentConfirmed" type="checkbox" required />
-                <span>Confirmo que o pagamento foi recebido</span>
-              </label>
+              <div id="paymentMethodNote" class="payment-method-note">
+                Escolha como o remetente vai pagar. A etiqueta só é liberada após a confirmação financeira.
+              </div>
             </div>
             <div class="review-actions">
               <button id="previewReceiptBtn" class="ghost" type="button">Prévia do comprovante</button>
-              <button id="createShipmentBtn" class="primary" type="submit">Gerar postagem e rastreio</button>
-              <small id="shipmentLockNote"></small>
+              <button id="createShipmentBtn" class="primary" type="submit">Continuar para pagamento</button>
+              <small id="shipmentLockNote">Pagamento e etiqueta são etapas separadas.</small>
             </div>
           </article>
         </form>
