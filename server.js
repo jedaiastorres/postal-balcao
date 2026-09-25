@@ -1307,8 +1307,37 @@ app.use((_req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
+async function seedDefaultCatalog() {
+  const defaults = [
+    { code: "CX-P", name: "Caixa pequena", category: "EMBALAGENS" },
+    { code: "CX-M", name: "Caixa média", category: "EMBALAGENS" },
+    { code: "CX-G", name: "Caixa grande", category: "EMBALAGENS" },
+    { code: "ENV-PLASTICO", name: "Envelope plástico", category: "EMBALAGENS" },
+    { code: "ENV-BOLHA", name: "Envelope com bolha", category: "EMBALAGENS" }
+  ];
+
+  for (const item of defaults) {
+    await db.upsertCatalogItem({
+      code: item.code,
+      itemType: "PRODUCT",
+      category: item.category,
+      name: item.name,
+      description: "Item de balcão com preço e estoque definidos pelo ponto.",
+      unitPrice: 0,
+      costPrice: 0,
+      trackStock: true,
+      pointSharePercent: 100,
+      postalSharePercent: 0,
+      providerSharePercent: 0,
+      active: true,
+      metadata: { source: "postal-default" }
+    });
+  }
+}
+
 async function start() {
   await db.initDb();
+  await seedDefaultCatalog();
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Postal Balcao V1.3 disponivel na porta ${PORT}`);
