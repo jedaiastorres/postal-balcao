@@ -428,6 +428,14 @@ app.post("/api/envios", requireAuth, async (req, res) => {
     const sender = body.sender || {};
     const recipient = body.recipient || {};
     const items = Array.isArray(body.items) ? body.items : [];
+    const paymentMethod = String(body.paymentMethod || "").toUpperCase();
+    const allowedPaymentMethods = ["PIX", "CARTAO", "DINHEIRO", "OUTRO"];
+    if (!allowedPaymentMethods.includes(paymentMethod)) {
+      return res.status(400).json({ error: "Selecione uma forma de pagamento valida." });
+    }
+    if (body.paymentConfirmed !== true) {
+      return res.status(400).json({ error: "Confirme o recebimento do pagamento antes de gerar a postagem." });
+    }
     const requiredPartyFields = ["name", "document", "phone", "cep", "address", "number", "neighborhood"];
 
     for (const [label, party] of [["remetente", sender], ["destinatário", recipient]]) {
