@@ -238,154 +238,6 @@
             <div class="selection-detail"><span>Total</span><strong id="selectedPrice">—</strong></div>
             <button id="continueShipmentBtn" class="primary" type="button">Continuar</button>
           </div>
-          <div id="shipmentFlow" class="shipment-flow hidden">
-            <div class="flow-head">
-              <div>
-                <div class="eyebrow">DADOS DA POSTAGEM</div>
-                <h2>Finalizar envio</h2>
-                <p>Preencha os dados do remetente, destinatário e conteúdo. O rastreio e a etiqueta serão gerados após a confirmação.</p>
-              </div>
-              <div class="flow-steps">
-                <span>1. Pessoas</span><span>2. Conteúdo</span><span>3. Pagamento</span><span>4. Postagem</span>
-              </div>
-            </div>
-
-            <form id="shipmentForm" class="shipment-form">
-              <section class="form-section">
-                <div class="form-section-head">
-                  <div><span class="step-badge">1</span><strong>Remetente</strong></div>
-                  <small>Dados de quem está enviando</small>
-                </div>
-                <div class="form-grid">
-                  <label class="span-2">Nome / Razão social*<input id="senderName" required></label>
-                  <label>CPF / CNPJ*<input id="senderDocument" inputmode="numeric" required></label>
-                  <label>Telefone*<input id="senderPhone" inputmode="tel" required></label>
-                  <label>CEP*<input id="senderCep" readonly></label>
-                  <label class="span-2">Endereço*<input id="senderAddress" required></label>
-                  <label>Número*<input id="senderNumber" required></label>
-                  <label>Bairro*<input id="senderNeighborhood" required></label>
-                  <label class="span-2">Complemento<input id="senderComplement"></label>
-                </div>
-              </section>
-
-              <section class="form-section">
-                <div class="form-section-head">
-                  <div><span class="step-badge">2</span><strong>Destinatário</strong></div>
-                  <small>Dados de quem receberá a encomenda</small>
-                </div>
-                <div class="form-grid">
-                  <label class="span-2">Nome / Razão social*<input id="recipientName" required></label>
-                  <label>CPF / CNPJ*<input id="recipientDocument" inputmode="numeric" required></label>
-                  <label>Telefone*<input id="recipientPhone" inputmode="tel" required></label>
-                  <label>CEP*<input id="recipientCep" readonly></label>
-                  <label class="span-2">Endereço*<input id="recipientAddress" required></label>
-                  <label>Número*<input id="recipientNumber" required></label>
-                  <label>Bairro*<input id="recipientNeighborhood" required></label>
-                  <label class="span-2">Complemento<input id="recipientComplement"></label>
-                </div>
-              </section>
-
-              <section class="form-section">
-                <div class="form-section-head">
-                  <div><span class="step-badge">3</span><strong>Conteúdo da encomenda</strong></div>
-                  <small>Necessário para declaração e emissão</small>
-                </div>
-                <div id="declarationItems" class="declaration-items">
-                  <div class="declaration-row">
-                    <label class="span-2">Descrição*<input class="decl-description" placeholder="Ex.: roupas, calçados, documentos" required></label>
-                    <label>Quantidade*<input class="decl-quantity" type="number" min="1" step="1" value="1" required></label>
-                    <label>Valor unitário*<input class="decl-value" type="number" min="0" step="0.01" value="0" required></label>
-                  </div>
-                </div>
-                <div class="content-actions">
-                  <button id="addDeclarationItem" class="ghost compact" type="button">+ Adicionar item</button>
-                  <label class="nf-field">Chave / número da NF <input id="receiptNumber" placeholder="Opcional"></label>
-                </div>
-              </section>
-
-              <section class="form-section payment-section">
-                <div class="form-section-head">
-                  <div><span class="step-badge">4</span><strong>Pagamento e conferência</strong></div>
-                  <small>Confirme antes de gerar a postagem</small>
-                </div>
-                <div class="checkout-grid">
-                  <label>Forma de pagamento*
-                    <select id="paymentMethod" required>
-                      <option value="">Selecione</option>
-                      <option value="PIX">PIX</option>
-                      <option value="CARTAO">Cartão</option>
-                      <option value="DINHEIRO">Dinheiro</option>
-                      <option value="OUTRO">Outro</option>
-                    </select>
-                  </label>
-                  <div class="checkout-total">
-                    <span>Total a receber</span>
-                    <strong id="checkoutTotal">R$ 0,00</strong>
-                    <small>Valor final mostrado ao cliente</small>
-                  </div>
-                  <label class="confirm-payment">
-                    <input id="paymentConfirmed" type="checkbox">
-                    <span>Confirmo que o pagamento foi recebido</span>
-                  </label>
-                </div>
-                <div class="create-shipment-row">
-                  <div class="security-note">
-                    <strong>Conferência final</strong>
-                    <span>A postagem real será criada somente ao clicar no botão ao lado.</span>
-                  </div>
-                  <button id="createShipmentBtn" class="primary xl" type="submit">Gerar postagem e rastreio</button>
-                </div>
-              </section>
-            </form>
-          </div>
-
-          <div id="shipmentSuccess" class="shipment-success hidden">
-            <div class="success-icon">✓</div>
-            <div>
-              <div class="eyebrow">POSTAGEM GERADA</div>
-              <h2>Envio pronto para receber o pacote</h2>
-              <p>Código de rastreio: <strong id="successTracking">—</strong></p>
-              <div class="success-actions">
-                <button id="printReceiptBtn" class="primary" type="button">Imprimir comprovante 80 mm</button>
-                <button id="openLabelBtn" class="ghost" type="button">Abrir etiqueta A6</button>
-                <a id="trackingLink" class="ghost link-like" target="_blank" rel="noopener">Acompanhar rastreio</a>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <section id="thermalReceipt" class="thermal-receipt" aria-hidden="true">
-          <div class="thermal-brand">POSTAL SERVIÇOS</div>
-          <div class="thermal-title">COMPROVANTE DE POSTAGEM</div>
-          <div class="thermal-rule"></div>
-          <div class="thermal-center"><strong id="receiptTracking">—</strong><br><span>CÓDIGO DE RASTREIO</span></div>
-          <div class="thermal-rule"></div>
-          <div class="thermal-pair"><span>Data/hora</span><strong id="receiptDate">—</strong></div>
-          <div class="thermal-pair"><span>Postagem</span><strong id="receiptPackageId">—</strong></div>
-          <div class="thermal-pair"><span>Serviço</span><strong id="receiptService">—</strong></div>
-          <div class="thermal-pair"><span>Prazo estimado</span><strong id="receiptDeadline">—</strong></div>
-          <div class="thermal-rule"></div>
-          <div class="thermal-section-title">REMETENTE</div>
-          <div id="receiptSender">—</div>
-          <div class="thermal-rule"></div>
-          <div class="thermal-section-title">DESTINATÁRIO</div>
-          <div id="receiptRecipient">—</div>
-          <div class="thermal-rule"></div>
-          <div class="thermal-section-title">PACOTE</div>
-          <div id="receiptPackage">—</div>
-          <div class="thermal-rule"></div>
-          <div class="thermal-section-title">CONTEÚDO</div>
-          <div id="receiptContent">—</div>
-          <div class="thermal-rule"></div>
-          <div class="thermal-pair total"><span>TOTAL PAGO</span><strong id="receiptTotal">—</strong></div>
-          <div class="thermal-pair"><span>Pagamento</span><strong id="receiptPayment">—</strong></div>
-          <div class="thermal-rule"></div>
-          <div class="thermal-center thermal-footer">
-            <strong>Guarde este comprovante até a entrega.</strong><br>
-            <span id="receiptTrackingUrl"></span><br>
-            <span>Postal Serviços e Transportes</span>
-          </div>
-        </section>
         </div>
       </section>
 
@@ -461,9 +313,24 @@
               <h3>Antes de gerar a postagem</h3>
               <p>Após a confirmação, o sistema liberará código de rastreio, etiqueta A6 e o comprovante térmico para entregar ao remetente.</p>
             </div>
+            <div class="review-payment">
+              <label>Forma de pagamento*
+                <select id="paymentMethod" required>
+                  <option value="">Selecione</option>
+                  <option value="PIX">PIX</option>
+                  <option value="CARTAO">Cartão</option>
+                  <option value="DINHEIRO">Dinheiro</option>
+                  <option value="OUTRO">Outro</option>
+                </select>
+              </label>
+              <label class="confirm-payment">
+                <input id="paymentConfirmed" type="checkbox" required />
+                <span>Confirmo que o pagamento foi recebido</span>
+              </label>
+            </div>
             <div class="review-actions">
               <button id="previewReceiptBtn" class="ghost" type="button">Prévia do comprovante</button>
-              <button id="createShipmentBtn" class="primary" type="submit">Gerar postagem</button>
+              <button id="createShipmentBtn" class="primary" type="submit">Gerar postagem e rastreio</button>
               <small id="shipmentLockNote"></small>
             </div>
           </article>
@@ -478,10 +345,44 @@
             <div id="successTracking" class="tracking-code">—</div>
           </div>
           <div class="success-actions">
-            <button id="printReceiptBtn" class="primary" type="button">Imprimir comprovante</button>
+            <button id="printReceiptBtn" class="primary" type="button">Imprimir comprovante 80 mm</button>
             <button id="printLabelBtn" class="ghost" type="button">Imprimir etiqueta A6</button>
+            <a id="trackingLink" class="ghost link-like" target="_blank" rel="noopener">Acompanhar rastreio</a>
           </div>
         </div>
+
+        <section id="thermalReceipt" class="thermal-receipt" aria-hidden="true">
+          <div class="thermal-brand">POSTAL SERVIÇOS</div>
+          <div class="thermal-title">COMPROVANTE DE POSTAGEM</div>
+          <div class="thermal-rule"></div>
+          <div class="thermal-center tracking-big"><strong id="receiptTracking">—</strong><br><span>CÓDIGO DE RASTREIO</span></div>
+          <div class="thermal-rule"></div>
+          <div class="thermal-pair"><span>Data/hora</span><strong id="receiptDate">—</strong></div>
+          <div class="thermal-pair"><span>Postagem</span><strong id="receiptPackageId">—</strong></div>
+          <div class="thermal-pair"><span>Serviço</span><strong id="receiptService">—</strong></div>
+          <div class="thermal-pair"><span>Prazo estimado</span><strong id="receiptDeadline">—</strong></div>
+          <div class="thermal-rule"></div>
+          <div class="thermal-section-title">REMETENTE</div>
+          <div id="receiptSender">—</div>
+          <div class="thermal-rule"></div>
+          <div class="thermal-section-title">DESTINATÁRIO</div>
+          <div id="receiptRecipient">—</div>
+          <div class="thermal-rule"></div>
+          <div class="thermal-section-title">PACOTE</div>
+          <div id="receiptPackage">—</div>
+          <div class="thermal-rule"></div>
+          <div class="thermal-section-title">CONTEÚDO</div>
+          <div id="receiptContent">—</div>
+          <div class="thermal-rule"></div>
+          <div class="thermal-pair total"><span>TOTAL PAGO</span><strong id="receiptTotal">—</strong></div>
+          <div class="thermal-pair"><span>Pagamento</span><strong id="receiptPayment">—</strong></div>
+          <div class="thermal-rule"></div>
+          <div class="thermal-center thermal-footer">
+            <strong>Guarde este comprovante até a entrega.</strong><br>
+            <span id="receiptTrackingUrl"></span><br>
+            <span>Postal Serviços e Transportes</span>
+          </div>
+        </section>
       </section>
 
       <section id="placeholderView" class="view hidden">
