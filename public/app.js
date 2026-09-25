@@ -374,6 +374,9 @@ function prepareShipmentView() {
   $("#recipientCep").value = maskCep(state.currentQuote.cepDestino);
   $("#shipmentForm").classList.remove("hidden");
   $("#shipmentSuccess").classList.add("hidden");
+  $("#paymentMethod").value = "";
+  $("#paymentConfirmed").checked = false;
+  $("#trackingLink")?.classList.add("hidden");
 
   if (!$("#contentItems").children.length) {
     addContentItem({ quantity: 1, value: Number(state.currentQuote.vlDeclarado || 0) });
@@ -404,7 +407,7 @@ function receiptPayload(preview = false) {
   const r = state.shipmentResult || {};
   return {
     preview,
-    createdAt: r.createdAt || new Date().toISOString(),
+    createdAt: r.postedAt || r.createdAt || new Date().toISOString(),
     trackingCode: preview ? "SERA GERADO APOS A POSTAGEM" : (r.trackingCode || ""),
     publicTrackingUrl: preview ? "" : (r.publicTrackingUrl || ""),
     cartId: preview ? "" : (r.cartId || ""),
@@ -417,6 +420,7 @@ function receiptPayload(preview = false) {
     weightKg: Number(q.peso || 0),
     dimensions: `${q.comprimento || "-"} x ${q.largura || "-"} x ${q.altura || "-"} cm`,
     invoiceNumber: currentInvoiceNumber(),
+    paymentMethod: $("#paymentMethod")?.value || r.paymentMethod || "",
     sender: partyData("sender"),
     recipient: partyData("recipient"),
     items: contentData()
@@ -458,9 +462,9 @@ function buildReceiptHtml(data) {
   <div class="center"><div class="label">Código de rastreio</div><div class="tracking">${escapeHtml(data.trackingCode || "AGUARDANDO")}</div>${trackingUrl}</div>
   <div class="dash"></div><div class="section">REMETENTE</div><div class="person">${escapeHtml(sender.name)}</div><div>Doc.: ${escapeHtml(sender.document)}</div><div>Tel.: ${escapeHtml(sender.phone)}</div>${sender.email ? `<div>E-mail: ${escapeHtml(sender.email)}</div>` : ""}<div class="small">${escapeHtml(addressText(sender))}</div>
   <div class="dash"></div><div class="section">DESTINATÁRIO</div><div class="person">${escapeHtml(recipient.name)}</div><div>Doc.: ${escapeHtml(recipient.document)}</div><div>Tel.: ${escapeHtml(recipient.phone)}</div>${recipient.email ? `<div>E-mail: ${escapeHtml(recipient.email)}</div>` : ""}<div class="small">${escapeHtml(addressText(recipient))}</div>
-  <div class="dash"></div><div class="section">ENVIO</div><div class="row"><span>Transportadora</span><b>${escapeHtml(data.carrier)}</b></div><div class="row"><span>Serviço</span><b>${escapeHtml(data.service)}</b></div><div class="row"><span>Prazo estimado</span><b>${escapeHtml(data.deadline ? data.deadline + " dias" : "-")}</b></div><div class="row"><span>Peso</span><b>${escapeHtml(data.weightKg + " kg")}</b></div><div class="row"><span>Dimensões</span><b>${escapeHtml(data.dimensions)}</b></div><div class="row"><span>Valor declarado</span><b>${money(data.declaredValue)}</b></div>${invoice}
+  <div class="dash"></div><div class="section">ENVIO</div><div class="row"><span>Transportadora</span><b>${escapeHtml(data.carrier)}</b></div><div class="row"><span>Serviço</span><b>${escapeHtml(data.service)}</b></div><div class="row"><span>Prazo estimado</span><b>${escapeHtml(data.deadline ? data.deadline + " dias úteis" : "-")}</b></div><div class="row"><span>Peso</span><b>${escapeHtml(data.weightKg + " kg")}</b></div><div class="row"><span>Dimensões</span><b>${escapeHtml(data.dimensions)}</b></div><div class="row"><span>Valor declarado</span><b>${money(data.declaredValue)}</b></div>${invoice}
   <div class="dash"></div><div class="section">CONTEÚDO</div>${items || '<div class="small">Conteúdo não informado</div>'}
-  <div class="dash"></div><div class="row total"><span>TOTAL PAGO</span><b>${money(data.salePrice)}</b></div>${ids}
+  <div class="dash"></div><div class="row total"><span>TOTAL PAGO</span><b>${money(data.salePrice)}</b></div><div class="row"><span>Pagamento</span><b>${escapeHtml(data.paymentMethod || "-")}</b></div>${ids}
   <div class="dash"></div><div class="footer">Guarde este comprovante até a conclusão da entrega.<br>Acompanhe pelo código de rastreio.<br>Este comprovante não substitui documento fiscal.</div>
   <div class="no-print"><button class="print-btn" onclick="window.print()">IMPRIMIR</button></div></div></body></html>`;
 }
@@ -510,35 +514,89 @@ $(`input[name="documentType"]`).forEach(radio => radio.addEventListener("change"
 ["senderCep","recipientCep"].forEach(id => $(`#${id}`)?.addEventListener("input", e => formatCepInput(e.target)));
 
 $("#previewReceiptBtn")?.addEventListener("click", () => {
-  if (!$("#shipmentForm").reportValidity()) return;
+  if (!state.selectedOption) {
+    toast("Selecione um frete antes de visualizar o comprovante.", "error");
+    return;
+  }
   openReceipt(receiptPayload(true), false);
 });
 
 $("#shipmentForm")?.addEventListener("submit", async event => {
   event.preventDefault();
-  if (!state.selectedOption?.selectionToken) { toast("A cotação expirou. Calcule novamente.", "error"); return; }
+  if (!state.selectedOption?.quoteToken) {
+    toast("A cotação expirou. Calcule novamente.", "error");
+    return;
+  }
+
+  const paymentMethod = $("#paymentMethod").value;
+  const paymentConfirmed = $("#paymentConfirmed").checked;
+  const declaration = contentData();
+
+  if (!paymentMethod) {
+    toast("Selecione a forma de pagamento.", "error");
+    return;
+  }
+  if (!paymentConfirmed) {
+    toast("Confirme o recebimento do pagamento.", "error");
+    return;
+  }
+  if (!declaration.length || declaration.some(item => !item.description || item.quantity <= 0 || item.value < 0)) {
+    toast("Revise a declaração de conteúdo.", "error");
+    return;
+  }
+
   const btn = $("#createShipmentBtn");
-  btn.disabled = true; btn.textContent = "Gerando postagem...";
+  btn.disabled = true;
+  btn.textContent = "Gerando postagem...";
+
   const payload = {
-    selectionToken: state.selectedOption.selectionToken,
-    carrier: state.selectedOption.transportadora,
+    quoteToken: state.selectedOption.quoteToken,
     sender: partyData("sender"),
     recipient: partyData("recipient"),
-    items: contentData(),
-    invoiceNumber: currentInvoiceNumber()
+    declaration,
+    receipt: currentInvoiceNumber(),
+    paymentMethod,
+    paymentConfirmed
   };
+
   try {
     const result = await api("/api/envios", { method: "POST", body: JSON.stringify(payload) });
     state.shipmentResult = result;
+
     $("#shipmentForm").classList.add("hidden");
     $("#shipmentSuccess").classList.remove("hidden");
     $("#successTracking").textContent = result.trackingCode || "Código ainda não retornado";
+
+    const trackingLink = $("#trackingLink");
+    if (result.publicTrackingUrl) {
+      trackingLink.href = result.publicTrackingUrl;
+      trackingLink.classList.remove("hidden");
+    } else {
+      trackingLink.classList.add("hidden");
+    }
+
+    const saved = JSON.parse(localStorage.getItem("postal_shipments") || "[]");
+    saved.unshift({
+      packageId: result.packageId,
+      cartId: result.cartId,
+      trackingCode: result.trackingCode,
+      carrier: result.carrier,
+      service: result.service,
+      price: result.salePrice,
+      deadline: result.deadline,
+      postedAt: result.postedAt,
+      sender: payload.sender.name,
+      recipient: payload.recipient.name
+    });
+    localStorage.setItem("postal_shipments", JSON.stringify(saved.slice(0, 50)));
+
     $("#shipmentSuccess").scrollIntoView({ behavior: "smooth", block: "start" });
-    toast("Postagem gerada. Imprima o comprovante e entregue ao remetente.");
-  } catch (err) { toast(err.message, "error"); }
-  finally {
+    toast("Postagem gerada. Imprima o comprovante térmico e entregue ao remetente.");
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
     btn.disabled = !state.config?.shipmentCreationEnabled;
-    btn.textContent = state.config?.shipmentCreationEnabled ? "Gerar postagem" : "Emissão em homologação";
+    btn.textContent = state.config?.shipmentCreationEnabled ? "Gerar postagem e rastreio" : "Emissão em homologação";
   }
 });
 
@@ -546,6 +604,6 @@ $("#printReceiptBtn")?.addEventListener("click", () => {
   if (!state.shipmentResult) return;
   openReceipt(receiptPayload(false), true);
 });
-$("#printLabelBtn")?.addEventListener("click", () => openProviderDocument(state.shipmentResult?.labelA6Url));
+$("#printLabelBtn")?.addEventListener("click", () => openProviderDocument(state.shipmentResult?.labelUrlA6 || state.shipmentResult?.labelUrl || state.shipmentResult?.publicPrintUrl));
 
 checkSession();
