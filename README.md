@@ -22,3 +22,24 @@ npm start
 ```
 
 Healthcheck: `/health`.
+
+
+## Fluxo V1.2
+
+A V1.2 adiciona o fluxo operacional completo de preparação da postagem:
+
+- cotação real pela ConectEnvios;
+- escolha do serviço;
+- token assinado para impedir alteração do preço/serviço cotado;
+- cadastro de remetente e destinatário;
+- preenchimento automático de endereço por CEP;
+- nota fiscal ou declaração de conteúdo;
+- confirmação da forma de pagamento;
+- criação preparada via `POST /cart`;
+- retorno de código de rastreio;
+- etiqueta A6;
+- comprovante térmico de postagem em 80 mm (configurável também para 58 mm).
+
+O comprovante do remetente contém data/hora, rastreio, remetente, destinatário, transportadora, serviço, prazo, peso, dimensões, valor declarado, conteúdo, forma de pagamento, total pago e IDs da postagem/pacote.
+
+A emissão real continua protegida por `ENABLE_SHIPMENT_CREATION=false` até a homologação final do fluxo.
