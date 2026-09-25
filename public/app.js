@@ -553,6 +553,12 @@ function prepareShipmentView() {
   $("#shipmentSuccess").classList.add("hidden");
   $("#paymentMethod").value = "";
   $("#trackingLink")?.classList.add("hidden");
+  state.selectedAddons = new Map();
+  $("#paymentFreight").textContent = money(state.selectedOption.precoVenda);
+  $("#paymentAddons").textContent = money(0);
+  $("#paymentFee").textContent = "Selecione o pagamento";
+  $("#paymentTotal").textContent = money(state.selectedOption.precoVenda);
+  loadShipmentCatalog();
 
   if (!$("#contentItems").children.length) {
     addContentItem({ quantity: 1, value: Number(state.currentQuote.vlDeclarado || 0) });
