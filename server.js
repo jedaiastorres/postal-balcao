@@ -272,7 +272,9 @@ app.post("/api/cotacao", requireAuth, async (req, res) => {
           height,
           length,
           cep_from: cepFrom,
-          cep_to: cepTo
+          cep_to: cepTo,
+          addr_from_cep: cepFrom,
+          addr_to_cep: cepTo
         }),
         timeout: 25000
       });
