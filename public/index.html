@@ -241,6 +241,101 @@
         </div>
       </section>
 
+      <section id="shipmentView" class="view hidden">
+        <div class="shipment-head">
+          <div>
+            <div class="eyebrow">NOVA POSTAGEM</div>
+            <h1>Dados da encomenda</h1>
+            <p>Confira o frete escolhido, preencha remetente e destinatário e finalize o conteúdo antes da emissão.</p>
+          </div>
+          <button id="backToQuoteBtn" class="ghost" type="button">← Voltar à cotação</button>
+        </div>
+
+        <div class="shipment-selected-bar">
+          <div><span>Transportadora</span><strong id="shipCarrier">—</strong></div>
+          <div><span>Serviço</span><strong id="shipService">—</strong></div>
+          <div><span>Prazo</span><strong id="shipDeadline">—</strong></div>
+          <div><span>Total do cliente</span><strong id="shipPrice">—</strong></div>
+        </div>
+
+        <form id="shipmentForm" class="shipment-form">
+          <div class="shipment-grid">
+            <article class="form-panel">
+              <div class="form-panel-head"><span class="step-number">1</span><div><h3>Remetente</h3><p>Dados de quem está postando.</p></div></div>
+              <div class="form-grid">
+                <label class="span-2">Nome completo / Razão social*<input id="senderName" required /></label>
+                <label>CPF/CNPJ*<input id="senderDocument" inputmode="numeric" required /></label>
+                <label>Telefone*<input id="senderPhone" inputmode="tel" required /></label>
+                <label class="span-2">E-mail<input id="senderEmail" type="email" /></label>
+                <label>CEP*<input id="senderCep" inputmode="numeric" maxlength="9" required /></label>
+                <label>Número*<input id="senderNumber" required /></label>
+                <label class="span-2">Logradouro*<input id="senderAddress" required /></label>
+                <label>Bairro*<input id="senderNeighborhood" required /></label>
+                <label>Complemento<input id="senderComplement" /></label>
+                <label class="span-2">Cidade / UF<input id="senderCity" placeholder="Ex.: Parauapebas/PA" /></label>
+              </div>
+            </article>
+
+            <article class="form-panel">
+              <div class="form-panel-head"><span class="step-number">2</span><div><h3>Destinatário</h3><p>Dados de quem receberá a encomenda.</p></div></div>
+              <div class="form-grid">
+                <label class="span-2">Nome completo / Razão social*<input id="recipientName" required /></label>
+                <label>CPF/CNPJ*<input id="recipientDocument" inputmode="numeric" required /></label>
+                <label>Telefone*<input id="recipientPhone" inputmode="tel" required /></label>
+                <label class="span-2">E-mail<input id="recipientEmail" type="email" /></label>
+                <label>CEP*<input id="recipientCep" inputmode="numeric" maxlength="9" required /></label>
+                <label>Número*<input id="recipientNumber" required /></label>
+                <label class="span-2">Logradouro*<input id="recipientAddress" required /></label>
+                <label>Bairro*<input id="recipientNeighborhood" required /></label>
+                <label>Complemento<input id="recipientComplement" /></label>
+                <label class="span-2">Cidade / UF<input id="recipientCity" placeholder="Ex.: São Paulo/SP" /></label>
+              </div>
+            </article>
+          </div>
+
+          <article class="form-panel content-panel">
+            <div class="form-panel-head">
+              <span class="step-number">3</span>
+              <div><h3>Conteúdo e documento</h3><p>Use nota fiscal quando houver. Caso contrário, será enviada uma declaração de conteúdo.</p></div>
+            </div>
+            <div class="document-choice">
+              <label><input type="radio" name="documentType" value="declaration" checked /> Declaração de conteúdo</label>
+              <label><input type="radio" name="documentType" value="invoice" /> Nota fiscal</label>
+              <label id="invoiceField" class="invoice-field hidden">Chave / número da NF*<input id="invoiceNumber" /></label>
+            </div>
+            <div id="contentItems" class="content-items"></div>
+            <button id="addContentItemBtn" class="ghost" type="button">+ Adicionar item</button>
+          </article>
+
+          <article class="review-panel">
+            <div>
+              <div class="eyebrow">4 · CONFERÊNCIA</div>
+              <h3>Antes de gerar a postagem</h3>
+              <p>Após a confirmação, o sistema liberará código de rastreio, etiqueta A6 e o comprovante térmico para entregar ao remetente.</p>
+            </div>
+            <div class="review-actions">
+              <button id="previewReceiptBtn" class="ghost" type="button">Prévia do comprovante</button>
+              <button id="createShipmentBtn" class="primary" type="submit">Gerar postagem</button>
+              <small id="shipmentLockNote"></small>
+            </div>
+          </article>
+        </form>
+
+        <div id="shipmentSuccess" class="shipment-success hidden">
+          <div class="success-mark">✓</div>
+          <div>
+            <div class="eyebrow">POSTAGEM GERADA</div>
+            <h2>Encomenda registrada com sucesso</h2>
+            <p>Código de rastreio</p>
+            <div id="successTracking" class="tracking-code">—</div>
+          </div>
+          <div class="success-actions">
+            <button id="printReceiptBtn" class="primary" type="button">Imprimir comprovante</button>
+            <button id="printLabelBtn" class="ghost" type="button">Imprimir etiqueta A6</button>
+          </div>
+        </div>
+      </section>
+
       <section id="placeholderView" class="view hidden">
         <div class="placeholder-card">
           <div class="placeholder-icon">↗</div>
