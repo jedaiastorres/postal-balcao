@@ -808,7 +808,7 @@ function renderOrders() {
   const commissionStatuses = new Set(["CASH_REMITTANCE_PENDING","CASH_REMITTANCE_PAYMENT_PENDING","PAYMENT_CONFIRMED","PAID_WAITING_SHIPMENT","LABEL_AVAILABLE","SHIPMENT_ERROR"]);
   $("#ordersPendingCount").textContent = orders.filter(o => pendingStatuses.has(o.status)).length;
   $("#ordersReadyCount").textContent = orders.filter(o => o.status === "LABEL_AVAILABLE").length;
-  $("#ordersCommissionTotal").textContent = money(orders.filter(o => commissionStatuses.has(o.status)).reduce((s,o) => s + Number(o.partnerCommission || 0), 0));
+  $("#ordersCommissionTotal").textContent = money(orders.filter(o => commissionStatuses.has(o.status)).reduce((s,o) => s + Number(o.pointRevenueTotal || o.partnerCommission || 0), 0));
 
   if (!orders.length) {
     host.innerHTML = `<div class="orders-empty"><strong>Nenhum frete registrado ainda.</strong><span>Faça uma cotação e conclua os dados da postagem.</span><button class="primary" type="button" data-empty-new>Fazer primeira cotação</button></div>`;
@@ -833,11 +833,12 @@ function renderOrders() {
         <span class="order-status ${tone}">${escapeHtml(label)}</span>
       </div>
       <div class="order-metrics">
-        <div><span>Total</span><strong>${money(order.salePrice)}</strong></div>
-        <div><span>Sua comissão</span><strong>${money(order.partnerCommission)}</strong></div>
+        <div><span>Total cliente</span><strong>${money(order.totalToCustomer || order.salePrice)}</strong></div>
+        <div><span>Sua receita</span><strong>${money(order.pointRevenueTotal || order.partnerCommission)}</strong></div>
         <div><span>Pagamento</span><strong>${escapeHtml(paymentMethodLabel(order.paymentMethod))}</strong></div>
         <div><span>Rastreio</span><strong>${escapeHtml(order.trackingCode || "—")}</strong></div>
       </div>
+      ${order.addons?.length ? `<div class="order-addons"><strong>Adicionais:</strong> ${order.addons.map(a => `${escapeHtml(a.itemName)} ×${Number(a.quantity)} (${money(a.totalPrice)})`).join(" · ")}</div>` : ""}
       <div class="order-bottom">
         <span>${escapeHtml(description)}</span>
         <div class="order-actions"></div>
@@ -846,7 +847,7 @@ function renderOrders() {
     const actions = card.querySelector(".order-actions");
 
     if (order.status === "CASH_REMITTANCE_PENDING") {
-      const due = Number(order.cashRemittanceAmount || 0);
+      const due = Number(order.cashRemittanceTotal || order.cashRemittanceAmount || 0);
       const btn = document.createElement("button");
       btn.className = "primary";
       btn.type = "button";
