@@ -878,6 +878,40 @@ app.get("/api/rastreio/codigo/:stamp", requireAuth, async (req, res) => {
   }
 });
 
+app.post("/api/webhooks/asaas", async (req, res) => {
+  try {
+    const receivedToken = req.get("asaas-access-token");
+    if (!asaas.webhookConfigured() || !asaas.safeCompareToken(receivedToken)) {
+      return res.status(401).json({ error: "Webhook não autorizado." });
+    }
+
+    const payload = req.body || {};
+    const eventId = String(payload.id || "");
+    const eventType = String(payload.event || "");
+    const checkoutId = String(payload.checkout?.id || "");
+    if (!eventId || !eventType) return res.status(400).json({ error: "Evento inválido." });
+
+    const inserted = await db.insertWebhookEvent({
+      id: eventId,
+      provider: "ASAAS",
+      eventType,
+      checkoutId,
+      payload
+    });
+
+    res.status(200).json({ ok: true, duplicate: !inserted });
+
+    if (inserted) {
+      setImmediate(() => {
+        processPendingAsaasEvents().catch(error => console.error("webhook async error:", error.message));
+      });
+    }
+  } catch (error) {
+    console.error("Asaas webhook receive error:", error.message);
+    res.status(500).json({ error: "Falha ao registrar webhook." });
+  }
+});
+
 /**
  * Proxy seguro para URLs de impressao/declaracao retornadas pela ConectEnvios.
  * Em vez de expor o Bearer Token no navegador, o servidor busca o arquivo.
