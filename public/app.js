@@ -234,11 +234,11 @@ function renderResults(result, payload) {
       </div>
       <div class="result-block result-price price-reveal" tabindex="0" role="button"
            aria-label="Preço ao cliente ${money(option.precoVenda)}. Passe o mouse ou toque para ver a comissão do ponto.">
-        <span class="price-total-label">Preço ao cliente</span>
+        <span class="price-total-label">Valor do frete</span>
         <strong class="price-total">${money(option.precoVenda)}</strong>
         <span class="price-commission-label">Sua comissão</span>
         <strong class="price-commission">${money(option.comissaoParceiro)}</strong>
-        <small>Passe o mouse ou toque para ver a comissão</small>
+        <small>Taxa de pagamento é somada no fechamento • passe o mouse para ver sua comissão</small>
       </div>
       <button class="select-btn" type="button">Selecionar</button>
     `;
