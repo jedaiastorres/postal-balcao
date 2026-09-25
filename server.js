@@ -349,7 +349,7 @@ function publicOrder(order) {
     salePrice: Number(order.sale_price || 0),
     addonsTotal: Number(order.addons_total || 0),
     customerSubtotal: Number(order.customer_subtotal || order.sale_price || 0),
-    totalToCustomer: Number(order.payment_amount || order.customer_subtotal || order.sale_price || 0),
+    totalToCustomer: round2(Number(order.customer_subtotal || order.sale_price || 0) + Number(order.payment_surcharge || 0)),
     pointRevenueTotal: Number(order.point_revenue_total || order.partner_commission || 0),
     partnerCommission: Number(order.partner_commission || 0),
     addons: Array.isArray(order.addons) ? order.addons.map(addon => ({
