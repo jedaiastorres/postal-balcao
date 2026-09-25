@@ -327,21 +327,33 @@ app.post("/api/cotacao", requireAuth, async (req, res) => {
       }
     }
 
-    const options = normalizeQuote(providerData).map(option => ({
-      ...option,
-      selectionToken: signSelectionToken({
+    const options = normalizeQuote(providerData).map(option => {
+      const selectionToken = signSelectionToken({
         exp: Date.now() + 2 * 60 * 60 * 1000,
         postalCompanyId: option.postalCompanyId,
         service: option.produto,
         deadline: option.prazoEntrega,
         salePrice: option.precoVenda,
         partnerCommission: option.comissaoParceiro,
+        providerCost: option.providerCost,
+        postalMargin: option.postalMargin,
         package: {
           weightGrams, width, height, length, cepFrom, cepTo,
           declaredValue: Number(body.vlDeclarado || 0)
         }
-      })
-    }));
+      });
+
+      return {
+        postalCompanyId: option.postalCompanyId,
+        transportadora: option.transportadora,
+        produto: option.produto,
+        codigoServico: option.codigoServico,
+        prazoEntrega: option.prazoEntrega,
+        precoVenda: option.precoVenda,
+        comissaoParceiro: option.comissaoParceiro,
+        selectionToken
+      };
+    });
     if (!options.length) {
       return res.status(422).json({ error: "Nenhuma opção de envio disponível para os dados informados." });
     }
