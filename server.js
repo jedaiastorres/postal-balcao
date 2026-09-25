@@ -346,6 +346,7 @@ function publicOrder(order) {
     paymentAmount: Number(order.payment_amount || 0),
     paymentSurcharge: Number(order.payment_surcharge || 0),
     cashRemittanceAmount: Number(order.cash_remittance_amount || 0),
+    cashRemittanceTotal: round2(Number(order.cash_remittance_amount || 0) + Number(order.payment_surcharge || 0)),
     salePrice: Number(order.sale_price || 0),
     addonsTotal: Number(order.addons_total || 0),
     customerSubtotal: Number(order.customer_subtotal || order.sale_price || 0),
