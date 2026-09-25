@@ -208,7 +208,9 @@ function normalizeQuote(payload) {
       codigoServico: item.code ?? "",
       prazoEntrega: Number(item.deadline ?? item.postal_service_deadline ?? 0),
       precoVenda: pricing.salePrice,
-      comissaoParceiro: pricing.partnerCommission
+      comissaoParceiro: pricing.partnerCommission,
+      providerCost: round2(cost),
+      postalMargin: pricing.postalMargin
     };
   }).filter(Boolean).sort((a, b) => a.precoVenda - b.precoVenda);
 }
