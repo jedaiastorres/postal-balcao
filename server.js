@@ -24,6 +24,7 @@ const PARTNER_COMMISSION = Math.min(0.20, Math.max(0, Number(process.env.PARTNER
 const RECEIPT_WIDTH_MM = [58, 80].includes(Number(process.env.THERMAL_RECEIPT_WIDTH_MM)) ? Number(process.env.THERMAL_RECEIPT_WIDTH_MM) : 80;
 const ASAAS_RESERVE_WALLET_ID = String(process.env.ASAAS_CONNECTENVIOS_RESERVE_WALLET_ID || "").trim();
 const ASAAS_DEFAULT_PARTNER_WALLET_ID = String(process.env.ASAAS_DEFAULT_PARTNER_WALLET_ID || "").trim();
+const INTEGRATION_API_KEY = String(process.env.INTEGRATION_API_KEY || "").trim();
 
 app.disable("x-powered-by");
 app.use(helmet({
@@ -104,6 +105,17 @@ function requireAuth(req, res, next) {
   const session = verifySession(parseCookies(req).postal_session);
   if (!session) return res.status(401).json({ error: "Sessão expirada. Entre novamente." });
   req.user = session;
+  next();
+}
+
+function requireIntegrationAuth(req, res, next) {
+  if (!INTEGRATION_API_KEY) return res.status(503).json({ error: "API de integração ainda não configurada." });
+  const received = String(req.get("x-api-key") || "");
+  const a = Buffer.from(received);
+  const b = Buffer.from(INTEGRATION_API_KEY);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    return res.status(401).json({ error: "Chave de integração inválida." });
+  }
   next();
 }
 
