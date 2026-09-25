@@ -221,6 +221,107 @@ function toPositiveInteger(value, label) {
   return Math.max(1, Math.round(n));
 }
 
+async function createShipmentFromOrder(order) {
+  if (!order) throw new Error("Pedido não encontrado.");
+
+  if (order.tracking_code || order.conect_package_id) {
+    return {
+      cartId: order.conect_cart_id || null,
+      packageId: order.conect_package_id || null,
+      trackingCode: order.tracking_code || "",
+      labelA4Url: order.label_a4_url || "",
+      labelA6Url: order.label_a6_url || "",
+      declarationUrl: order.declaration_url || "",
+      publicTrackingUrl: order.public_tracking_url || ""
+    };
+  }
+
+  if (!ENABLE_SHIPMENT_CREATION) {
+    await db.updateStatus(order.id, "PAID_WAITING_SHIPMENT", "PAID");
+    return null;
+  }
+  if (!TOKEN) throw new Error("CONECTENVIOS_TOKEN não configurado.");
+
+  const packageData = order.package_data || {};
+  const sender = order.sender || {};
+  const recipient = order.recipient || {};
+  const items = Array.isArray(order.items) ? order.items : [];
+  const declaredFallback = items.reduce((sum, item) => sum + Number(item.value || 0) * Number(item.quantity || 1), 0);
+
+  const packageItem = {
+    name: String("Envio Postal - " + (sender.name || "") + " para " + (recipient.name || "")).slice(0, 120),
+    type: "box",
+    weight: Number(packageData.weightGrams || 0),
+    width: Number(packageData.width || 0),
+    height: Number(packageData.height || 0),
+    length: Number(packageData.length || 0),
+    extra_notify: true,
+    extra_in_hand: false,
+    extra_declared_value: round2(Number(packageData.declaredValue || declaredFallback)),
+
+    addr_from_document: cleanDigits(sender.document),
+    addr_from_phone: cleanDigits(sender.phone),
+    addr_from_name: String(sender.name || "").trim(),
+    addr_from_cep: cleanDigits(sender.cep),
+    addr_from_number: String(sender.number || "").trim(),
+    addr_from_address: String(sender.address || "").trim(),
+    addr_from_neighborhood: String(sender.neighborhood || "").trim(),
+    addr_from_complement: String(sender.complement || "").trim(),
+
+    addr_to_document: cleanDigits(recipient.document),
+    addr_to_phone: cleanDigits(recipient.phone),
+    addr_to_name: String(recipient.name || "").trim(),
+    addr_to_cep: cleanDigits(recipient.cep),
+    addr_to_number: String(recipient.number || "").trim(),
+    addr_to_address: String(recipient.address || "").trim(),
+    addr_to_neighborhood: String(recipient.neighborhood || "").trim(),
+    addr_to_complement: String(recipient.complement || "").trim(),
+
+    postal_service_name: String(order.service_name || ""),
+    postal_company_id: Number(order.postal_company_id || 0)
+  };
+
+  if (order.invoice_number) {
+    packageItem.receipt = String(order.invoice_number);
+  } else {
+    packageItem.declaration = items.map(item => ({
+      description: String(item.description || "").trim(),
+      quantity: Math.max(1, Math.round(Number(item.quantity || 1))),
+      value: round2(Number(item.value || 0))
+    }));
+  }
+
+  const result = await providerFetch("/cart", {
+    method: "POST",
+    body: JSON.stringify({ package: [packageItem] }),
+    timeout: 45000
+  });
+
+  const providerPayload = result.data || {};
+  if (providerPayload.error === true) {
+    const err = new Error("A ConectEnvios recusou a postagem.");
+    err.providerData = providerPayload;
+    throw err;
+  }
+
+  const cart = providerPayload.data || providerPayload;
+  const pkg = Array.isArray(cart.packages) ? cart.packages[0] : null;
+  if (!pkg) throw new Error("A ConectEnvios não retornou os dados do pacote.");
+
+  const shipment = {
+    cartId: cart.id || pkg.cart_id || null,
+    packageId: pkg.id || null,
+    trackingCode: pkg.postal_service_track || "",
+    labelA4Url: pkg.api_print_url || cart.public_print_url || "",
+    labelA6Url: pkg.api_print_url_a6 || "",
+    declarationUrl: pkg.api_declaration_url || "",
+    publicTrackingUrl: pkg.public_tracking_url || ""
+  };
+
+  await db.saveShipment(order.id, shipment);
+  return shipment;
+}
+
 app.get("/health", (_req, res) => {
   res.json({
     ok: true,
