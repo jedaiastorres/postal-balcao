@@ -322,6 +322,53 @@ async function createShipmentFromOrder(order) {
   return shipment;
 }
 
+function publicOrder(order) {
+  if (!order) return null;
+  return {
+    id: order.id,
+    status: order.status,
+    paymentMethod: order.payment_method,
+    paymentStatus: order.payment_status,
+    paymentProvider: order.payment_provider,
+    paymentCheckoutUrl: order.payment_checkout_url || "",
+    paymentAmount: Number(order.payment_amount || 0),
+    paymentSurcharge: Number(order.payment_surcharge || 0),
+    cashRemittanceAmount: Number(order.cash_remittance_amount || 0),
+    salePrice: Number(order.sale_price || 0),
+    partnerCommission: Number(order.partner_commission || 0),
+    carrier: order.carrier || "",
+    serviceName: order.service_name || "",
+    deadline: Number(order.deadline || 0),
+    sender: order.sender || {},
+    recipient: order.recipient || {},
+    items: order.items || [],
+    invoiceNumber: order.invoice_number || "",
+    packageData: order.package_data || {},
+    trackingCode: order.tracking_code || "",
+    labelA4Url: order.label_a4_url || "",
+    labelA6Url: order.label_a6_url || "",
+    declarationUrl: order.declaration_url || "",
+    publicTrackingUrl: order.public_tracking_url || "",
+    createdAt: order.created_at,
+    paidAt: order.paid_at,
+    shippedAt: order.shipped_at
+  };
+}
+
+function validateFreightParties(sender, recipient, items) {
+  const required = ["name", "document", "phone", "cep", "address", "number", "neighborhood", "city"];
+  for (const pair of [["remetente", sender], ["destinatário", recipient]]) {
+    const label = pair[0];
+    const party = pair[1] || {};
+    const missing = required.filter(key => !String(party[key] || "").trim());
+    if (missing.length) throw new Error("Preencha os dados obrigatórios do " + label + ".");
+  }
+  if (!Array.isArray(items) || !items.length) throw new Error("Informe ao menos um item da encomenda.");
+  if (items.some(item => !String(item.description || "").trim() || Number(item.quantity) <= 0 || Number(item.value) < 0)) {
+    throw new Error("Revise os itens da encomenda.");
+  }
+}
+
 app.get("/health", (_req, res) => {
   res.json({
     ok: true,
