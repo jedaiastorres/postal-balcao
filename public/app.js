@@ -808,17 +808,20 @@ $("#previewReceiptBtn")?.addEventListener("click", () => {
 
 function orderStatusMeta(status) {
   const map = {
-    CASH_REMITTANCE_PENDING: ["Repasse pendente", "warning", "O cliente pagou em dinheiro. Faça o repasse para liberar a etiqueta."],
+    CASH_REMITTANCE_PENDING: ["Repasse pendente", "warning", "O cliente pagou em dinheiro. O ponto mantém sua receita e precisa quitar o repasse."],
     CASH_REMITTANCE_PAYMENT_PENDING: ["Aguardando PIX do ponto", "warning", "O repasse foi criado e ainda não foi confirmado."],
+    SIMULATED_REMITTANCE_PENDING: ["Repasse teste pendente", "info", "Homologação: confirme o repasse simulado para liberar a etiqueta de teste."],
+    SIMULATED_PAYMENT_PENDING: ["Pagamento teste pendente", "info", "Homologação: confirme o pagamento simulado para testar o fluxo completo."],
     PAYMENT_SETUP_PENDING: ["Pagamento em configuração", "muted", "Aguardando integração financeira."],
     PARTNER_FINANCIAL_SETUP_REQUIRED: ["Conta financeira pendente", "warning", "Este ponto ainda precisa ser vinculado a uma carteira Asaas."],
     PAYMENT_PENDING: ["Aguardando pagamento", "warning", "A etiqueta não será criada enquanto o pagamento não for confirmado."],
     PAYMENT_CONFIRMED: ["Pagamento confirmado", "info", "Pagamento recebido. Preparando a postagem."],
-    PAID_WAITING_SHIPMENT: ["Pago • etiqueta pendente", "info", "Pagamento confirmado. A emissão da etiqueta está aguardando liberação operacional."],
+    PAID_WAITING_SHIPMENT: ["Pago • etiqueta pendente", "info", "Pagamento confirmado. A emissão real da etiqueta está bloqueada até a homologação final."],
     LABEL_AVAILABLE: ["Etiqueta disponível", "success", "Pagamento e postagem confirmados."],
+    LABEL_AVAILABLE_SIMULATED: ["Etiqueta de teste", "info", "Homologação concluída sem movimentação financeira ou postagem real."],
     SHIPMENT_ERROR: ["Revisão necessária", "danger", "O pagamento foi confirmado, mas houve erro ao gerar a postagem."],
     PAYMENT_CANCELED: ["Pagamento cancelado", "muted", "O checkout foi cancelado."],
-    PAYMENT_EXPIRED: ["Pagamento expirado", "muted", "O checkout expirou. Gere um novo pagamento quando necessário."]
+    PAYMENT_EXPIRED: ["Pagamento expirado", "muted", "O checkout expirou sem confirmação."]
   };
   return map[status] || [status || "Pendente", "muted", ""];
 }
@@ -862,13 +865,14 @@ function receiptPayloadFromOrder(order) {
 async function payCashRemittance(orderId, button) {
   const original = button.textContent;
   button.disabled = true;
-  button.textContent = "Gerando PIX...";
+  button.textContent = "Gerando repasse...";
   try {
     const result = await api(`/api/orders/${orderId}/remittance`, { method: "POST", body: "{}" });
     if (result.checkoutUrl) {
       window.location.href = result.checkoutUrl;
       return;
     }
+    if (result.simulator) toast("Repasse preparado em modo homologação.");
     await loadOrders();
   } catch (err) {
     toast(err.message, "error");
@@ -878,19 +882,92 @@ async function payCashRemittance(orderId, button) {
   }
 }
 
+async function simulateOrderPayment(orderId, button) {
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "Homologando...";
+  try {
+    const result = await api(`/api/orders/${orderId}/simulate-payment`, { method: "POST", body: "{}" });
+    toast("Pagamento homologado e etiqueta de teste liberada.");
+    await loadOrders();
+    if (result.order) openOrderDetails(result.order);
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+}
+
+function openSimulatedLabel(order) {
+  const p = order.packageData || {};
+  const win = window.open("", "_blank");
+  if (!win) return toast("Permita pop-ups para imprimir a etiqueta de teste.", "error");
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Etiqueta de Homologação</title>
+  <style>@page{size:100mm 140mm;margin:4mm}body{font-family:Arial;margin:0;color:#000}.label{width:92mm;min-height:130mm;border:2px solid #000;padding:5mm;box-sizing:border-box}.warning{border:3px solid #000;padding:4mm;text-align:center;font-weight:900;font-size:18px}.brand{font-size:24px;font-weight:900;margin:5mm 0}.track{font-family:monospace;font-size:21px;font-weight:900;letter-spacing:1px;margin:4mm 0;text-align:center}.row{border-top:1px solid #000;padding:3mm 0}.small{font-size:11px}.no-print{text-align:center;margin-top:5mm}@media print{.no-print{display:none}}</style></head>
+  <body><div class="label"><div class="warning">HOMOLOGAÇÃO — NÃO POSTAR</div><div class="brand">POSTAL SERVIÇOS</div>
+  <div class="track">${escapeHtml(order.trackingCode || "SIMULADO")}</div>
+  <div class="row"><b>De:</b> ${escapeHtml(order.sender?.name || "")}<br><span class="small">${escapeHtml(addressText(order.sender||{}))}</span></div>
+  <div class="row"><b>Para:</b> ${escapeHtml(order.recipient?.name || "")}<br><span class="small">${escapeHtml(addressText(order.recipient||{}))}</span></div>
+  <div class="row"><b>${escapeHtml(order.carrier||"")}</b> — ${escapeHtml(order.serviceName||"")}<br>Peso: ${Number(p.weightGrams||0)/1000} kg · ${p.length||"-"}x${p.width||"-"}x${p.height||"-"} cm</div>
+  <div class="warning">DOCUMENTO SEM VALIDADE LOGÍSTICA</div><div class="no-print"><button onclick="window.print()">IMPRIMIR TESTE</button></div></div></body></html>`;
+  win.document.open(); win.document.write(html); win.document.close();
+}
+
+function orderMatchesFilters(order) {
+  const search = String($("#ordersSearch")?.value || "").trim().toLowerCase();
+  const status = $("#ordersStatusFilter")?.value || "";
+  const payment = $("#ordersPaymentFilter")?.value || "";
+  if (status && order.status !== status) return false;
+  if (payment && order.paymentMethod !== payment) return false;
+  if (!search) return true;
+  const haystack = [
+    order.id, order.trackingCode, order.sender?.name, order.sender?.document,
+    order.recipient?.name, order.recipient?.document, order.sender?.city,
+    order.recipient?.city, order.carrier, order.serviceName
+  ].filter(Boolean).join(" ").toLowerCase();
+  return haystack.includes(search);
+}
+
+function openOrderDetails(order) {
+  const modal = $("#orderDetailModal");
+  if (!modal) return;
+  $("#orderDetailTitle").textContent = `Pedido #${String(order.id||"").slice(0,8).toUpperCase()}`;
+  $("#orderDetailSubtitle").textContent = `${order.carrier || ""} · ${order.serviceName || ""}`;
+  const events = order.events || [];
+  const addons = order.addons || [];
+  $("#orderDetailBody").innerHTML = `
+    <div class="detail-grid">
+      <div><span>Status</span><strong>${escapeHtml(orderStatusMeta(order.status)[0])}</strong></div>
+      <div><span>Total cliente</span><strong>${money(order.totalToCustomer)}</strong></div>
+      <div><span>Receita do ponto</span><strong>${money(order.pointRevenueTotal)}</strong></div>
+      <div><span>Pagamento</span><strong>${escapeHtml(paymentMethodLabel(order.paymentMethod))}</strong></div>
+      <div><span>Rastreio</span><strong>${escapeHtml(order.trackingCode || "—")}</strong></div>
+      <div><span>Prazo</span><strong>${Number(order.deadline||0) || "—"} dias</strong></div>
+    </div>
+    <div class="detail-party"><h4>Remetente</h4><b>${escapeHtml(order.sender?.name||"")}</b><span>${escapeHtml(addressText(order.sender||{}))}</span></div>
+    <div class="detail-party"><h4>Destinatário</h4><b>${escapeHtml(order.recipient?.name||"")}</b><span>${escapeHtml(addressText(order.recipient||{}))}</span></div>
+    ${addons.length ? `<div class="detail-section"><h4>Produtos e serviços</h4>${addons.map(a=>`<div class="detail-line"><span>${escapeHtml(a.itemName)} ×${Number(a.quantity)}</span><b>${money(a.totalPrice)}</b></div>`).join("")}</div>` : ""}
+    <div class="detail-section"><h4>Linha do tempo</h4>
+      <div class="order-timeline">${events.length ? events.map(e=>`<div class="timeline-event"><i></i><div><b>${escapeHtml(e.title)}</b><span>${escapeHtml(e.detail||"")}</span><small>${new Date(e.createdAt).toLocaleString("pt-BR")}</small></div></div>`).join("") : '<div class="empty-state">Sem eventos registrados.</div>'}</div>
+    </div>`;
+  modal.classList.remove("hidden");
+}
+
 function renderOrders() {
   const host = $("#ordersList");
   if (!host) return;
-  const orders = state.orders || [];
+  const allOrders = state.orders || [];
+  const orders = allOrders.filter(orderMatchesFilters);
 
-  const pendingStatuses = new Set(["CASH_REMITTANCE_PENDING","CASH_REMITTANCE_PAYMENT_PENDING","PAYMENT_PENDING","PAYMENT_SETUP_PENDING","PARTNER_FINANCIAL_SETUP_REQUIRED","PAID_WAITING_SHIPMENT","PAYMENT_CONFIRMED"]);
-  const commissionStatuses = new Set(["CASH_REMITTANCE_PENDING","CASH_REMITTANCE_PAYMENT_PENDING","PAYMENT_CONFIRMED","PAID_WAITING_SHIPMENT","LABEL_AVAILABLE","SHIPMENT_ERROR"]);
-  $("#ordersPendingCount").textContent = orders.filter(o => pendingStatuses.has(o.status)).length;
-  $("#ordersReadyCount").textContent = orders.filter(o => o.status === "LABEL_AVAILABLE").length;
-  $("#ordersCommissionTotal").textContent = money(orders.filter(o => commissionStatuses.has(o.status)).reduce((s,o) => s + Number(o.pointRevenueTotal || o.partnerCommission || 0), 0));
+  const pendingStatuses = new Set(["CASH_REMITTANCE_PENDING","CASH_REMITTANCE_PAYMENT_PENDING","SIMULATED_REMITTANCE_PENDING","SIMULATED_PAYMENT_PENDING","PAYMENT_PENDING","PAYMENT_SETUP_PENDING","PARTNER_FINANCIAL_SETUP_REQUIRED","PAID_WAITING_SHIPMENT","PAYMENT_CONFIRMED"]);
+  const commissionStatuses = new Set(["CASH_REMITTANCE_PENDING","CASH_REMITTANCE_PAYMENT_PENDING","SIMULATED_REMITTANCE_PENDING","PAYMENT_CONFIRMED","PAID_WAITING_SHIPMENT","LABEL_AVAILABLE","LABEL_AVAILABLE_SIMULATED","SHIPMENT_ERROR"]);
+  $("#ordersPendingCount").textContent = allOrders.filter(o => pendingStatuses.has(o.status)).length;
+  $("#ordersReadyCount").textContent = allOrders.filter(o => ["LABEL_AVAILABLE","LABEL_AVAILABLE_SIMULATED"].includes(o.status)).length;
+  $("#ordersCommissionTotal").textContent = money(allOrders.filter(o => commissionStatuses.has(o.status)).reduce((s,o) => s + Number(o.pointRevenueTotal || o.partnerCommission || 0), 0));
 
   if (!orders.length) {
-    host.innerHTML = `<div class="orders-empty"><strong>Nenhum frete registrado ainda.</strong><span>Faça uma cotação e conclua os dados da postagem.</span><button class="primary" type="button" data-empty-new>Fazer primeira cotação</button></div>`;
+    host.innerHTML = `<div class="orders-empty"><strong>Nenhum frete encontrado.</strong><span>Ajuste os filtros ou faça uma nova cotação.</span><button class="primary" type="button" data-empty-new>Nova cotação</button></div>`;
     host.querySelector("[data-empty-new]")?.addEventListener("click", () => navigate("quote"));
     return;
   }
@@ -905,7 +982,7 @@ function renderOrders() {
     card.innerHTML = `
       <div class="order-top">
         <div>
-          <div class="order-id">#${escapeHtml(order.id.slice(0,8).toUpperCase())} · ${escapeHtml(date)}</div>
+          <div class="order-id">#${escapeHtml(order.id.slice(0,8).toUpperCase())} · ${escapeHtml(date)}${order.isSimulation ? " · HOMOLOGAÇÃO" : ""}</div>
           <h3>${escapeHtml(order.carrier)} <span>${escapeHtml(order.serviceName)}</span></h3>
           <p>${route}</p>
         </div>
@@ -918,58 +995,41 @@ function renderOrders() {
         <div><span>Rastreio</span><strong>${escapeHtml(order.trackingCode || "—")}</strong></div>
       </div>
       ${order.addons?.length ? `<div class="order-addons"><strong>Adicionais:</strong> ${order.addons.map(a => `${escapeHtml(a.itemName)} ×${Number(a.quantity)} (${money(a.totalPrice)})`).join(" · ")}</div>` : ""}
-      <div class="order-bottom">
-        <span>${escapeHtml(description)}</span>
-        <div class="order-actions"></div>
-      </div>
-    `;
+      <div class="order-bottom"><span>${escapeHtml(description)}</span><div class="order-actions"></div></div>`;
     const actions = card.querySelector(".order-actions");
 
     if (order.status === "CASH_REMITTANCE_PENDING") {
       const due = Number(order.cashRemittanceTotal || order.cashRemittanceAmount || 0);
-      const btn = document.createElement("button");
-      btn.className = "primary";
-      btn.type = "button";
-      btn.textContent = `Pagar ${money(due)} e liberar etiqueta`;
-      btn.addEventListener("click", () => payCashRemittance(order.id, btn));
-      actions.appendChild(btn);
+      const btn = document.createElement("button"); btn.className="primary"; btn.type="button";
+      btn.textContent = state.config?.paymentSimulatorEnabled ? `Preparar repasse teste ${money(due)}` : `Pagar ${money(due)} e liberar etiqueta`;
+      btn.addEventListener("click", () => payCashRemittance(order.id, btn)); actions.appendChild(btn);
+    }
+
+    if (["SIMULATED_PAYMENT_PENDING","SIMULATED_REMITTANCE_PENDING"].includes(order.status)) {
+      const btn=document.createElement("button"); btn.className="primary"; btn.type="button"; btn.textContent="Confirmar pagamento teste";
+      btn.addEventListener("click",()=>simulateOrderPayment(order.id,btn)); actions.appendChild(btn);
     }
 
     if (order.paymentCheckoutUrl && ["PAYMENT_PENDING","CASH_REMITTANCE_PAYMENT_PENDING"].includes(order.status)) {
-      const btn = document.createElement("button");
-      btn.className = "primary";
-      btn.type = "button";
-      btn.textContent = "Abrir pagamento";
-      btn.addEventListener("click", () => { window.location.href = order.paymentCheckoutUrl; });
-      actions.appendChild(btn);
+      const btn=document.createElement("button"); btn.className="primary"; btn.type="button"; btn.textContent="Abrir pagamento";
+      btn.addEventListener("click",()=>{window.location.href=order.paymentCheckoutUrl;}); actions.appendChild(btn);
     }
 
     if (order.status === "LABEL_AVAILABLE") {
-      const labelBtn = document.createElement("button");
-      labelBtn.className = "primary";
-      labelBtn.type = "button";
-      labelBtn.textContent = "Imprimir etiqueta A6";
-      labelBtn.addEventListener("click", () => openProviderDocument(order.labelA6Url || order.labelA4Url));
-      actions.appendChild(labelBtn);
-
-      const receiptBtn = document.createElement("button");
-      receiptBtn.className = "ghost";
-      receiptBtn.type = "button";
-      receiptBtn.textContent = "Comprovante 80 mm";
-      receiptBtn.addEventListener("click", () => openReceipt(receiptPayloadFromOrder(order), true));
-      actions.appendChild(receiptBtn);
-
-      if (order.publicTrackingUrl) {
-        const track = document.createElement("a");
-        track.className = "ghost link-like";
-        track.href = order.publicTrackingUrl;
-        track.target = "_blank";
-        track.rel = "noopener";
-        track.textContent = "Rastrear";
-        actions.appendChild(track);
-      }
+      const labelBtn=document.createElement("button"); labelBtn.className="primary"; labelBtn.type="button"; labelBtn.textContent="Imprimir etiqueta A6";
+      labelBtn.addEventListener("click",()=>openProviderDocument(order.labelA6Url||order.labelA4Url)); actions.appendChild(labelBtn);
+    }
+    if (order.status === "LABEL_AVAILABLE_SIMULATED") {
+      const labelBtn=document.createElement("button"); labelBtn.className="primary"; labelBtn.type="button"; labelBtn.textContent="Etiqueta teste";
+      labelBtn.addEventListener("click",()=>openSimulatedLabel(order)); actions.appendChild(labelBtn);
+    }
+    if (["LABEL_AVAILABLE","LABEL_AVAILABLE_SIMULATED"].includes(order.status)) {
+      const receiptBtn=document.createElement("button"); receiptBtn.className="ghost"; receiptBtn.type="button"; receiptBtn.textContent="Comprovante 80 mm";
+      receiptBtn.addEventListener("click",()=>openReceipt(receiptPayloadFromOrder(order),true)); actions.appendChild(receiptBtn);
     }
 
+    const detailBtn=document.createElement("button"); detailBtn.className="ghost"; detailBtn.type="button"; detailBtn.textContent="Detalhes";
+    detailBtn.addEventListener("click",()=>openOrderDetails(order)); actions.appendChild(detailBtn);
     host.appendChild(card);
   });
 }
@@ -977,7 +1037,7 @@ function renderOrders() {
 async function loadOrders() {
   const host = $("#ordersList");
   if (!host) return;
-  host.innerHTML = `<div class="empty-state">Atualizando seus fretes...</div>`;
+  host.innerHTML = '<div class="empty-state">Atualizando seus fretes...</div>';
   try {
     const result = await api("/api/orders");
     state.orders = result.orders || [];
@@ -986,6 +1046,15 @@ async function loadOrders() {
     host.innerHTML = `<div class="orders-empty"><strong>Não foi possível carregar Meus Fretes.</strong><span>${escapeHtml(err.message)}</span></div>`;
   }
 }
+
+["ordersSearch","ordersStatusFilter","ordersPaymentFilter"].forEach(id => {
+  $("#"+id)?.addEventListener(id === "ordersSearch" ? "input" : "change", renderOrders);
+});
+$("#clearOrderFilters")?.addEventListener("click", () => {
+  $("#ordersSearch").value=""; $("#ordersStatusFilter").value=""; $("#ordersPaymentFilter").value=""; renderOrders();
+});
+$("#closeOrderDetailBtn")?.addEventListener("click",()=>$("#orderDetailModal")?.classList.add("hidden"));
+$("#orderDetailModal")?.addEventListener("click",event=>{if(event.target.id==="orderDetailModal") event.currentTarget.classList.add("hidden");});
 
 $("#paymentMethod")?.addEventListener("change", async () => {
   const method = $("#paymentMethod").value;
