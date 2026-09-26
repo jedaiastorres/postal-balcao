@@ -34,6 +34,7 @@ async function initDb() {
       cnpj TEXT,
       phone TEXT,
       email TEXT,
+      asaas_wallet_id TEXT,
       address JSONB NOT NULL DEFAULT '{}'::jsonb,
       commission_percent NUMERIC(6,3) NOT NULL DEFAULT 20,
       active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -281,6 +282,7 @@ async function initDb() {
   `);
 
   await pool.query(`
+    ALTER TABLE stores ADD COLUMN IF NOT EXISTS asaas_wallet_id TEXT;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS addons_total NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS customer_subtotal NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS point_revenue_total NUMERIC(12,2) NOT NULL DEFAULT 0;
@@ -879,10 +881,10 @@ async function createStore(store) {
   const db = requireDb();
   const id = store.id || require("crypto").randomUUID();
   const { rows } = await db.query(
-    `INSERT INTO stores(id,code,name,legal_name,cnpj,phone,email,address,commission_percent,active)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)
+    `INSERT INTO stores(id,code,name,legal_name,cnpj,phone,email,asaas_wallet_id,address,commission_percent,active)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11)
      RETURNING *`,
-    [id,store.code,store.name,store.legalName||"",store.cnpj||"",store.phone||"",store.email||"",
+    [id,store.code,store.name,store.legalName||"",store.cnpj||"",store.phone||"",store.email||"",store.asaasWalletId||null,
      JSON.stringify(store.address||{}),store.commissionPercent??20,store.active!==false]
   );
   return rows[0];
@@ -894,8 +896,8 @@ async function updateStore(id, patch) {
   if (!current) return null;
   const { rows } = await db.query(
     `UPDATE stores SET
-      code=$2,name=$3,legal_name=$4,cnpj=$5,phone=$6,email=$7,address=$8::jsonb,
-      commission_percent=$9,active=$10,updated_at=NOW()
+      code=$2,name=$3,legal_name=$4,cnpj=$5,phone=$6,email=$7,asaas_wallet_id=$8,address=$9::jsonb,
+      commission_percent=$10,active=$11,updated_at=NOW()
      WHERE id=$1 RETURNING *`,
     [
       id,
@@ -905,6 +907,7 @@ async function updateStore(id, patch) {
       patch.cnpj ?? current.cnpj,
       patch.phone ?? current.phone,
       patch.email ?? current.email,
+      patch.asaasWalletId ?? current.asaas_wallet_id ?? null,
       JSON.stringify(patch.address ?? current.address ?? {}),
       patch.commissionPercent ?? Number(current.commission_percent),
       patch.active ?? current.active
