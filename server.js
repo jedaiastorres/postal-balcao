@@ -748,6 +748,207 @@ app.use("/api", (req, res, next) => {
   next();
 });
 
+app.get("/api/admin/overview", requireAuth, requireRole("ADMIN"), async (_req, res) => {
+  try {
+    const overview = await db.adminOverview();
+    res.json({
+      activeStores: Number(overview.active_stores || 0),
+      activeUsers: Number(overview.active_users || 0),
+      totalOrders: Number(overview.total_orders || 0),
+      pendingPayments: Number(overview.pending_payments || 0),
+      labelsAvailable: Number(overview.labels_available || 0),
+      grossSales: Number(overview.gross_sales || 0),
+      pointRevenue: Number(overview.point_revenue || 0),
+      postalRevenue: Number(overview.postal_revenue || 0)
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Não foi possível carregar o painel master." });
+  }
+});
+
+app.get("/api/admin/stores", requireAuth, requireRole("ADMIN"), async (_req, res) => {
+  try {
+    const stores = await db.listStores();
+    res.json({ stores: stores.map(store => ({
+      id: store.id, code: store.code, name: store.name, legalName: store.legal_name || "",
+      cnpj: store.cnpj || "", phone: store.phone || "", email: store.email || "",
+      address: store.address || {}, commissionPercent: Number(store.commission_percent || 0),
+      active: Boolean(store.active), activeUsers: Number(store.active_users || 0),
+      totalOrders: Number(store.total_orders || 0), grossSales: Number(store.gross_sales || 0)
+    })) });
+  } catch (error) {
+    res.status(500).json({ error: "Não foi possível carregar os pontos." });
+  }
+});
+
+app.post("/api/admin/stores", requireAuth, requireRole("ADMIN"), async (req, res) => {
+  try {
+    const body = req.body || {};
+    const code = String(body.code || "").trim().toUpperCase().replace(/[^A-Z0-9_-]/g,"");
+    const name = String(body.name || "").trim();
+    const commissionPercent = Number(body.commissionPercent ?? 20);
+    if (!code || !name) return res.status(400).json({ error: "Código e nome do ponto são obrigatórios." });
+    if (!Number.isFinite(commissionPercent) || commissionPercent < 0 || commissionPercent > 50) {
+      return res.status(400).json({ error: "A comissão do ponto deve estar entre 0% e 50%." });
+    }
+    const store = await db.createStore({
+      code,name,legalName:body.legalName,cnpj:cleanDigits(body.cnpj),phone:body.phone,email:body.email,
+      address:body.address||{},commissionPercent,active:body.active!==false
+    });
+    await audit(req,"CREATE_STORE","STORE",store.id,{code:store.code});
+    res.status(201).json({ store });
+  } catch (error) {
+    if (String(error.message).includes("duplicate key")) return res.status(409).json({ error: "Já existe um ponto com esse código." });
+    res.status(500).json({ error: "Não foi possível cadastrar o ponto." });
+  }
+});
+
+app.patch("/api/admin/stores/:id", requireAuth, requireRole("ADMIN"), async (req, res) => {
+  try {
+    const commissionPercent = req.body.commissionPercent == null ? undefined : Number(req.body.commissionPercent);
+    if (commissionPercent != null && (!Number.isFinite(commissionPercent) || commissionPercent < 0 || commissionPercent > 50)) {
+      return res.status(400).json({ error: "Comissão inválida." });
+    }
+    const store = await db.updateStore(req.params.id,{...req.body,commissionPercent});
+    if(!store) return res.status(404).json({error:"Ponto não encontrado."});
+    await audit(req,"UPDATE_STORE","STORE",store.id,{active:store.active,commissionPercent:Number(store.commission_percent)});
+    res.json({store});
+  } catch(error){ res.status(500).json({error:"Não foi possível atualizar o ponto."}); }
+});
+
+app.get("/api/admin/users", requireAuth, requireRole("ADMIN"), async (_req,res)=>{
+  try { res.json({users:await db.listUsers()}); }
+  catch(error){ res.status(500).json({error:"Não foi possível carregar os usuários."}); }
+});
+
+app.post("/api/admin/users", requireAuth, requireRole("ADMIN"), async (req,res)=>{
+  try {
+    const body=req.body||{};
+    const email=String(body.email||"").trim().toLowerCase();
+    const name=String(body.name||"").trim();
+    const role=String(body.role||"STORE_CLERK").toUpperCase();
+    const password=String(body.password||"");
+    if(!email||!name||password.length<6) return res.status(400).json({error:"Nome, e-mail e senha com ao menos 6 caracteres são obrigatórios."});
+    if(!["ADMIN","STORE_OWNER","STORE_CLERK","OPS"].includes(role)) return res.status(400).json({error:"Perfil inválido."});
+    if(role!=="ADMIN" && !body.storeId) return res.status(400).json({error:"Selecione o ponto deste usuário."});
+    const user=await db.createUser({
+      storeId:role==="ADMIN"?null:body.storeId,email,name,passwordHash:hashPassword(password),role,active:body.active!==false
+    });
+    await audit(req,"CREATE_USER","USER",user.id,{email:user.email,role:user.role,storeId:user.store_id});
+    res.status(201).json({user:{id:user.id,email:user.email,name:user.name,role:user.role,storeId:user.store_id,active:user.active}});
+  } catch(error){
+    if(String(error.message).includes("duplicate key")) return res.status(409).json({error:"Já existe usuário com esse e-mail."});
+    res.status(500).json({error:"Não foi possível cadastrar o usuário."});
+  }
+});
+
+app.get("/api/admin/audit", requireAuth, requireRole("ADMIN"), async (req,res)=>{
+  try { res.json({logs:await db.listAudit(Number(req.query.limit||100))}); }
+  catch(error){ res.status(500).json({error:"Não foi possível carregar a auditoria."}); }
+});
+
+app.get("/api/admin/catalog", requireAuth, requireRole("ADMIN"), async (_req,res)=>{
+  try { res.json({items:await db.listCatalogItems({activeOnly:false})}); }
+  catch(error){ res.status(500).json({error:"Não foi possível carregar o catálogo central."}); }
+});
+
+app.put("/api/admin/catalog/:code", requireAuth, requireRole("ADMIN"), async (req,res)=>{
+  try {
+    const body=req.body||{};
+    const itemType=String(body.itemType||"PRODUCT").toUpperCase();
+    const name=String(body.name||"").trim();
+    const code=String(req.params.code||"").trim().toUpperCase();
+    if(!name||!code||!["PRODUCT","SERVICE"].includes(itemType)) return res.status(400).json({error:"Código, nome e tipo válidos são obrigatórios."});
+    const shares=[Number(body.pointSharePercent||0),Number(body.postalSharePercent||0),Number(body.providerSharePercent||0)];
+    if(shares.some(v=>!Number.isFinite(v)||v<0)||shares.reduce((a,b)=>a+b,0)>100.0001) return res.status(400).json({error:"Divisão financeira inválida."});
+    const item=await db.upsertCatalogItem({
+      code,itemType,category:String(body.category||"OUTROS").toUpperCase(),name,description:body.description||"",
+      unitPrice:Number(body.unitPrice||0),costPrice:Number(body.costPrice||0),trackStock:Boolean(body.trackStock),
+      pointSharePercent:shares[0],postalSharePercent:shares[1],providerSharePercent:shares[2],
+      externalProvider:body.externalProvider||null,externalRef:body.externalRef||null,active:body.active!==false,metadata:body.metadata||{}
+    });
+    await audit(req,"UPSERT_CATALOG_ITEM","CATALOG_ITEM",item.id,{code:item.code,itemType:item.item_type});
+    res.json({item});
+  } catch(error){ res.status(500).json({error:"Não foi possível salvar o item."}); }
+});
+
+app.get("/api/admin/credit/partners", requireAuth, requireRole("ADMIN"), async (_req,res)=>{
+  try { res.json({partners:await db.listCreditPartners()}); }
+  catch(error){ res.status(500).json({error:"Não foi possível carregar parceiros de crédito."}); }
+});
+
+app.post("/api/admin/credit/partners", requireAuth, requireRole("ADMIN"), async (req,res)=>{
+  try {
+    const body=req.body||{};
+    if(!body.code||!body.name) return res.status(400).json({error:"Código e nome são obrigatórios."});
+    const partner=await db.upsertCreditPartner({
+      code:String(body.code).trim().toUpperCase(),name:String(body.name).trim(),
+      integrationMode:String(body.integrationMode||"MANUAL").toUpperCase(),apiBaseUrl:body.apiBaseUrl||null,
+      active:body.active!==false,metadata:body.metadata||{}
+    });
+    await audit(req,"UPSERT_CREDIT_PARTNER","CREDIT_PARTNER",partner.id,{code:partner.code});
+    res.json({partner});
+  } catch(error){ res.status(500).json({error:"Não foi possível salvar o parceiro."}); }
+});
+
+app.get("/api/admin/credit/products", requireAuth, requireRole("ADMIN"), async (_req,res)=>{
+  try { res.json({products:await db.listCreditProducts(false)}); }
+  catch(error){ res.status(500).json({error:"Não foi possível carregar produtos de crédito."}); }
+});
+
+app.post("/api/admin/credit/products", requireAuth, requireRole("ADMIN"), async (req,res)=>{
+  try {
+    const body=req.body||{};
+    if(!body.partnerId||!body.code||!body.name) return res.status(400).json({error:"Parceiro, código e nome são obrigatórios."});
+    const product=await db.upsertCreditProduct({
+      partnerId:body.partnerId,code:String(body.code).trim().toUpperCase(),name:String(body.name).trim(),
+      description:body.description||"",minAmount:Number(body.minAmount||0)||null,maxAmount:Number(body.maxAmount||0)||null,
+      pointCommissionPercent:Number(body.pointCommissionPercent||0),postalCommissionPercent:Number(body.postalCommissionPercent||0),
+      active:body.active!==false,metadata:body.metadata||{}
+    });
+    await audit(req,"UPSERT_CREDIT_PRODUCT","CREDIT_PRODUCT",product.id,{code:product.code});
+    res.json({product});
+  } catch(error){ res.status(500).json({error:"Não foi possível salvar o produto de crédito."}); }
+});
+
+app.get("/api/credit/products", requireAuth, async (_req,res)=>{
+  try {
+    const products=await db.listCreditProducts(true);
+    res.json({products:products.map(p=>({
+      id:p.id,code:p.code,name:p.name,description:p.description||"",partnerName:p.partner_name,
+      minAmount:Number(p.min_amount||0),maxAmount:Number(p.max_amount||0),
+      pointCommissionPercent:Number(p.point_commission_percent||0)
+    }))});
+  } catch(error){ res.status(500).json({error:"Não foi possível carregar as ofertas."}); }
+});
+
+app.get("/api/credit/proposals", requireAuth, async (req,res)=>{
+  try {
+    const proposals=await db.listCreditProposals(req.user.role==="ADMIN"?{}:{storeId:req.user.storeId||null});
+    res.json({proposals});
+  } catch(error){ res.status(500).json({error:"Não foi possível carregar as propostas."}); }
+});
+
+app.post("/api/credit/proposals", requireAuth, async (req,res)=>{
+  try {
+    const body=req.body||{};
+    const applicantName=String(body.applicantName||"").trim();
+    const document=cleanDigits(body.document);
+    const requestedAmount=Number(body.requestedAmount||0);
+    if(!body.productId||!applicantName||document.length<11||!Number.isFinite(requestedAmount)||requestedAmount<=0||body.consent!==true){
+      return res.status(400).json({error:"Preencha os dados da proposta e confirme o consentimento."});
+    }
+    const documentHash=crypto.createHash("sha256").update(document).digest("hex");
+    const proposal=await db.createCreditProposal({
+      storeId:req.user.storeId||null,userId:req.user.userId||null,productId:body.productId,
+      applicantName,documentHash,documentLast4:document.slice(-4),phone:String(body.phone||""),
+      requestedAmount,status:"LEAD",metadata:{source:"BALCAO"}
+    });
+    await audit(req,"CREATE_CREDIT_LEAD","CREDIT_PROPOSAL",proposal.id,{productId:body.productId,requestedAmount});
+    res.status(201).json({proposal:{id:proposal.id,status:proposal.status,createdAt:proposal.created_at}});
+  } catch(error){ res.status(500).json({error:"Não foi possível registrar a proposta."}); }
+});
+
 /**
  * COTAÇÃO
  * ConectEnvios:
