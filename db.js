@@ -419,7 +419,7 @@ async function listOrders(partnerEmail, limit = 100) {
 async function getOrder(id, scope = null) {
   const db = requireDb();
   const params = [id];
-  let sql = `SELECT f.*,
+  let sql = `SELECT f.*,s.name AS store_name,s.code AS store_code,
     COALESCE((
       SELECT jsonb_agg(to_jsonb(a) ORDER BY a.created_at)
       FROM order_addons a WHERE a.order_id=f.id
