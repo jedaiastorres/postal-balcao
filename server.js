@@ -26,6 +26,7 @@ const ASAAS_RESERVE_WALLET_ID = String(process.env.ASAAS_CONNECTENVIOS_RESERVE_W
 const ASAAS_DEFAULT_PARTNER_WALLET_ID = String(process.env.ASAAS_DEFAULT_PARTNER_WALLET_ID || "").trim();
 const INTEGRATION_API_KEY = String(process.env.INTEGRATION_API_KEY || "").trim();
 const PAYMENT_SIMULATOR_ENABLED = String(process.env.PAYMENT_SIMULATOR_ENABLED || "true").toLowerCase() === "true";
+const ADMIN_PASSWORD_RESET_HASH = String(process.env.ADMIN_PASSWORD_RESET_HASH || "").trim();
 
 app.disable("x-powered-by");
 app.use(helmet({
@@ -1835,12 +1836,18 @@ async function ensureBootstrapAdmin() {
     const admin = await db.createUser({
       email: APP_USER,
       name: "Administrador Postal",
-      passwordHash: hashPassword(APP_PASSWORD),
+      passwordHash: ADMIN_PASSWORD_RESET_HASH.startsWith("pbkdf2$") ? ADMIN_PASSWORD_RESET_HASH : hashPassword(APP_PASSWORD),
       role: "ADMIN",
       active: true,
       storeId: null
     });
     console.log("Usuário administrador inicial criado:", admin.email);
+    return;
+  }
+
+  if (ADMIN_PASSWORD_RESET_HASH.startsWith("pbkdf2$")) {
+    await db.updateUser(existing.id, { passwordHash: ADMIN_PASSWORD_RESET_HASH, active: true, role: "ADMIN", storeId: null });
+    console.log("Senha do administrador inicial sincronizada por migração segura.");
   }
 }
 
