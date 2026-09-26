@@ -648,7 +648,9 @@ function prepareShipmentView() {
   const lockNote = $("#shipmentLockNote");
   lockNote.textContent = state.config?.paymentsConfigured
     ? "A etiqueta só será criada após a confirmação do pagamento."
-    : "A integração Asaas está preparada e aguarda a chave da conta para processar cobranças.";
+    : (state.config?.paymentSimulatorEnabled
+        ? "Modo homologação ativo: o pagamento pode ser simulado em Meus Fretes sem movimentar dinheiro."
+        : "A integração Asaas está preparada e aguarda a chave da conta para processar cobranças.");
   return true;
 }
 
@@ -1352,10 +1354,13 @@ $("#inventoryReceiveForm")?.addEventListener("submit", async event => {
         code: $("#inventoryProduct").value,
         quantity: Number($("#inventoryQuantity").value || 0),
         salePrice: Number($("#inventorySalePrice").value || 0),
+        unitCost: Number($("#inventoryUnitCost").value || 0),
+        lotCode: $("#inventoryLotCode").value.trim(),
         note: $("#inventoryNote").value.trim()
       })
     });
     $("#inventoryQuantity").value = "";
+    $("#inventoryLotCode").value = "";
     $("#inventoryNote").value = "";
     toast("Entrada de estoque registrada.");
     await loadInventory();
@@ -1369,10 +1374,24 @@ $("#inventoryReceiveForm")?.addEventListener("submit", async event => {
 
 $("#inventoryProduct")?.addEventListener("change", () => {
   const item = state.inventory.find(x => x.code === $("#inventoryProduct").value);
-  if (item) $("#inventorySalePrice").value = Number(item.unitPrice || 0).toFixed(2);
+  if (item) {
+    $("#inventorySalePrice").value = Number(item.unitPrice || 0).toFixed(2);
+    $("#inventoryUnitCost").value = Number(item.averageCost || 0).toFixed(2);
+  }
 });
 
 $("#refreshInventoryBtn")?.addEventListener("click", loadInventory);
+$("#exportInventoryBtn")?.addEventListener("click", () => {
+  const rows = [["Código","Item","Tipo","Custo médio","Preço venda","Estoque físico","Reservado","Disponível","Estoque mínimo"]];
+  state.inventory.forEach(item => rows.push([
+    item.code,item.name,item.itemType,Number(item.averageCost||0).toFixed(2),Number(item.unitPrice||0).toFixed(2),
+    item.stockQuantity,item.reservedQuantity,item.availableQuantity,item.minQuantity
+  ]));
+  const csv = rows.map(row => row.map(value => '"' + String(value ?? "").replaceAll('"','""') + '"').join(";")).join("\n");
+  const blob = new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+  a.download="estoque-postal-"+new Date().toISOString().slice(0,10)+".csv"; a.click(); URL.revokeObjectURL(a.href);
+});
 
 $("#shipmentForm")?.addEventListener("submit", async event => {
   event.preventDefault();
