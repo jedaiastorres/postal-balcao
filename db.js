@@ -335,7 +335,7 @@ async function insertOrder(order) {
   const db = requireDb();
   const { rows } = await db.query(
     `INSERT INTO freight_orders(
-      id, partner_email, status, payment_method, payment_status, payment_provider,
+      id, store_id, partner_email, status, payment_method, payment_status, payment_provider,
       payment_amount, payment_surcharge, cash_remittance_amount,
       sale_price, addons_total, customer_subtotal,
       point_revenue_total, postal_revenue_total, provider_revenue_total,
@@ -343,17 +343,17 @@ async function insertOrder(order) {
       postal_company_id, carrier, service_name, deadline, quote_token,
       sender, recipient, items, invoice_number, package_data
     ) VALUES (
-      $1,$2,$3,$4,$5,$6,
-      $7,$8,$9,
-      $10,$11,$12,
-      $13,$14,$15,
-      $16,$17,$18,
-      $19,$20,$21,$22,$23,
-      $24::jsonb,$25::jsonb,$26::jsonb,$27,$28::jsonb
+      $1,$2,$3,$4,$5,$6,$7,
+      $8,$9,$10,
+      $11,$12,$13,
+      $14,$15,$16,
+      $17,$18,$19,
+      $20,$21,$22,$23,$24,
+      $25::jsonb,$26::jsonb,$27::jsonb,$28,$29::jsonb
     )
     RETURNING *`,
     [
-      order.id, order.partnerEmail, order.status, order.paymentMethod, order.paymentStatus, order.paymentProvider || null,
+      order.id, order.storeId || null, order.partnerEmail, order.status, order.paymentMethod, order.paymentStatus, order.paymentProvider || null,
       order.paymentAmount || 0, order.paymentSurcharge || 0, order.cashRemittanceAmount || 0,
       order.salePrice, order.addonsTotal || 0, order.customerSubtotal || order.salePrice || 0,
       order.pointRevenueTotal || order.partnerCommission || 0,
@@ -368,36 +368,70 @@ async function insertOrder(order) {
   return rows[0];
 }
 
-async function listOrders(partnerEmail, limit = 100) {
+async function listOrdersScoped(scope = {}, limit = 100) {
   const db = requireDb();
+  const params = [];
+  const where = [];
+
+  if (scope.storeId) {
+    params.push(scope.storeId);
+    where.push(`f.store_id=$${params.length}`);
+  } else if (scope.partnerEmail) {
+    params.push(scope.partnerEmail);
+    where.push(`f.partner_email=$${params.length}`);
+  }
+
+  params.push(Math.max(1, Math.min(250, Number(limit) || 100)));
+  const limitParam = "$" + params.length;
+
   const { rows } = await db.query(
     `SELECT f.*,
        COALESCE((
          SELECT jsonb_agg(to_jsonb(a) ORDER BY a.created_at)
          FROM order_addons a WHERE a.order_id=f.id
-       ), '[]'::jsonb) AS addons
+       ), '[]'::jsonb) AS addons,
+       COALESCE((
+         SELECT jsonb_agg(to_jsonb(e) ORDER BY e.created_at)
+         FROM order_events e WHERE e.order_id=f.id
+       ), '[]'::jsonb) AS events
      FROM freight_orders f
-     WHERE f.partner_email=$1
+     ${where.length ? "WHERE " + where.join(" AND ") : ""}
      ORDER BY f.created_at DESC
-     LIMIT $2`,
-    [partnerEmail, Math.max(1, Math.min(250, Number(limit) || 100))]
+     LIMIT ${limitParam}`,
+    params
   );
   return rows;
 }
 
-async function getOrder(id, partnerEmail = null) {
+async function listOrders(partnerEmail, limit = 100) {
+  return listOrdersScoped({ partnerEmail }, limit);
+}
+
+async function getOrder(id, scope = null) {
   const db = requireDb();
   const params = [id];
   let sql = `SELECT f.*,
     COALESCE((
       SELECT jsonb_agg(to_jsonb(a) ORDER BY a.created_at)
       FROM order_addons a WHERE a.order_id=f.id
-    ), '[]'::jsonb) AS addons
+    ), '[]'::jsonb) AS addons,
+    COALESCE((
+      SELECT jsonb_agg(to_jsonb(e) ORDER BY e.created_at)
+      FROM order_events e WHERE e.order_id=f.id
+    ), '[]'::jsonb) AS events
     FROM freight_orders f WHERE f.id=$1`;
-  if (partnerEmail) {
-    sql += " AND f.partner_email=$2";
-    params.push(partnerEmail);
+
+  if (typeof scope === "string") {
+    params.push(scope);
+    sql += ` AND f.partner_email=$${params.length}`;
+  } else if (scope?.storeId) {
+    params.push(scope.storeId);
+    sql += ` AND f.store_id=$${params.length}`;
+  } else if (scope?.partnerEmail) {
+    params.push(scope.partnerEmail);
+    sql += ` AND f.partner_email=$${params.length}`;
   }
+
   sql += " LIMIT 1";
   const { rows } = await db.query(sql, params);
   return rows[0] || null;
