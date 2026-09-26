@@ -84,9 +84,23 @@ function showApp(user) {
   $("#appView").classList.remove("hidden");
   $("#partnerEmail").textContent = user?.storeName || user?.name || user?.email || "parceiro";
   $("#adminNavSection")?.classList.toggle("hidden", user?.role !== "ADMIN");
-  $(".admin-only").forEach(el => {
-    if (el.id !== "masterView") el.classList.toggle("hidden", user?.role !== "ADMIN");
-  });
+
+  const canSell = ["ADMIN","STORE_OWNER","STORE_CLERK"].includes(user?.role);
+  const canManageStock = ["ADMIN","STORE_OWNER","OPS"].includes(user?.role);
+  const canUseCredit = ["ADMIN","STORE_OWNER","STORE_CLERK"].includes(user?.role);
+  const ownerFinance = ["ADMIN","STORE_OWNER"].includes(user?.role);
+
+  document.querySelector('[data-view="quote"]')?.classList.toggle("hidden", !canSell);
+  document.querySelector('[data-view="credit"]')?.classList.toggle("hidden", !canUseCredit);
+  document.querySelector('[data-view="inventory"]')?.classList.toggle("hidden", !canManageStock);
+  document.querySelector('[data-view="cash"]')?.classList.toggle("hidden", !ownerFinance);
+
+  if (user?.storeCommissionPercent != null) {
+    const pct = Number(user.storeCommissionPercent).toFixed(1).replace(".0","");
+    $("#commissionCaption").textContent = pct + "% sobre o preço final";
+    $("#commissionBig").textContent = pct + "%";
+  }
+
   refreshDashboard();
 
   const params = new URLSearchParams(window.location.search);
