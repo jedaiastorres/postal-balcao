@@ -1323,7 +1323,15 @@ app.post("/api/orders/:id/remittance", requireAuth, async (req, res) => {
     if (order.payment_checkout_url && order.payment_status === "PENDING") {
       return res.json({ order: publicOrder(order), checkoutUrl: order.payment_checkout_url });
     }
-    if (!asaas.configured()) return res.status(503).json({ error: "Asaas ainda não configurado." });
+    if (!asaas.configured()) {
+      if (PAYMENT_SIMULATOR_ENABLED) {
+        const updated = await db.updateStatus(order.id, "SIMULATED_REMITTANCE_PENDING", "PENDING");
+        await db.addOrderEvent(order.id, "REMITTANCE_SIMULATOR", "Repasse de homologação pendente", "Use o simulador para confirmar o repasse sem movimentar dinheiro.");
+        const complete = await db.getOrder(updated.id, scopeForUser(req.user));
+        return res.json({ order: publicOrder(complete), simulator: true });
+      }
+      return res.status(503).json({ error: "Asaas ainda não configurado." });
+    }
 
     const remittanceBase = round2(Number(order.cash_remittance_amount || 0));
     const checkout = await asaas.createCheckout({
@@ -1352,6 +1360,43 @@ app.post("/api/orders/:id/remittance", requireAuth, async (req, res) => {
   } catch (error) {
     console.error("cash remittance error:", error.status, error.providerData || error.message);
     res.status(500).json({ error: error.message || "Não foi possível gerar o repasse." });
+  }
+});
+
+app.post("/api/orders/:id/simulate-payment", requireAuth, async (req, res) => {
+  try {
+    if (!PAYMENT_SIMULATOR_ENABLED || asaas.configured()) {
+      return res.status(403).json({ error: "Simulador indisponível fora do ambiente de homologação." });
+    }
+
+    const order = await db.getOrder(req.params.id, scopeForUser(req.user));
+    if (!order) return res.status(404).json({ error: "Frete não encontrado." });
+    const allowed = new Set([
+      "SIMULATED_PAYMENT_PENDING",
+      "SIMULATED_REMITTANCE_PENDING",
+      "PAYMENT_SETUP_PENDING",
+      "CASH_REMITTANCE_PENDING"
+    ]);
+    if (!allowed.has(order.status)) {
+      return res.status(400).json({ error: "Este frete não está aguardando um pagamento simulável." });
+    }
+
+    const paid = await db.markPaid(order.id, "PAYMENT_CONFIRMED");
+    if (order.payment_method !== "DINHEIRO") {
+      await db.consumeOrderInventory(order.id, inventoryOwnerFromOrder(order));
+    }
+    await db.addOrderEvent(order.id, "PAYMENT_CONFIRMED", "Pagamento homologado", "Confirmação simulada, sem movimentação financeira real.");
+
+    const tracking = "SIM" + order.id.replace(/-/g,"").slice(0,10).toUpperCase();
+    await db.saveSimulatedShipment(order.id, tracking);
+    await db.addOrderEvent(order.id, "LABEL_AVAILABLE_SIMULATED", "Etiqueta de teste liberada", "Documento somente para homologação; não é uma postagem real.");
+
+    const complete = await db.getOrder(order.id, scopeForUser(req.user));
+    await audit(req, "SIMULATE_PAYMENT", "FREIGHT_ORDER", order.id, { paymentMethod: order.payment_method });
+    res.json({ ok:true, order: publicOrder(complete) });
+  } catch (error) {
+    console.error("simulate payment error:", error.message);
+    res.status(500).json({ error: error.message || "Não foi possível simular o pagamento." });
   }
 });
 
