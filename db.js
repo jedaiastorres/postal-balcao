@@ -393,7 +393,7 @@ async function listOrdersScoped(scope = {}, limit = 100) {
   const limitParam = "$" + params.length;
 
   const { rows } = await db.query(
-    `SELECT f.*,
+    `SELECT f.*,s.name AS store_name,s.code AS store_code,
        COALESCE((
          SELECT jsonb_agg(to_jsonb(a) ORDER BY a.created_at)
          FROM order_addons a WHERE a.order_id=f.id
@@ -403,6 +403,7 @@ async function listOrdersScoped(scope = {}, limit = 100) {
          FROM order_events e WHERE e.order_id=f.id
        ), '[]'::jsonb) AS events
      FROM freight_orders f
+     LEFT JOIN stores s ON s.id=f.store_id
      ${where.length ? "WHERE " + where.join(" AND ") : ""}
      ORDER BY f.created_at DESC
      LIMIT ${limitParam}`,
@@ -427,7 +428,7 @@ async function getOrder(id, scope = null) {
       SELECT jsonb_agg(to_jsonb(e) ORDER BY e.created_at)
       FROM order_events e WHERE e.order_id=f.id
     ), '[]'::jsonb) AS events
-    FROM freight_orders f WHERE f.id=$1`;
+    FROM freight_orders f LEFT JOIN stores s ON s.id=f.store_id WHERE f.id=$1`;
 
   if (typeof scope === "string") {
     params.push(scope);
