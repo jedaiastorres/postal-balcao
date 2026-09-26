@@ -454,6 +454,14 @@ function publicOrder(order) {
     labelA6Url: order.label_a6_url || "",
     declarationUrl: order.declaration_url || "",
     publicTrackingUrl: order.public_tracking_url || "",
+    isSimulation: Boolean(order.is_simulation),
+    events: Array.isArray(order.events) ? order.events.map(event => ({
+      id: event.id,
+      type: event.event_type,
+      title: event.title,
+      detail: event.detail || "",
+      createdAt: event.created_at
+    })) : [],
     createdAt: order.created_at,
     paidAt: order.paid_at,
     shippedAt: order.shipped_at
@@ -596,7 +604,7 @@ async function processAsaasWebhookEvent(eventRow) {
       if (order.payment_method !== "DINHEIRO") await db.releaseOrderInventory(order.id, inventoryOwnerFromOrder(order));
       await db.updateStatus(order.id, "PAYMENT_CANCELED", "CANCELED");
     } else if (eventType === "CHECKOUT_EXPIRED") {
-      if (order.payment_method !== "DINHEIRO") await db.releaseOrderInventory(order.id, order.partner_email);
+      if (order.payment_method !== "DINHEIRO") await db.releaseOrderInventory(order.id, inventoryOwnerFromOrder(order));
       await db.updateStatus(order.id, "PAYMENT_EXPIRED", "EXPIRED");
     }
 
@@ -641,7 +649,8 @@ app.get("/api/public-config", (_req, res) => {
     shipmentCreationEnabled: ENABLE_SHIPMENT_CREATION,
     paymentsProvider: "ASAAS",
     paymentsConfigured: asaas.configured(),
-    databaseConfigured: Boolean(process.env.DATABASE_URL)
+    databaseConfigured: Boolean(process.env.DATABASE_URL),
+    paymentSimulatorEnabled: PAYMENT_SIMULATOR_ENABLED && !asaas.configured()
   });
 });
 
@@ -1121,7 +1130,7 @@ app.post("/api/integrations/v1/inventory/receive", requireIntegrationAuth, async
 
 app.get("/api/orders", requireAuth, async (req, res) => {
   try {
-    const orders = await db.listOrders(req.user.email, Number(req.query.limit || 100));
+    const orders = await db.listOrdersScoped(scopeForUser(req.user), Number(req.query.limit || 100));
     res.json({ orders: orders.map(publicOrder) });
   } catch (error) {
     console.error("list orders error:", error.message);
@@ -1131,7 +1140,7 @@ app.get("/api/orders", requireAuth, async (req, res) => {
 
 app.get("/api/orders/:id", requireAuth, async (req, res) => {
   try {
-    const order = await db.getOrder(req.params.id, req.user.email);
+    const order = await db.getOrder(req.params.id, scopeForUser(req.user));
     if (!order) return res.status(404).json({ error: "Frete não encontrado." });
     res.json({ order: publicOrder(order) });
   } catch (error) {
@@ -1213,8 +1222,9 @@ app.post("/api/orders", requireAuth, async (req, res) => {
 
       await db.insertOrderAddons(order.id, inventoryOwner(req.user), addons);
       await db.consumeOrderInventory(order.id, inventoryOwner(req.user));
+      await db.addOrderEvent(order.id, "ORDER_CREATED", "Frete registrado", "Pagamento em dinheiro recebido pelo ponto.");
 
-      const complete = await db.getOrder(order.id, req.user.email);
+      const complete = await db.getOrder(order.id, scopeForUser(req.user));
       return res.status(201).json({
         order: publicOrder(complete),
         nextAction: "PAY_REMITTANCE",
@@ -1232,9 +1242,20 @@ app.post("/api/orders", requireAuth, async (req, res) => {
     });
 
     await db.insertOrderAddons(order.id, inventoryOwner(req.user), addons);
+    await db.addOrderEvent(order.id, "ORDER_CREATED", "Frete registrado", "Aguardando confirmação financeira.");
 
     if (!asaas.configured()) {
-      const complete = await db.getOrder(order.id, req.user.email);
+      if (PAYMENT_SIMULATOR_ENABLED) {
+        await db.updateStatus(order.id, "SIMULATED_PAYMENT_PENDING", "PENDING");
+        await db.addOrderEvent(order.id, "PAYMENT_SIMULATOR", "Pagamento de homologação pendente", "Use o simulador para confirmar o pagamento sem movimentar dinheiro.");
+        const complete = await db.getOrder(order.id, scopeForUser(req.user));
+        return res.status(201).json({
+          order: publicOrder(complete),
+          nextAction: "SIMULATE_PAYMENT",
+          message: "Pagamento salvo em modo homologação."
+        });
+      }
+      const complete = await db.getOrder(order.id, scopeForUser(req.user));
       return res.status(201).json({
         order: publicOrder(complete),
         paymentSetupRequired: true,
@@ -1244,7 +1265,7 @@ app.post("/api/orders", requireAuth, async (req, res) => {
 
     if (!partnerWalletId) {
       const pending = await db.updateStatus(order.id, "PARTNER_FINANCIAL_SETUP_REQUIRED", "PENDING");
-      const complete = await db.getOrder(pending.id, req.user.email);
+      const complete = await db.getOrder(pending.id, scopeForUser(req.user));
       return res.status(201).json({
         order: publicOrder(complete),
         paymentSetupRequired: true,
