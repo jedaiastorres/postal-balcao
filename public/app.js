@@ -168,7 +168,16 @@ function navigate(name) {
     toast("Este perfil não possui acesso ao crédito no balcão.", "error");
     return;
   }
-  $(".view").forEach(v => v.classList.add("hidden"));
+  if (["quote","shipment"].includes(name) && !["ADMIN","STORE_OWNER","STORE_CLERK"].includes(state.user?.role)) {
+    toast("Este perfil não possui permissão para vender fretes.", "error");
+    return;
+  }
+  if (name === "inventory" && !["ADMIN","STORE_OWNER","OPS"].includes(state.user?.role)) {
+    toast("Este perfil não possui permissão para gerenciar estoque.", "error");
+    return;
+  }
+
+  $$(".view").forEach(v => v.classList.add("hidden"));
   $$(".nav-item").forEach(v => v.classList.toggle("active", v.dataset.view === name));
 
   const spec = viewMap[name] || viewMap.dashboard;
