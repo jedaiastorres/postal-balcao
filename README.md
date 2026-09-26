@@ -79,3 +79,36 @@ A API para integrações externas é versionada e protegida por `x-api-key`:
 O modelo do catálogo inclui `externalProvider`, `externalRef` e `metadata`, permitindo acrescentar futuramente serviços de terceiros, seguros, assistência, linhas de crédito, conveniências e outros produtos sem redesenhar o núcleo do Postal Balcão.
 
 Nunca exponha `INTEGRATION_API_KEY`, `ASAAS_API_KEY` ou tokens da ConectEnvios no frontend.
+
+
+## V1.5 — multi-ponto, master, homologação e crédito
+
+A V1.5 transforma o Postal Balcão em uma plataforma multi-ponto:
+
+- pontos físicos independentes com comissão própria;
+- usuários individuais com perfis ADMIN, STORE_OWNER, STORE_CLERK e OPS;
+- sessão assinada, proteção CSRF, limitação de tentativas de login e trilha de auditoria;
+- Painel Master da Postal para pontos, usuários, catálogo, comissões, wallet Asaas, crédito e auditoria;
+- Meus Fretes com pesquisa, filtros, linha do tempo e segunda via;
+- modo de homologação de pagamentos enquanto o Asaas não estiver ativo;
+- etiqueta A6 simulada claramente marcada como sem validade logística;
+- estoque por ponto com entrada, lote, custo médio, preço, margem, estoque mínimo, reservas, movimentações e CSV;
+- catálogo central extensível de produtos e serviços;
+- módulo Crédito no Balcão com parceiros, produtos, leads e consentimento;
+- API versionada para catálogo, estoque e atualizações de propostas financeiras;
+- exportação operacional em JSON pelo administrador.
+
+### Segurança do simulador
+
+O simulador só funciona quando `PAYMENT_SIMULATOR_ENABLED=true` e o Asaas ainda não está configurado. Ele nunca chama a ConectEnvios para criar uma postagem real e toda etiqueta gerada nesse modo é marcada como HOMOLOGAÇÃO — NÃO POSTAR.
+
+### Perfis
+
+- `ADMIN`: administração completa da rede;
+- `STORE_OWNER`: operação e gestão financeira/estoque do próprio ponto;
+- `STORE_CLERK`: cotação, atendimento, pagamentos e crédito do próprio ponto;
+- `OPS`: leitura operacional e gestão física de estoque, sem acesso ao crédito ou painel master.
+
+### Exportação e recuperação
+
+O Painel Master possui exportação operacional JSON contendo os dados de negócio do PostgreSQL, sem hashes de senha. Isso complementa o volume persistente do PostgreSQL; snapshots físicos do banco devem ser configurados no provedor de infraestrutura conforme a política de backup adotada.
