@@ -68,8 +68,16 @@
       <nav>
         <button class="nav-item" data-view="cash"><span>R$</span> Meu Caixa</button>
         <button class="nav-item" data-view="inventory"><span>▤</span> Produtos & Estoque</button>
+        <button class="nav-item" data-view="credit"><span>₿</span> Crédito no Balcão</button>
         <button class="nav-item" data-view="clients"><span>♙</span> Clientes</button>
       </nav>
+
+      <div id="adminNavSection" class="admin-only hidden">
+        <div class="nav-section">ADMINISTRAÇÃO POSTAL</div>
+        <nav>
+          <button class="nav-item" data-view="master"><span>★</span> Painel Master</button>
+        </nav>
+      </div>
 
       <div class="sidebar-foot">
         <div class="partner-mini">
@@ -242,6 +250,161 @@
         </div>
       </section>
 
+      <section id="creditView" class="view hidden">
+        <div class="orders-head">
+          <div>
+            <div class="eyebrow">SERVIÇOS FINANCEIROS</div>
+            <h1>Crédito no Balcão</h1>
+            <p>Cadastre uma intenção de crédito para os produtos habilitados. Nesta fase nenhum crédito é concedido automaticamente.</p>
+          </div>
+          <span class="order-status info">Estrutura pronta para APIs financeiras</span>
+        </div>
+
+        <div class="credit-layout">
+          <article class="panel">
+            <div class="panel-head"><div><span class="eyebrow">OFERTAS DISPONÍVEIS</span><h3>Produtos financeiros</h3></div></div>
+            <div id="creditProductsList" class="credit-products"><div class="empty-state">Carregando ofertas...</div></div>
+          </article>
+          <article class="form-panel">
+            <div class="form-panel-head"><span class="step-number">R$</span><div><h3>Nova intenção</h3><p>Os dados ficam registrados como lead até conectarmos o parceiro financeiro.</p></div></div>
+            <form id="creditProposalForm" class="inventory-form">
+              <label>Produto*
+                <select id="creditProduct" required></select>
+              </label>
+              <label>Nome do cliente*<input id="creditApplicantName" required /></label>
+              <label>CPF/CNPJ*<input id="creditDocument" inputmode="numeric" required /></label>
+              <label>Telefone<input id="creditPhone" inputmode="tel" /></label>
+              <label>Valor solicitado*
+                <div class="money-field"><span>R$</span><input id="creditAmount" type="number" min="1" step="0.01" required /></div>
+              </label>
+              <label class="consent-line"><input id="creditConsent" type="checkbox" required /> <span>Cliente autorizou o registro e tratamento dos dados para esta solicitação.</span></label>
+              <button class="primary" type="submit">Registrar intenção</button>
+            </form>
+          </article>
+        </div>
+        <article class="panel">
+          <div class="panel-head"><div><span class="eyebrow">ACOMPANHAMENTO</span><h3>Propostas registradas</h3></div><button id="refreshCreditBtn" class="ghost" type="button">Atualizar</button></div>
+          <div id="creditProposalsList" class="inventory-list"><div class="empty-state">Nenhuma proposta carregada.</div></div>
+        </article>
+      </section>
+
+      <section id="masterView" class="view hidden admin-only">
+        <div class="orders-head">
+          <div>
+            <div class="eyebrow">POSTAL ADMIN</div>
+            <h1>Painel Master</h1>
+            <p>Gerencie pontos, usuários, comissões, catálogo, parceiros financeiros e auditoria da operação.</p>
+          </div>
+          <button id="refreshMasterBtn" class="ghost" type="button">Atualizar painel</button>
+        </div>
+
+        <div class="master-metrics">
+          <div><span>Pontos ativos</span><strong id="masterStores">0</strong></div>
+          <div><span>Usuários ativos</span><strong id="masterUsers">0</strong></div>
+          <div><span>Fretes</span><strong id="masterOrders">0</strong></div>
+          <div><span>Venda bruta</span><strong id="masterGross">R$ 0,00</strong></div>
+          <div><span>Receita Postal</span><strong id="masterPostalRevenue">R$ 0,00</strong></div>
+        </div>
+
+        <div class="master-grid">
+          <article class="form-panel">
+            <div class="form-panel-head"><span class="step-number">1</span><div><h3>Novo ponto</h3><p>Comissão e carteira financeira ficam vinculadas ao estabelecimento.</p></div></div>
+            <form id="adminStoreForm" class="inventory-form">
+              <label>Código*<input id="adminStoreCode" placeholder="Ex.: PARAUAPEBAS-01" required /></label>
+              <label>Nome do ponto*<input id="adminStoreName" required /></label>
+              <label>CNPJ<input id="adminStoreCnpj" /></label>
+              <label>E-mail<input id="adminStoreEmail" type="email" /></label>
+              <label>Comissão do ponto (%)*<input id="adminStoreCommission" type="number" min="0" max="50" step="0.1" value="20" required /></label>
+              <label>Wallet Asaas<input id="adminStoreWallet" placeholder="Preencher após aprovação" /></label>
+              <button class="primary" type="submit">Cadastrar ponto</button>
+            </form>
+          </article>
+
+          <article class="form-panel">
+            <div class="form-panel-head"><span class="step-number">2</span><div><h3>Novo usuário</h3><p>Crie donos, atendentes e operadores com acesso individual.</p></div></div>
+            <form id="adminUserForm" class="inventory-form">
+              <label>Nome*<input id="adminUserName" required /></label>
+              <label>E-mail*<input id="adminUserEmail" type="email" required /></label>
+              <label>Senha inicial*<input id="adminUserPassword" type="password" minlength="6" required /></label>
+              <label>Perfil*
+                <select id="adminUserRole">
+                  <option value="STORE_OWNER">Dono do ponto</option>
+                  <option value="STORE_CLERK">Atendente</option>
+                  <option value="OPS">Operação Postal</option>
+                  <option value="ADMIN">Administrador Postal</option>
+                </select>
+              </label>
+              <label>Ponto<select id="adminUserStore"></select></label>
+              <button class="primary" type="submit">Criar usuário</button>
+            </form>
+          </article>
+        </div>
+
+        <article class="panel master-section">
+          <div class="panel-head"><div><span class="eyebrow">REDE DE PONTOS</span><h3>Estabelecimentos</h3></div></div>
+          <div id="adminStoresList" class="admin-table"><div class="empty-state">Carregando pontos...</div></div>
+        </article>
+
+        <div class="master-grid">
+          <article class="form-panel">
+            <div class="form-panel-head"><span class="step-number">3</span><div><h3>Catálogo central</h3><p>Cadastre produtos e serviços com divisão financeira configurável.</p></div></div>
+            <form id="adminCatalogForm" class="inventory-form">
+              <label>Código*<input id="adminCatalogCode" required /></label>
+              <label>Nome*<input id="adminCatalogName" required /></label>
+              <label>Tipo*
+                <select id="adminCatalogType"><option value="PRODUCT">Produto</option><option value="SERVICE">Serviço</option></select>
+              </label>
+              <label>Categoria<input id="adminCatalogCategory" value="OUTROS" /></label>
+              <label>Preço padrão<div class="money-field"><span>R$</span><input id="adminCatalogPrice" type="number" min="0" step="0.01" value="0" /></div></label>
+              <label><input id="adminCatalogStock" type="checkbox" /> Controla estoque físico</label>
+              <div class="shares-grid">
+                <label>Ponto %<input id="adminCatalogPointShare" type="number" min="0" max="100" step="0.1" value="100" /></label>
+                <label>Postal %<input id="adminCatalogPostalShare" type="number" min="0" max="100" step="0.1" value="0" /></label>
+                <label>Fornecedor %<input id="adminCatalogProviderShare" type="number" min="0" max="100" step="0.1" value="0" /></label>
+              </div>
+              <label>Fornecedor externo<input id="adminCatalogProvider" placeholder="Opcional" /></label>
+              <button class="primary" type="submit">Salvar item</button>
+            </form>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head"><div><span class="eyebrow">CATÁLOGO</span><h3>Produtos e serviços</h3></div></div>
+            <div id="adminCatalogList" class="inventory-list"><div class="empty-state">Carregando catálogo...</div></div>
+          </article>
+        </div>
+
+        <div class="master-grid">
+          <article class="form-panel">
+            <div class="form-panel-head"><span class="step-number">4</span><div><h3>Parceiro financeiro</h3><p>Prepare integrações de crédito e outros serviços futuros.</p></div></div>
+            <form id="adminCreditPartnerForm" class="inventory-form">
+              <label>Código*<input id="adminCreditPartnerCode" required /></label>
+              <label>Nome*<input id="adminCreditPartnerName" required /></label>
+              <label>Modo<select id="adminCreditPartnerMode"><option value="MANUAL">Manual</option><option value="API">API</option></select></label>
+              <label>URL da API<input id="adminCreditPartnerApi" /></label>
+              <button class="primary" type="submit">Salvar parceiro</button>
+            </form>
+          </article>
+          <article class="form-panel">
+            <div class="form-panel-head"><span class="step-number">5</span><div><h3>Produto de crédito</h3><p>Configure faixa de crédito e comissões do balcão.</p></div></div>
+            <form id="adminCreditProductForm" class="inventory-form">
+              <label>Parceiro*<select id="adminCreditProductPartner" required></select></label>
+              <label>Código*<input id="adminCreditProductCode" required /></label>
+              <label>Nome*<input id="adminCreditProductName" required /></label>
+              <label>Valor mínimo<input id="adminCreditMin" type="number" min="0" step="0.01" /></label>
+              <label>Valor máximo<input id="adminCreditMax" type="number" min="0" step="0.01" /></label>
+              <label>Comissão ponto %<input id="adminCreditPointCommission" type="number" min="0" max="100" step="0.1" value="0" /></label>
+              <label>Comissão Postal %<input id="adminCreditPostalCommission" type="number" min="0" max="100" step="0.1" value="0" /></label>
+              <button class="primary" type="submit">Salvar produto financeiro</button>
+            </form>
+          </article>
+        </div>
+
+        <article class="panel master-section">
+          <div class="panel-head"><div><span class="eyebrow">AUDITORIA</span><h3>Últimas ações</h3></div></div>
+          <div id="adminAuditList" class="audit-list"><div class="empty-state">Carregando auditoria...</div></div>
+        </article>
+      </section>
+
       <section id="inventoryView" class="view hidden">
         <div class="orders-head">
           <div>
@@ -300,6 +463,24 @@
           <div><span>Aguardando pagamento</span><strong id="ordersPendingCount">0</strong></div>
           <div><span>Etiquetas disponíveis</span><strong id="ordersReadyCount">0</strong></div>
           <div><span>Comissão acumulada</span><strong id="ordersCommissionTotal">R$ 0,00</strong></div>
+        </div>
+
+        <div class="orders-filters">
+          <input id="ordersSearch" placeholder="Buscar rastreio, nome, CPF/CNPJ ou pedido..." />
+          <select id="ordersStatusFilter">
+            <option value="">Todos os status</option>
+            <option value="PAYMENT_PENDING">Aguardando pagamento</option>
+            <option value="CASH_REMITTANCE_PENDING">Repasse pendente</option>
+            <option value="SIMULATED_PAYMENT_PENDING">Homologação pendente</option>
+            <option value="LABEL_AVAILABLE">Etiqueta disponível</option>
+            <option value="LABEL_AVAILABLE_SIMULATED">Etiqueta teste</option>
+            <option value="SHIPMENT_ERROR">Revisão necessária</option>
+          </select>
+          <select id="ordersPaymentFilter">
+            <option value="">Todos os pagamentos</option>
+            <option value="PIX">PIX</option><option value="CARTAO">Cartão</option><option value="DINHEIRO">Dinheiro</option>
+          </select>
+          <button id="clearOrderFilters" class="ghost" type="button">Limpar</button>
         </div>
 
         <div id="ordersList" class="orders-list">
@@ -446,6 +627,16 @@
         </div>
       </section>
     </main>
+  </div>
+
+  <div id="orderDetailModal" class="receipt-modal hidden" role="dialog" aria-modal="true">
+    <div class="receipt-modal-card order-detail-card">
+      <div class="receipt-modal-head">
+        <div><div class="eyebrow">DETALHES DO FRETE</div><h3 id="orderDetailTitle">Pedido</h3><p id="orderDetailSubtitle"></p></div>
+        <button id="closeOrderDetailBtn" class="receipt-close" type="button">×</button>
+      </div>
+      <div id="orderDetailBody" class="order-detail-body"></div>
+    </div>
   </div>
 
   <div id="receiptPreviewModal" class="receipt-modal hidden" role="dialog" aria-modal="true" aria-labelledby="receiptPreviewTitle">
