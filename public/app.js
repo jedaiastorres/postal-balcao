@@ -146,7 +146,15 @@ $("#logoutBtn").addEventListener("click", async () => {
 });
 
 function navigate(name) {
-  $$(".view").forEach(v => v.classList.add("hidden"));
+  if (name === "master" && state.user?.role !== "ADMIN") {
+    toast("Área exclusiva da administração Postal.", "error");
+    return;
+  }
+  if (name === "credit" && !["ADMIN","STORE_OWNER","STORE_CLERK"].includes(state.user?.role)) {
+    toast("Este perfil não possui acesso ao crédito no balcão.", "error");
+    return;
+  }
+  $(".view").forEach(v => v.classList.add("hidden"));
   $$(".nav-item").forEach(v => v.classList.toggle("active", v.dataset.view === name));
 
   const spec = viewMap[name] || viewMap.dashboard;
