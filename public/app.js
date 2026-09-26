@@ -16,7 +16,8 @@ const state = {
   user: null,
   admin: { stores: [], users: [], catalog: [], creditPartners: [], creditProducts: [] },
   creditProducts: [],
-  creditProposals: []
+  creditProposals: [],
+  inventoryMovements: []
 };
 
 const viewMap = {
@@ -522,12 +523,17 @@ async function refreshPaymentPreview() {
 async function loadInventory() {
   const host = $("#inventoryList");
   const select = $("#inventoryProduct");
+  const movementsHost = $("#inventoryMovementsList");
   if (!host || !select) return;
   host.innerHTML = '<div class="empty-state">Atualizando estoque...</div>';
 
   try {
-    const result = await api("/api/inventory");
+    const [result,movementsResult] = await Promise.all([
+      api("/api/inventory"),
+      api("/api/inventory/movements?limit=120")
+    ]);
     state.inventory = result.items || [];
+    state.inventoryMovements = movementsResult.movements || [];
     const products = state.inventory.filter(item => item.itemType === "PRODUCT" && item.trackStock);
 
     select.innerHTML = products.length
@@ -536,55 +542,74 @@ async function loadInventory() {
 
     if (!state.inventory.length) {
       host.innerHTML = '<div class="empty-state">Nenhum item no catálogo.</div>';
-      return;
+    } else {
+      host.innerHTML = "";
+      state.inventory.forEach(item => {
+        const row = document.createElement("div");
+        row.className = "inventory-row";
+        const low = item.trackStock && Number(item.availableQuantity || 0) <= Number(item.minQuantity || 0);
+        const cost = Number(item.averageCost || 0);
+        const price = Number(item.unitPrice || 0);
+        const margin = price > 0 ? ((price-cost)/price)*100 : 0;
+        row.innerHTML = `
+          <div>
+            <span class="addon-type">${item.itemType === "PRODUCT" ? "PRODUTO" : "SERVIÇO"} · ${escapeHtml(item.category || "")}</span>
+            <strong>${escapeHtml(item.name)}</strong>
+            <small>${escapeHtml(item.code)}${low ? " · REPOR ESTOQUE" : ""}</small>
+          </div>
+          <div><span>Custo médio</span><strong>${money(cost)}</strong></div>
+          <div><span>Preço</span><strong>${money(price)}</strong><small>Margem ${Number(margin||0).toFixed(1)}%</small></div>
+          <div><span>Disponível</span><strong class="${low ? "stock-low" : ""}">${Number(item.availableQuantity || 0)}</strong></div>
+          <div><span>Reservado</span><strong>${Number(item.reservedQuantity || 0)}</strong></div>
+          <div class="inventory-actions"><button type="button" class="ghost">Ajustar</button></div>
+        `;
+        row.querySelector(".inventory-actions button")?.addEventListener("click", async () => {
+          const currentQty = Number(item.stockQuantity || 0);
+          const qtyText = window.prompt("Estoque físico atual:", String(currentQty));
+          if (qtyText == null) return;
+          const priceText = window.prompt("Preço de venda unitário:", Number(item.unitPrice || 0).toFixed(2));
+          if (priceText == null) return;
+          const minText = window.prompt("Estoque mínimo para alerta:", String(Number(item.minQuantity || 0)));
+          if (minText == null) return;
+          try {
+            await api("/api/inventory/adjust", {
+              method: "POST",
+              body: JSON.stringify({
+                code: item.code,
+                quantity: Number(qtyText),
+                salePrice: Number(String(priceText).replace(",", ".")),
+                minQuantity: Number(minText),
+                note: "Ajuste manual pelo ponto"
+              })
+            });
+            toast("Estoque ajustado.");
+            await loadInventory();
+          } catch (err) {
+            toast(err.message, "error");
+          }
+        });
+        host.appendChild(row);
+      });
     }
 
-    host.innerHTML = "";
-    state.inventory.forEach(item => {
-      const row = document.createElement("div");
-      row.className = "inventory-row";
-      const low = item.trackStock && Number(item.availableQuantity || 0) <= Number(item.minQuantity || 0);
-      row.innerHTML = `
-        <div>
-          <span class="addon-type">${item.itemType === "PRODUCT" ? "PRODUTO" : "SERVIÇO"} · ${escapeHtml(item.category || "")}</span>
-          <strong>${escapeHtml(item.name)}</strong>
-          <small>${escapeHtml(item.code)}</small>
-        </div>
-        <div><span>Preço</span><strong>${money(item.unitPrice)}</strong></div>
-        <div><span>Disponível</span><strong class="${low ? "stock-low" : ""}">${Number(item.availableQuantity || 0)}</strong></div>
-        <div><span>Reservado</span><strong>${Number(item.reservedQuantity || 0)}</strong></div>
-        <div class="inventory-actions"><button type="button" class="ghost">Ajustar</button></div>
-      `;
-      row.querySelector(".inventory-actions button")?.addEventListener("click", async () => {
-        const currentQty = Number(item.stockQuantity || 0);
-        const qtyText = window.prompt("Estoque físico atual:", String(currentQty));
-        if (qtyText == null) return;
-        const priceText = window.prompt("Preço de venda unitário:", Number(item.unitPrice || 0).toFixed(2));
-        if (priceText == null) return;
-        const minText = window.prompt("Estoque mínimo para alerta:", String(Number(item.minQuantity || 0)));
-        if (minText == null) return;
-        try {
-          await api("/api/inventory/adjust", {
-            method: "POST",
-            body: JSON.stringify({
-              code: item.code,
-              quantity: Number(qtyText),
-              salePrice: Number(String(priceText).replace(",", ".")),
-              minQuantity: Number(minText),
-              note: "Ajuste manual pelo ponto"
-            })
-          });
-          toast("Estoque ajustado.");
-          await loadInventory();
-        } catch (err) {
-          toast(err.message, "error");
-        }
-      });
-      host.appendChild(row);
-    });
+    if (movementsHost) {
+      movementsHost.innerHTML = state.inventoryMovements.length
+        ? state.inventoryMovements.map(m => `
+          <div class="inventory-row movement-row">
+            <div><span class="addon-type">${escapeHtml(m.movementType)}</span><strong>${escapeHtml(m.name)}</strong><small>${escapeHtml(m.note || m.code)}</small></div>
+            <div><span>Quantidade</span><strong>${Number(m.quantity||0)}</strong></div>
+            <div><span>Custo un.</span><strong>${m.unitCost ? money(m.unitCost) : "—"}</strong></div>
+            <div><span>Lote</span><strong>${escapeHtml(m.lotCode || "—")}</strong></div>
+            <div><span>Data</span><strong>${new Date(m.createdAt).toLocaleString("pt-BR")}</strong></div>
+          </div>`).join("")
+        : '<div class="empty-state">Nenhuma movimentação registrada.</div>';
+    }
 
     const selected = products[0];
-    if (selected) $("#inventorySalePrice").value = Number(selected.unitPrice || 0).toFixed(2);
+    if (selected) {
+      $("#inventorySalePrice").value = Number(selected.unitPrice || 0).toFixed(2);
+      $("#inventoryUnitCost").value = Number(selected.averageCost || 0).toFixed(2);
+    }
   } catch (err) {
     host.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
   }
