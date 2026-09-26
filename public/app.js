@@ -1208,7 +1208,34 @@ async function loadMaster() {
           <div><span>Ponto</span><strong>${escapeHtml(u.store_name || "Postal")}</strong></div>
           <div><span>Status</span><strong>${u.active ? "Ativo" : "Inativo"}</strong></div>
           <div><span>Último acesso</span><strong>${u.last_login_at ? new Date(u.last_login_at).toLocaleString("pt-BR") : "—"}</strong></div>
+          <button class="ghost" type="button" data-edit-user="${escapeHtml(u.id)}">Editar</button>
         </div>`).join(""):'<div class="empty-state">Nenhum usuário cadastrado.</div>';
+
+      usersHost.querySelectorAll("[data-edit-user]").forEach(btn=>btn.addEventListener("click",async()=>{
+        const user=state.admin.users.find(u=>u.id===btn.dataset.editUser);
+        if(!user) return;
+        const active=window.confirm("OK = usuário ativo. Cancelar = desativar o usuário.");
+        const roleInput=window.prompt("Perfil: ADMIN, STORE_OWNER, STORE_CLERK ou OPS",user.role);
+        if(roleInput==null) return;
+        const role=String(roleInput).trim().toUpperCase();
+        let storeId=user.store_id||null;
+        if(role!=="ADMIN"){
+          const storeCode=window.prompt("Código do ponto:",user.store_code||"");
+          if(storeCode==null) return;
+          const store=state.admin.stores.find(s=>s.code.toLowerCase()===String(storeCode).trim().toLowerCase());
+          if(!store) return toast("Ponto não encontrado pelo código informado.","error");
+          storeId=store.id;
+        } else {
+          storeId=null;
+        }
+        const password=window.prompt("Nova senha (deixe em branco para manter):","");
+        if(password==null) return;
+        try{
+          await api(`/api/admin/users/${user.id}`,{method:"PATCH",body:JSON.stringify({role,storeId,active,password})});
+          toast("Usuário atualizado.");
+          await loadMaster();
+        }catch(err){toast(err.message,"error");}
+      }));
     }
 
     const catalogHost=$("#adminCatalogList");
@@ -1247,6 +1274,21 @@ async function loadMaster() {
 }
 
 $("#refreshMasterBtn")?.addEventListener("click",loadMaster);
+$("#exportBackupBtn")?.addEventListener("click", async () => {
+  try {
+    const response = await fetch("/api/admin/export");
+    if (!response.ok) throw new Error("Não foi possível gerar o backup.");
+    const blob = await response.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "postal-backup-" + new Date().toISOString().slice(0,10) + ".json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast("Exportação operacional gerada.");
+  } catch (err) {
+    toast(err.message, "error");
+  }
+});
 $("#refreshCreditBtn")?.addEventListener("click",loadCredit);
 
 $("#adminStoreForm")?.addEventListener("submit",async event=>{
