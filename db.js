@@ -813,6 +813,273 @@ async function releaseOrderInventory(orderId, partnerEmail) {
   }
 }
 
+async function findUserByEmail(email) {
+  const db = requireDb();
+  const { rows } = await db.query(
+    `SELECT u.*, s.name AS store_name, s.code AS store_code, s.commission_percent AS store_commission_percent,
+            s.active AS store_active
+     FROM app_users u
+     LEFT JOIN stores s ON s.id=u.store_id
+     WHERE LOWER(u.email)=LOWER($1)
+     LIMIT 1`,
+    [email]
+  );
+  return rows[0] || null;
+}
+
+async function getUserById(id) {
+  const db = requireDb();
+  const { rows } = await db.query(
+    `SELECT u.*, s.name AS store_name, s.code AS store_code, s.commission_percent AS store_commission_percent,
+            s.active AS store_active
+     FROM app_users u
+     LEFT JOIN stores s ON s.id=u.store_id
+     WHERE u.id=$1 LIMIT 1`,
+    [id]
+  );
+  return rows[0] || null;
+}
+
+async function createUser(user) {
+  const db = requireDb();
+  const id = user.id || require("crypto").randomUUID();
+  const { rows } = await db.query(
+    `INSERT INTO app_users(id,store_id,email,name,password_hash,role,active)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT (email) DO UPDATE SET
+       store_id=EXCLUDED.store_id,
+       name=EXCLUDED.name,
+       password_hash=CASE WHEN EXCLUDED.password_hash<>'' THEN EXCLUDED.password_hash ELSE app_users.password_hash END,
+       role=EXCLUDED.role,
+       active=EXCLUDED.active,
+       updated_at=NOW()
+     RETURNING *`,
+    [id,user.storeId||null,String(user.email).toLowerCase(),user.name,user.passwordHash,user.role,user.active!==false]
+  );
+  return rows[0];
+}
+
+async function listUsers() {
+  const db = requireDb();
+  const { rows } = await db.query(
+    `SELECT u.id,u.store_id,u.email,u.name,u.role,u.active,u.last_login_at,u.created_at,
+            s.name AS store_name,s.code AS store_code
+     FROM app_users u LEFT JOIN stores s ON s.id=u.store_id
+     ORDER BY u.created_at DESC`
+  );
+  return rows;
+}
+
+async function touchUserLogin(id) {
+  const db = requireDb();
+  await db.query("UPDATE app_users SET last_login_at=NOW(),updated_at=NOW() WHERE id=$1",[id]);
+}
+
+async function createStore(store) {
+  const db = requireDb();
+  const id = store.id || require("crypto").randomUUID();
+  const { rows } = await db.query(
+    `INSERT INTO stores(id,code,name,legal_name,cnpj,phone,email,address,commission_percent,active)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)
+     RETURNING *`,
+    [id,store.code,store.name,store.legalName||"",store.cnpj||"",store.phone||"",store.email||"",
+     JSON.stringify(store.address||{}),store.commissionPercent??20,store.active!==false]
+  );
+  return rows[0];
+}
+
+async function updateStore(id, patch) {
+  const db = requireDb();
+  const current = await getStore(id);
+  if (!current) return null;
+  const { rows } = await db.query(
+    `UPDATE stores SET
+      code=$2,name=$3,legal_name=$4,cnpj=$5,phone=$6,email=$7,address=$8::jsonb,
+      commission_percent=$9,active=$10,updated_at=NOW()
+     WHERE id=$1 RETURNING *`,
+    [
+      id,
+      patch.code ?? current.code,
+      patch.name ?? current.name,
+      patch.legalName ?? current.legal_name,
+      patch.cnpj ?? current.cnpj,
+      patch.phone ?? current.phone,
+      patch.email ?? current.email,
+      JSON.stringify(patch.address ?? current.address ?? {}),
+      patch.commissionPercent ?? Number(current.commission_percent),
+      patch.active ?? current.active
+    ]
+  );
+  return rows[0] || null;
+}
+
+async function getStore(id) {
+  const db = requireDb();
+  const { rows } = await db.query("SELECT * FROM stores WHERE id=$1 LIMIT 1",[id]);
+  return rows[0] || null;
+}
+
+async function listStores() {
+  const db = requireDb();
+  const { rows } = await db.query(
+    `SELECT s.*,
+      (SELECT COUNT(*) FROM app_users u WHERE u.store_id=s.id AND u.active=TRUE)::int AS active_users,
+      (SELECT COUNT(*) FROM freight_orders f WHERE f.store_id=s.id)::int AS total_orders,
+      COALESCE((SELECT SUM(f.customer_subtotal+f.payment_surcharge) FROM freight_orders f WHERE f.store_id=s.id),0) AS gross_sales
+     FROM stores s ORDER BY s.created_at DESC`
+  );
+  return rows;
+}
+
+async function adminOverview() {
+  const db = requireDb();
+  const { rows } = await db.query(
+    `SELECT
+      (SELECT COUNT(*) FROM stores WHERE active=TRUE)::int AS active_stores,
+      (SELECT COUNT(*) FROM app_users WHERE active=TRUE)::int AS active_users,
+      (SELECT COUNT(*) FROM freight_orders)::int AS total_orders,
+      (SELECT COUNT(*) FROM freight_orders WHERE status IN ('PAYMENT_PENDING','CASH_REMITTANCE_PENDING','CASH_REMITTANCE_PAYMENT_PENDING','SIMULATED_PAYMENT_PENDING'))::int AS pending_payments,
+      (SELECT COUNT(*) FROM freight_orders WHERE status IN ('LABEL_AVAILABLE','LABEL_AVAILABLE_SIMULATED'))::int AS labels_available,
+      COALESCE((SELECT SUM(customer_subtotal+payment_surcharge) FROM freight_orders),0) AS gross_sales,
+      COALESCE((SELECT SUM(point_revenue_total) FROM freight_orders),0) AS point_revenue,
+      COALESCE((SELECT SUM(postal_revenue_total) FROM freight_orders),0) AS postal_revenue`
+  );
+  return rows[0];
+}
+
+async function insertAudit(entry) {
+  const db = requireDb();
+  await db.query(
+    `INSERT INTO audit_logs(id,user_id,store_id,user_email,action,entity_type,entity_id,metadata)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`,
+    [
+      require("crypto").randomUUID(),
+      entry.userId||null,entry.storeId||null,entry.userEmail||null,entry.action,
+      entry.entityType||null,entry.entityId||null,JSON.stringify(entry.metadata||{})
+    ]
+  );
+}
+
+async function listAudit(limit=100) {
+  const db = requireDb();
+  const { rows } = await db.query(
+    "SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT $1",
+    [Math.max(1,Math.min(500,Number(limit)||100))]
+  );
+  return rows;
+}
+
+async function addOrderEvent(orderId,eventType,title,detail="",metadata={}) {
+  const db = requireDb();
+  const { rows } = await db.query(
+    `INSERT INTO order_events(id,order_id,event_type,title,detail,metadata)
+     VALUES ($1,$2,$3,$4,$5,$6::jsonb) RETURNING *`,
+    [require("crypto").randomUUID(),orderId,eventType,title,detail,JSON.stringify(metadata||{})]
+  );
+  return rows[0];
+}
+
+async function saveSimulatedShipment(id, trackingCode) {
+  const db = requireDb();
+  const { rows } = await db.query(
+    `UPDATE freight_orders SET
+       status='LABEL_AVAILABLE_SIMULATED',
+       tracking_code=$2,
+       is_simulation=TRUE,
+       shipped_at=NOW(),
+       updated_at=NOW()
+     WHERE id=$1 RETURNING *`,
+    [id,trackingCode]
+  );
+  return rows[0] || null;
+}
+
+async function listCreditPartners() {
+  const db = requireDb();
+  const { rows } = await db.query("SELECT * FROM credit_partners ORDER BY created_at DESC");
+  return rows;
+}
+
+async function upsertCreditPartner(partner) {
+  const db = requireDb();
+  const id = partner.id || require("crypto").randomUUID();
+  const { rows } = await db.query(
+    `INSERT INTO credit_partners(id,code,name,integration_mode,api_base_url,active,metadata)
+     VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)
+     ON CONFLICT(code) DO UPDATE SET
+       name=EXCLUDED.name,integration_mode=EXCLUDED.integration_mode,api_base_url=EXCLUDED.api_base_url,
+       active=EXCLUDED.active,metadata=EXCLUDED.metadata,updated_at=NOW()
+     RETURNING *`,
+    [id,partner.code,partner.name,partner.integrationMode||"MANUAL",partner.apiBaseUrl||null,partner.active!==false,JSON.stringify(partner.metadata||{})]
+  );
+  return rows[0];
+}
+
+async function listCreditProducts(activeOnly=true) {
+  const db = requireDb();
+  const { rows } = await db.query(
+    `SELECT p.*,cp.name AS partner_name,cp.code AS partner_code
+     FROM credit_products p JOIN credit_partners cp ON cp.id=p.partner_id
+     ${activeOnly ? "WHERE p.active=TRUE AND cp.active=TRUE" : ""}
+     ORDER BY p.created_at DESC`
+  );
+  return rows;
+}
+
+async function upsertCreditProduct(product) {
+  const db = requireDb();
+  const id = product.id || require("crypto").randomUUID();
+  const { rows } = await db.query(
+    `INSERT INTO credit_products(
+      id,partner_id,code,name,description,min_amount,max_amount,
+      point_commission_percent,postal_commission_percent,active,metadata
+    ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)
+    ON CONFLICT(code) DO UPDATE SET
+      partner_id=EXCLUDED.partner_id,name=EXCLUDED.name,description=EXCLUDED.description,
+      min_amount=EXCLUDED.min_amount,max_amount=EXCLUDED.max_amount,
+      point_commission_percent=EXCLUDED.point_commission_percent,
+      postal_commission_percent=EXCLUDED.postal_commission_percent,
+      active=EXCLUDED.active,metadata=EXCLUDED.metadata,updated_at=NOW()
+    RETURNING *`,
+    [id,product.partnerId,product.code,product.name,product.description||"",product.minAmount||null,product.maxAmount||null,
+     product.pointCommissionPercent||0,product.postalCommissionPercent||0,product.active!==false,JSON.stringify(product.metadata||{})]
+  );
+  return rows[0];
+}
+
+async function createCreditProposal(proposal) {
+  const db = requireDb();
+  const id = proposal.id || require("crypto").randomUUID();
+  const { rows } = await db.query(
+    `INSERT INTO credit_proposals(
+      id,store_id,user_id,product_id,applicant_name,applicant_document_hash,applicant_document_last4,
+      applicant_phone,requested_amount,status,consent_at,metadata
+    ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),$11::jsonb)
+    RETURNING *`,
+    [id,proposal.storeId||null,proposal.userId||null,proposal.productId,proposal.applicantName,
+     proposal.documentHash||null,proposal.documentLast4||null,proposal.phone||null,proposal.requestedAmount,
+     proposal.status||"LEAD",JSON.stringify(proposal.metadata||{})]
+  );
+  return rows[0];
+}
+
+async function listCreditProposals(scope={}) {
+  const db = requireDb();
+  const params=[];
+  let where="";
+  if(scope.storeId){params.push(scope.storeId);where="WHERE p.store_id=$1";}
+  const { rows } = await db.query(
+    `SELECT p.*,cp.name AS product_name,part.name AS partner_name
+     FROM credit_proposals p
+     JOIN credit_products cp ON cp.id=p.product_id
+     JOIN credit_partners part ON part.id=cp.partner_id
+     ${where}
+     ORDER BY p.created_at DESC LIMIT 250`,
+    params
+  );
+  return rows;
+}
+
 async function insertWebhookEvent({ id, provider, eventType, checkoutId, payload }) {
   const db = requireDb();
   const { rowCount } = await db.query(
@@ -872,6 +1139,27 @@ module.exports = {
   getOrderAddons,
   consumeOrderInventory,
   releaseOrderInventory,
+  findUserByEmail,
+  getUserById,
+  createUser,
+  listUsers,
+  touchUserLogin,
+  createStore,
+  updateStore,
+  getStore,
+  listStores,
+  adminOverview,
+  insertAudit,
+  listAudit,
+  addOrderEvent,
+  saveSimulatedShipment,
+  listOrdersScoped,
+  listCreditPartners,
+  upsertCreditPartner,
+  listCreditProducts,
+  upsertCreditProduct,
+  createCreditProposal,
+  listCreditProposals,
   insertWebhookEvent,
   getPendingWebhookEvents,
   markWebhookProcessed
