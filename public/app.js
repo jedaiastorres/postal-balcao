@@ -11,7 +11,12 @@ const state = {
   catalog: [],
   selectedAddons: new Map(),
   inventory: [],
-  paymentPreview: null
+  paymentPreview: null,
+  csrfToken: "",
+  user: null,
+  admin: { stores: [], users: [], catalog: [], creditPartners: [], creditProducts: [] },
+  creditProducts: [],
+  creditProposals: []
 };
 
 const viewMap = {
@@ -20,6 +25,8 @@ const viewMap = {
   shipment: { el: "#shipmentView", title: "Nova Postagem" },
   orders: { el: "#ordersView", title: "Meus Fretes" },
   inventory: { el: "#inventoryView", title: "Produtos & Estoque" },
+  credit: { el: "#creditView", title: "Crédito no Balcão" },
+  master: { el: "#masterView", title: "Painel Master" },
   receive: { placeholder: ["Receber Pacote", "Aqui o atendente fará a leitura do código e confirmará que a encomenda entrou fisicamente no ponto Postal."] },
   returns: { placeholder: ["Devolução", "Fluxo de logística reversa e devoluções ficará centralizado nesta área."] },
   cash: { placeholder: ["Meu Caixa", "Extrato de comissões, saldo, fechamento diário e solicitação de saque serão exibidos aqui."] },
@@ -40,7 +47,12 @@ function toast(message, type = "ok") {
 async function api(url, options = {}) {
   const response = await fetch(url, {
     ...options,
-    headers: { "content-type": "application/json", ...(options.headers || {}) }
+    headers: {
+      "content-type": "application/json",
+      ...(state.csrfToken && ["POST","PUT","PATCH","DELETE"].includes(String(options.method || "GET").toUpperCase())
+        ? { "x-csrf-token": state.csrfToken } : {}),
+      ...(options.headers || {})
+    }
   });
   const type = response.headers.get("content-type") || "";
   const data = type.includes("application/json") ? await response.json() : await response.text();
@@ -65,10 +77,15 @@ async function loadConfig() {
   $("#commissionBig").textContent = `${state.config.commissionPercent}%`;
 }
 
-function showApp(email) {
+function showApp(user) {
+  state.user = user || null;
   $("#loginView").classList.add("hidden");
   $("#appView").classList.remove("hidden");
-  $("#partnerEmail").textContent = email || "parceiro";
+  $("#partnerEmail").textContent = user?.storeName || user?.name || user?.email || "parceiro";
+  $("#adminNavSection")?.classList.toggle("hidden", user?.role !== "ADMIN");
+  $(".admin-only").forEach(el => {
+    if (el.id !== "masterView") el.classList.toggle("hidden", user?.role !== "ADMIN");
+  });
   refreshDashboard();
 
   const params = new URLSearchParams(window.location.search);
@@ -90,7 +107,8 @@ async function checkSession() {
   await loadConfig();
   try {
     const session = await api("/api/session");
-    showApp(session.user.email);
+    state.csrfToken = session.csrfToken || "";
+    showApp(session.user);
   } catch {
     showLogin();
   }
@@ -109,7 +127,8 @@ $("#loginForm").addEventListener("submit", async (event) => {
         password: $("#loginPassword").value
       })
     });
-    showApp(result.user.email);
+    state.csrfToken = result.csrfToken || "";
+    showApp(result.user);
   } catch (err) {
     toast(err.message, "error");
   } finally {
@@ -120,6 +139,8 @@ $("#loginForm").addEventListener("submit", async (event) => {
 
 $("#logoutBtn").addEventListener("click", async () => {
   try { await api("/api/logout", { method: "POST", body: "{}" }); } catch {}
+  state.csrfToken = "";
+  state.user = null;
   showLogin();
 });
 
@@ -140,6 +161,8 @@ function navigate(name) {
   $(".sidebar").classList.remove("open");
   if (name === "orders") loadOrders();
   if (name === "inventory") loadInventory();
+  if (name === "credit") loadCredit();
+  if (name === "master" && state.user?.role === "ADMIN") loadMaster();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
