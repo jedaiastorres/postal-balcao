@@ -410,6 +410,7 @@ async function createShipmentFromOrder(order) {
   };
 
   await db.saveShipment(order.id, shipment);
+  await db.addOrderEvent(order.id, "LABEL_AVAILABLE", "Etiqueta liberada", "Postagem criada na ConectEnvios e etiqueta disponível.");
   return shipment;
 }
 
@@ -597,7 +598,7 @@ async function processAsaasWebhookEvent(eventRow) {
         try {
           await createShipmentFromOrder(paidOrder);
         } catch (shipmentError) {
-          console.error("shipment after payment error:", shipmentError.providerData || shipmentError.message);
+          console.error("shipment after payment error:", shipmentError.message);
           await db.updateStatus(order.id, "SHIPMENT_ERROR", "PAID");
         }
       }
@@ -653,6 +654,7 @@ app.get("/api/public-config", (_req, res) => {
     paymentsProvider: "ASAAS",
     paymentsConfigured: asaas.configured(),
     databaseConfigured: Boolean(process.env.DATABASE_URL),
+    version: "1.5.0",
     paymentSimulatorEnabled: PAYMENT_SIMULATOR_ENABLED && !asaas.configured()
   });
 });
@@ -703,7 +705,8 @@ app.post("/api/login", async (req, res) => {
         name: user.name,
         role: user.role,
         storeId: user.store_id || null,
-        storeName: user.store_name || null
+        storeName: user.store_name || null,
+        storeCommissionPercent: user.store_commission_percent == null ? null : Number(user.store_commission_percent)
       }
     });
   } catch (error) {
@@ -728,7 +731,8 @@ app.get("/api/session", requireAuth, (req, res) => {
       role: req.user.role,
       storeId: req.user.storeId || null,
       storeName: req.user.storeName || null,
-      storeCode: req.user.storeCode || null
+      storeCode: req.user.storeCode || null,
+      storeCommissionPercent: req.user.storeCommissionPercent == null ? null : Number(req.user.storeCommissionPercent)
     }
   });
 });
@@ -846,6 +850,35 @@ app.post("/api/admin/users", requireAuth, requireRole("ADMIN"), async (req,res)=
   }
 });
 
+app.patch("/api/admin/users/:id", requireAuth, requireRole("ADMIN"), async (req,res)=>{
+  try {
+    const body=req.body||{};
+    const role=body.role?String(body.role).toUpperCase():undefined;
+    if(role && !["ADMIN","STORE_OWNER","STORE_CLERK","OPS"].includes(role)) return res.status(400).json({error:"Perfil inválido."});
+    const password=body.password?String(body.password):"";
+    if(password && password.length<6) return res.status(400).json({error:"A nova senha precisa ter ao menos 6 caracteres."});
+    const user=await db.updateUser(req.params.id,{
+      storeId:role==="ADMIN"?null:body.storeId,
+      name:body.name,
+      passwordHash:password?hashPassword(password):undefined,
+      role,
+      active:body.active
+    });
+    if(!user) return res.status(404).json({error:"Usuário não encontrado."});
+    await audit(req,"UPDATE_USER","USER",user.id,{role:user.role,active:user.active,storeId:user.store_id});
+    res.json({user});
+  } catch(error){ res.status(500).json({error:"Não foi possível atualizar o usuário."}); }
+});
+
+app.get("/api/admin/export", requireAuth, requireRole("ADMIN"), async (req,res)=>{
+  try {
+    const snapshot=await db.exportOperationalSnapshot();
+    await audit(req,"EXPORT_OPERATIONAL_SNAPSHOT","SYSTEM","database",{generatedAt:snapshot.generatedAt});
+    res.setHeader("Content-Disposition", `attachment; filename="postal-backup-${new Date().toISOString().slice(0,10)}.json"`);
+    res.json(snapshot);
+  } catch(error){ res.status(500).json({error:"Não foi possível gerar a exportação operacional."}); }
+});
+
 app.get("/api/admin/audit", requireAuth, requireRole("ADMIN"), async (req,res)=>{
   try { res.json({logs:await db.listAudit(Number(req.query.limit||100))}); }
   catch(error){ res.status(500).json({error:"Não foi possível carregar a auditoria."}); }
@@ -933,7 +966,7 @@ app.get("/api/credit/proposals", requireAuth, async (req,res)=>{
   } catch(error){ res.status(500).json({error:"Não foi possível carregar as propostas."}); }
 });
 
-app.post("/api/credit/proposals", requireAuth, async (req,res)=>{
+app.post("/api/credit/proposals", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK"), async (req,res)=>{
   try {
     const body=req.body||{};
     const applicantName=String(body.applicantName||"").trim();
@@ -1011,7 +1044,7 @@ app.post("/api/cotacao", requireAuth, async (req, res) => {
       providerData = result.data;
 
       if (providerData && providerData.error === true) {
-        console.error("ConectEnvios quote error:", providerData);
+        console.error("ConectEnvios quote error: provider rejected quote");
         return res.status(422).json({ error: "A unidade de frete retornou erro ao calcular." });
       }
     }
@@ -1061,7 +1094,7 @@ app.post("/api/cotacao", requireAuth, async (req, res) => {
       options
     });
   } catch (error) {
-    console.error("quote error:", error.status, error.providerData || error.message);
+    console.error("quote error:", error.status, error.message);
     res.status(error.status === 401 ? 502 : 502).json({
       error: error.status === 401
         ? "Token da ConectEnvios nao autorizado."
@@ -1078,7 +1111,7 @@ app.get("/api/cep/:cep", requireAuth, async (req, res) => {
     const result = await providerFetch(`/cep/address/?cep=${encodeURIComponent(cep)}`, { method: "GET" });
     res.json(result.data);
   } catch (error) {
-    console.error("cep error:", error.status, error.providerData || error.message);
+    console.error("cep error:", error.status, error.message);
     res.status(error.status || 502).json({ error: "Falha ao consultar CEP." });
   }
 });
@@ -1090,7 +1123,7 @@ app.get("/api/transportadoras", requireAuth, async (_req, res) => {
     const result = await providerFetch("/postal_company", { method: "GET" });
     res.json(result.data);
   } catch (error) {
-    console.error("postal company error:", error.status, error.providerData || error.message);
+    console.error("postal company error:", error.status, error.message);
     res.status(error.status || 502).json({ error: "Falha ao listar transportadoras." });
   }
 });
@@ -1107,7 +1140,7 @@ app.post("/api/prazo", requireAuth, async (req, res) => {
     });
     res.json(result.data);
   } catch (error) {
-    console.error("deadline error:", error.status, error.providerData || error.message);
+    console.error("deadline error:", error.status, error.message);
     res.status(error.status || 502).json({ error: "Falha ao consultar prazo." });
   }
 });
@@ -1197,7 +1230,7 @@ app.get("/api/inventory", requireAuth, async (req, res) => {
   }
 });
 
-app.post("/api/inventory/receive", requireAuth, async (req, res) => {
+app.post("/api/inventory/receive", requireAuth, requireRole("ADMIN","STORE_OWNER","OPS"), async (req, res) => {
   try {
     const code = String(req.body.code || "").trim();
     const quantity = Number(req.body.quantity || 0);
@@ -1232,7 +1265,7 @@ app.post("/api/inventory/receive", requireAuth, async (req, res) => {
   }
 });
 
-app.post("/api/inventory/adjust", requireAuth, async (req, res) => {
+app.post("/api/inventory/adjust", requireAuth, requireRole("ADMIN","STORE_OWNER","OPS"), async (req, res) => {
   try {
     const code = String(req.body.code || "").trim();
     const quantity = Number(req.body.quantity || 0);
@@ -1275,6 +1308,23 @@ app.get("/api/inventory/movements", requireAuth, async (req,res)=>{
 });
 
 // API versionada para futuras integrações de produtos, serviços e ofertas financeiras.
+app.get("/api/integrations/v1/credit/products", requireIntegrationAuth, async (_req,res)=>{
+  try { res.json({version:"v1",products:await db.listCreditProducts(false)}); }
+  catch(error){ res.status(500).json({error:"Falha ao consultar produtos financeiros."}); }
+});
+
+app.patch("/api/integrations/v1/credit/proposals/:id", requireIntegrationAuth, async (req,res)=>{
+  try {
+    const status=String(req.body.status||"").trim().toUpperCase();
+    if(!status) return res.status(400).json({error:"status é obrigatório."});
+    const proposal=await db.updateCreditProposalStatus(
+      req.params.id,status,req.body.externalRef||null,req.body.metadata||{}
+    );
+    if(!proposal) return res.status(404).json({error:"Proposta não encontrada."});
+    res.json({ok:true,version:"v1",proposal});
+  } catch(error){ res.status(500).json({error:"Falha ao atualizar a proposta."}); }
+});
+
 app.get("/api/integrations/v1/catalog/items", requireIntegrationAuth, async (req, res) => {
   try {
     const itemType = req.query.type ? String(req.query.type).toUpperCase() : null;
@@ -1374,7 +1424,7 @@ app.get("/api/orders/:id", requireAuth, async (req, res) => {
   }
 });
 
-app.post("/api/orders", requireAuth, async (req, res) => {
+app.post("/api/orders", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK"), async (req, res) => {
   try {
     const body = req.body || {};
     const selection = verifySelectionToken(body.selectionToken);
@@ -1454,6 +1504,7 @@ app.post("/api/orders", requireAuth, async (req, res) => {
       await db.insertOrderAddons(order.id, inventoryOwner(req.user), addons);
       await db.consumeOrderInventory(order.id, inventoryOwner(req.user));
       await db.addOrderEvent(order.id, "ORDER_CREATED", "Frete registrado", "Pagamento em dinheiro recebido pelo ponto.");
+      await audit(req,"CREATE_FREIGHT_ORDER","FREIGHT_ORDER",order.id,{paymentMethod,addonsCount:addons.length});
 
       const complete = await db.getOrder(order.id, scopeForUser(req.user));
       return res.status(201).json({
@@ -1474,6 +1525,7 @@ app.post("/api/orders", requireAuth, async (req, res) => {
 
     await db.insertOrderAddons(order.id, inventoryOwner(req.user), addons);
     await db.addOrderEvent(order.id, "ORDER_CREATED", "Frete registrado", "Aguardando confirmação financeira.");
+    await audit(req,"CREATE_FREIGHT_ORDER","FREIGHT_ORDER",order.id,{paymentMethod,addonsCount:addons.length});
 
     if (!asaas.configured()) {
       if (PAYMENT_SIMULATOR_ENABLED) {
@@ -1538,14 +1590,14 @@ app.post("/api/orders", requireAuth, async (req, res) => {
       nextAction: "OPEN_CHECKOUT"
     });
   } catch (error) {
-    console.error("create order error:", error.status, error.providerData || error.message);
+    console.error("create order error:", error.status, error.message);
     res.status(error.status && error.status < 500 ? error.status : 500).json({
       error: error.message || "Não foi possível iniciar o pagamento do frete."
     });
   }
 });
 
-app.post("/api/orders/:id/remittance", requireAuth, async (req, res) => {
+app.post("/api/orders/:id/remittance", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK"), async (req, res) => {
   try {
     const order = await db.getOrder(req.params.id, req.user.email);
     if (!order) return res.status(404).json({ error: "Frete não encontrado." });
@@ -1589,12 +1641,12 @@ app.post("/api/orders/:id/remittance", requireAuth, async (req, res) => {
 
     res.json({ order: publicOrder(updated), checkoutUrl: checkout.url });
   } catch (error) {
-    console.error("cash remittance error:", error.status, error.providerData || error.message);
+    console.error("cash remittance error:", error.status, error.message);
     res.status(500).json({ error: error.message || "Não foi possível gerar o repasse." });
   }
 });
 
-app.post("/api/orders/:id/simulate-payment", requireAuth, async (req, res) => {
+app.post("/api/orders/:id/simulate-payment", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK"), async (req, res) => {
   try {
     if (!PAYMENT_SIMULATOR_ENABLED || asaas.configured()) {
       return res.status(403).json({ error: "Simulador indisponível fora do ambiente de homologação." });
@@ -1653,7 +1705,7 @@ app.get("/api/carrinhos/:id", requireAuth, async (req, res) => {
     const result = await providerFetch(`/cart/${encodeURIComponent(req.params.id)}`, { method: "GET" });
     res.json(result.data);
   } catch (error) {
-    console.error("cart detail error:", error.status, error.providerData || error.message);
+    console.error("cart detail error:", error.status, error.message);
     res.status(error.status || 502).json({ error: "Falha ao consultar carrinho." });
   }
 });
@@ -1665,7 +1717,7 @@ app.get("/api/envios/:id", requireAuth, async (req, res) => {
     const result = await providerFetch(`/package/${encodeURIComponent(req.params.id)}`, { method: "GET" });
     res.json(result.data);
   } catch (error) {
-    console.error("package detail error:", error.status, error.providerData || error.message);
+    console.error("package detail error:", error.status, error.message);
     res.status(error.status || 502).json({ error: "Falha ao consultar envio." });
   }
 });
@@ -1677,7 +1729,7 @@ app.get("/api/rastreio/id/:id", requireAuth, async (req, res) => {
     const result = await providerFetch(`/package/track/${encodeURIComponent(req.params.id)}`, { method: "GET" });
     res.json(result.data);
   } catch (error) {
-    console.error("track by id error:", error.status, error.providerData || error.message);
+    console.error("track by id error:", error.status, error.message);
     res.status(error.status || 502).json({ error: "Falha ao rastrear envio." });
   }
 });
@@ -1689,7 +1741,7 @@ app.get("/api/rastreio/codigo/:stamp", requireAuth, async (req, res) => {
     const result = await providerFetch(`/package/track/stamp/${encodeURIComponent(req.params.stamp)}`, { method: "GET" });
     res.json(result.data);
   } catch (error) {
-    console.error("track by stamp error:", error.status, error.providerData || error.message);
+    console.error("track by stamp error:", error.status, error.message);
     res.status(error.status || 502).json({ error: "Falha ao rastrear envio." });
   }
 });
