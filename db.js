@@ -874,6 +874,32 @@ async function createUser(user) {
   return rows[0];
 }
 
+async function updateUser(id, patch) {
+  const db = requireDb();
+  const current = await getUserById(id);
+  if (!current) return null;
+  const { rows } = await db.query(
+    `UPDATE app_users SET
+       store_id=$2,
+       name=$3,
+       password_hash=$4,
+       role=$5,
+       active=$6,
+       updated_at=NOW()
+     WHERE id=$1
+     RETURNING id,store_id,email,name,role,active,updated_at`,
+    [
+      id,
+      patch.storeId !== undefined ? patch.storeId : current.store_id,
+      patch.name ?? current.name,
+      patch.passwordHash || current.password_hash,
+      patch.role ?? current.role,
+      patch.active ?? current.active
+    ]
+  );
+  return rows[0] || null;
+}
+
 async function listUsers() {
   const db = requireDb();
   const { rows } = await db.query(
@@ -1110,6 +1136,45 @@ async function listInventoryMovements(partnerEmail, limit=100) {
   return rows;
 }
 
+async function updateCreditProposalStatus(id, status, externalRef = null, metadata = {}) {
+  const db = requireDb();
+  const { rows } = await db.query(
+    `UPDATE credit_proposals SET
+       status=$2,
+       external_ref=COALESCE($3,external_ref),
+       metadata=metadata || $4::jsonb,
+       updated_at=NOW()
+     WHERE id=$1
+     RETURNING *`,
+    [id,status,externalRef,JSON.stringify(metadata||{})]
+  );
+  return rows[0] || null;
+}
+
+async function exportOperationalSnapshot() {
+  const db = requireDb();
+  const [stores,users,catalog,inventory,movements,orders,events,addons,creditPartners,creditProducts,creditProposals,audit] = await Promise.all([
+    db.query("SELECT * FROM stores ORDER BY created_at"),
+    db.query("SELECT id,store_id,email,name,role,active,last_login_at,created_at,updated_at FROM app_users ORDER BY created_at"),
+    db.query("SELECT * FROM catalog_items ORDER BY created_at"),
+    db.query("SELECT * FROM partner_inventory ORDER BY partner_email,item_id"),
+    db.query("SELECT * FROM inventory_movements ORDER BY created_at"),
+    db.query("SELECT * FROM freight_orders ORDER BY created_at"),
+    db.query("SELECT * FROM order_events ORDER BY created_at"),
+    db.query("SELECT * FROM order_addons ORDER BY created_at"),
+    db.query("SELECT * FROM credit_partners ORDER BY created_at"),
+    db.query("SELECT * FROM credit_products ORDER BY created_at"),
+    db.query("SELECT * FROM credit_proposals ORDER BY created_at"),
+    db.query("SELECT * FROM audit_logs ORDER BY created_at")
+  ]);
+  return {
+    generatedAt:new Date().toISOString(),
+    stores:stores.rows,users:users.rows,catalog:catalog.rows,inventory:inventory.rows,
+    inventoryMovements:movements.rows,orders:orders.rows,orderEvents:events.rows,orderAddons:addons.rows,
+    creditPartners:creditPartners.rows,creditProducts:creditProducts.rows,creditProposals:creditProposals.rows,audit:audit.rows
+  };
+}
+
 async function insertWebhookEvent({ id, provider, eventType, checkoutId, payload }) {
   const db = requireDb();
   const { rowCount } = await db.query(
@@ -1173,6 +1238,7 @@ module.exports = {
   findUserByEmail,
   getUserById,
   createUser,
+  updateUser,
   listUsers,
   touchUserLogin,
   createStore,
@@ -1191,6 +1257,8 @@ module.exports = {
   upsertCreditProduct,
   createCreditProposal,
   listCreditProposals,
+  updateCreditProposalStatus,
+  exportOperationalSnapshot,
   insertWebhookEvent,
   getPendingWebhookEvents,
   markWebhookProcessed
