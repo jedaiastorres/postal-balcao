@@ -166,6 +166,7 @@ async function initDb() {
       reserved_quantity NUMERIC(12,3) NOT NULL DEFAULT 0,
       min_quantity NUMERIC(12,3) NOT NULL DEFAULT 0,
       sale_price NUMERIC(12,2),
+      average_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY(partner_email,item_id)
     );
@@ -179,6 +180,8 @@ async function initDb() {
       reference_type TEXT,
       reference_id TEXT,
       note TEXT,
+      lot_code TEXT,
+      unit_cost NUMERIC(12,2),
       metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -291,6 +294,9 @@ async function initDb() {
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS store_id UUID REFERENCES stores(id) ON DELETE SET NULL;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS is_simulation BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE partner_inventory ADD COLUMN IF NOT EXISTS sale_price NUMERIC(12,2);
+    ALTER TABLE partner_inventory ADD COLUMN IF NOT EXISTS average_cost NUMERIC(12,2) NOT NULL DEFAULT 0;
+    ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS lot_code TEXT;
+    ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12,2);
   `);
 
   return true;
@@ -608,6 +614,7 @@ async function getPartnerCatalog(partnerEmail) {
        COALESCE(i.reserved_quantity,0) AS reserved_quantity,
        COALESCE(i.min_quantity,0) AS min_quantity,
        COALESCE(i.sale_price,c.unit_price) AS effective_unit_price,
+       COALESCE(i.average_cost,0) AS average_cost,
        (COALESCE(i.quantity,0)-COALESCE(i.reserved_quantity,0)) AS available_quantity
      FROM catalog_items c
      LEFT JOIN partner_inventory i
@@ -648,25 +655,31 @@ async function setInventory(partnerEmail, itemId, quantity, minQuantity = 0, not
   }
 }
 
-async function receiveInventory(partnerEmail, itemId, quantity, note = "Recebimento de produtos", salePrice = null) {
+async function receiveInventory(partnerEmail, itemId, quantity, note = "Recebimento de produtos", salePrice = null, unitCost = 0, lotCode = null) {
   const db = requireDb();
   await db.query("BEGIN");
   try {
     const { rows } = await db.query(
-      `INSERT INTO partner_inventory(partner_email,item_id,quantity,sale_price)
-       VALUES ($1,$2,$3,$4)
+      `INSERT INTO partner_inventory(partner_email,item_id,quantity,sale_price,average_cost)
+       VALUES ($1,$2,$3,$4,$5)
        ON CONFLICT (partner_email,item_id) DO UPDATE
-         SET quantity=partner_inventory.quantity + EXCLUDED.quantity,
+         SET average_cost=CASE
+               WHEN partner_inventory.quantity + EXCLUDED.quantity > 0
+               THEN ((partner_inventory.quantity * partner_inventory.average_cost) + (EXCLUDED.quantity * EXCLUDED.average_cost))
+                    / (partner_inventory.quantity + EXCLUDED.quantity)
+               ELSE partner_inventory.average_cost
+             END,
+             quantity=partner_inventory.quantity + EXCLUDED.quantity,
              sale_price=COALESCE(EXCLUDED.sale_price,partner_inventory.sale_price),
              updated_at=NOW()
        RETURNING *`,
-      [partnerEmail,itemId,quantity,salePrice]
+      [partnerEmail,itemId,quantity,salePrice,Number(unitCost||0)]
     );
     await db.query(
       `INSERT INTO inventory_movements(
-        id,partner_email,item_id,movement_type,quantity,reference_type,note
-      ) VALUES ($1,$2,$3,'IN',$4,'RECEIPT',$5)`,
-      [require("crypto").randomUUID(),partnerEmail,itemId,quantity,note]
+        id,partner_email,item_id,movement_type,quantity,reference_type,note,lot_code,unit_cost
+      ) VALUES ($1,$2,$3,'IN',$4,'RECEIPT',$5,$6,$7)`,
+      [require("crypto").randomUUID(),partnerEmail,itemId,quantity,note,lotCode||null,Number(unitCost||0)]
     );
     await db.query("COMMIT");
     return rows[0];
@@ -1083,6 +1096,20 @@ async function listCreditProposals(scope={}) {
   return rows;
 }
 
+async function listInventoryMovements(partnerEmail, limit=100) {
+  const db = requireDb();
+  const { rows } = await db.query(
+    `SELECT m.*,c.code,c.name,c.category
+     FROM inventory_movements m
+     JOIN catalog_items c ON c.id=m.item_id
+     WHERE m.partner_email=$1
+     ORDER BY m.created_at DESC
+     LIMIT $2`,
+    [partnerEmail,Math.max(1,Math.min(500,Number(limit)||100))]
+  );
+  return rows;
+}
+
 async function insertWebhookEvent({ id, provider, eventType, checkoutId, payload }) {
   const db = requireDb();
   const { rowCount } = await db.query(
@@ -1142,6 +1169,7 @@ module.exports = {
   getOrderAddons,
   consumeOrderInventory,
   releaseOrderInventory,
+  listInventoryMovements,
   findUserByEmail,
   getUserById,
   createUser,
