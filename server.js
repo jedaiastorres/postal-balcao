@@ -418,6 +418,9 @@ function publicOrder(order) {
   if (!order) return null;
   return {
     id: order.id,
+    storeId: order.store_id || null,
+    storeName: order.store_name || "",
+    storeCode: order.store_code || "",
     status: order.status,
     paymentMethod: order.payment_method,
     paymentStatus: order.payment_status,
