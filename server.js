@@ -25,6 +25,7 @@ const RECEIPT_WIDTH_MM = [58, 80].includes(Number(process.env.THERMAL_RECEIPT_WI
 const ASAAS_RESERVE_WALLET_ID = String(process.env.ASAAS_CONNECTENVIOS_RESERVE_WALLET_ID || "").trim();
 const ASAAS_DEFAULT_PARTNER_WALLET_ID = String(process.env.ASAAS_DEFAULT_PARTNER_WALLET_ID || "").trim();
 const INTEGRATION_API_KEY = String(process.env.INTEGRATION_API_KEY || "").trim();
+const PAYMENT_SIMULATOR_ENABLED = String(process.env.PAYMENT_SIMULATOR_ENABLED || "true").toLowerCase() === "true";
 
 app.disable("x-powered-by");
 app.use(helmet({
@@ -101,6 +102,84 @@ function verifySelectionToken(token) {
 function cleanDigits(value) {
   return String(value || "").replace(/\D/g, "");
 }
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.pbkdf2Sync(String(password), salt, 120000, 32, "sha256").toString("hex");
+  return "pbkdf2$120000$" + salt + "$" + hash;
+}
+
+function verifyPassword(password, stored) {
+  const parts = String(stored || "").split("$");
+  if (parts.length !== 4 || parts[0] !== "pbkdf2") return false;
+  const iterations = Number(parts[1]);
+  const salt = parts[2];
+  const expected = Buffer.from(parts[3], "hex");
+  const actual = crypto.pbkdf2Sync(String(password), salt, iterations, expected.length, "sha256");
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
+
+const loginAttempts = new Map();
+function loginRateKey(req, email) {
+  return String(req.ip || req.socket?.remoteAddress || "unknown") + "|" + String(email || "").toLowerCase();
+}
+function checkLoginRate(req, email) {
+  const key = loginRateKey(req, email);
+  const current = loginAttempts.get(key);
+  if (!current) return { ok: true, key };
+  if (Date.now() > current.resetAt) {
+    loginAttempts.delete(key);
+    return { ok: true, key };
+  }
+  return { ok: current.count < 7, key, retryAfter: Math.ceil((current.resetAt - Date.now()) / 1000) };
+}
+function recordLoginFailure(key) {
+  const current = loginAttempts.get(key);
+  if (!current || Date.now() > current.resetAt) {
+    loginAttempts.set(key, { count: 1, resetAt: Date.now() + 15 * 60 * 1000 });
+  } else {
+    current.count += 1;
+  }
+}
+function clearLoginFailures(key) {
+  loginAttempts.delete(key);
+}
+
+function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!req.user || !roles.includes(req.user.role)) {
+      return res.status(403).json({ error: "Você não tem permissão para esta ação." });
+    }
+    next();
+  };
+}
+
+function scopeForUser(user) {
+  if (user?.role === "ADMIN") return {};
+  if (user?.storeId) return { storeId: user.storeId };
+  return { partnerEmail: user?.email };
+}
+
+function inventoryOwner(user) {
+  return user?.storeId ? "store:" + user.storeId : String(user?.email || "");
+}
+
+function inventoryOwnerFromOrder(order) {
+  return order?.store_id ? "store:" + order.store_id : String(order?.partner_email || "");
+}
+
+async function audit(req, action, entityType, entityId, metadata = {}) {
+  try {
+    await db.insertAudit({
+      userId: req?.user?.userId || null,
+      storeId: req?.user?.storeId || null,
+      userEmail: req?.user?.email || null,
+      action, entityType, entityId, metadata
+    });
+  } catch (error) {
+    console.error("audit error:", error.message);
+  }
+}
 function requireAuth(req, res, next) {
   const session = verifySession(parseCookies(req).postal_session);
   if (!session) return res.status(401).json({ error: "Sessão expirada. Entre novamente." });
@@ -171,13 +250,13 @@ function round2(n) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
-function sellPriceFromCost(cost) {
-  // A comissão do ponto e a margem Postal são percentuais do preço final.
-  // Ex.: custo 68%, ponto 20%, Postal 12% = 100% do preço ao consumidor.
-  const retainedShare = 1 - PARTNER_COMMISSION - POSTAL_MARGIN;
+function sellPriceFromCost(cost, partnerCommissionRate = PARTNER_COMMISSION) {
+  // Comissão do ponto e margem Postal são percentuais do preço final.
+  const partnerRate = Math.min(0.50, Math.max(0, Number(partnerCommissionRate || 0)));
+  const retainedShare = 1 - partnerRate - POSTAL_MARGIN;
   if (retainedShare <= 0) throw new Error("Configuração de margens inválida.");
   const finalPrice = cost / retainedShare;
-  const partnerCommission = finalPrice * PARTNER_COMMISSION;
+  const partnerCommission = finalPrice * partnerRate;
   const postalMargin = finalPrice * POSTAL_MARGIN;
   return {
     salePrice: round2(finalPrice),
@@ -205,14 +284,14 @@ function extractShippingItems(payload) {
   return [];
 }
 
-function normalizeQuote(payload) {
+function normalizeQuote(payload, partnerCommissionRate = PARTNER_COMMISSION) {
   const items = extractShippingItems(payload);
 
   return items.map(item => {
     const cost = parseMoney(item.price_discounted ?? item.price ?? item.postal_service_price ?? item.value);
     if (!Number.isFinite(cost) || cost <= 0) return null;
 
-    const pricing = sellPriceFromCost(cost);
+    const pricing = sellPriceFromCost(cost, partnerCommissionRate);
     return {
       postalCompanyId: Number(item.postal_company_id ?? item.company_id ?? item.id ?? 0),
       transportadora: item.company_name ?? item.postal_company_name ?? item.company ?? "Transportadora",
