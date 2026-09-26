@@ -1056,6 +1056,253 @@ $("#clearOrderFilters")?.addEventListener("click", () => {
 $("#closeOrderDetailBtn")?.addEventListener("click",()=>$("#orderDetailModal")?.classList.add("hidden"));
 $("#orderDetailModal")?.addEventListener("click",event=>{if(event.target.id==="orderDetailModal") event.currentTarget.classList.add("hidden");});
 
+async function loadCredit() {
+  try {
+    const [productsResult, proposalsResult] = await Promise.all([
+      api("/api/credit/products"),
+      api("/api/credit/proposals")
+    ]);
+    state.creditProducts = productsResult.products || [];
+    state.creditProposals = proposalsResult.proposals || [];
+
+    const select = $("#creditProduct");
+    const list = $("#creditProductsList");
+    if (select) {
+      select.innerHTML = state.creditProducts.length
+        ? state.creditProducts.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} · ${escapeHtml(p.partnerName)}</option>`).join("")
+        : '<option value="">Nenhum produto disponível</option>';
+    }
+
+    if (list) {
+      if (!state.creditProducts.length) {
+        list.innerHTML = '<div class="empty-state">Nenhuma linha de crédito habilitada ainda. O módulo já está preparado para receber parceiros.</div>';
+      } else {
+        list.innerHTML = state.creditProducts.map(p => `
+          <article class="credit-product-card">
+            <span class="addon-type">${escapeHtml(p.partnerName)}</span>
+            <strong>${escapeHtml(p.name)}</strong>
+            <p>${escapeHtml(p.description || "Produto financeiro disponível no balcão.")}</p>
+            <div><span>Faixa</span><b>${p.minAmount ? money(p.minAmount) : "—"} a ${p.maxAmount ? money(p.maxAmount) : "—"}</b></div>
+            <div><span>Comissão do ponto</span><b>${Number(p.pointCommissionPercent || 0).toFixed(1)}%</b></div>
+          </article>`).join("");
+      }
+    }
+
+    const proposals = $("#creditProposalsList");
+    if (proposals) {
+      proposals.innerHTML = state.creditProposals.length
+        ? state.creditProposals.map(p => `
+          <div class="inventory-row">
+            <div><span class="addon-type">${escapeHtml(p.partner_name || "PARCEIRO")}</span><strong>${escapeHtml(p.product_name || "")}</strong><small>#${escapeHtml(String(p.id).slice(0,8).toUpperCase())}</small></div>
+            <div><span>Cliente</span><strong>${escapeHtml(p.applicant_name || "")}</strong></div>
+            <div><span>Valor</span><strong>${money(p.requested_amount)}</strong></div>
+            <div><span>Status</span><strong>${escapeHtml(p.status || "LEAD")}</strong></div>
+          </div>`).join("")
+        : '<div class="empty-state">Nenhuma intenção de crédito registrada.</div>';
+    }
+  } catch (err) {
+    toast(err.message, "error");
+  }
+}
+
+async function loadMaster() {
+  if (state.user?.role !== "ADMIN") return;
+  try {
+    const [overview, stores, users, catalog, partners, products, auditResult] = await Promise.all([
+      api("/api/admin/overview"),
+      api("/api/admin/stores"),
+      api("/api/admin/users"),
+      api("/api/admin/catalog"),
+      api("/api/admin/credit/partners"),
+      api("/api/admin/credit/products"),
+      api("/api/admin/audit?limit=80")
+    ]);
+
+    state.admin.stores = stores.stores || [];
+    state.admin.users = users.users || [];
+    state.admin.catalog = catalog.items || [];
+    state.admin.creditPartners = partners.partners || [];
+    state.admin.creditProducts = products.products || [];
+
+    $("#masterStores").textContent = overview.activeStores || 0;
+    $("#masterUsers").textContent = overview.activeUsers || 0;
+    $("#masterOrders").textContent = overview.totalOrders || 0;
+    $("#masterGross").textContent = money(overview.grossSales);
+    $("#masterPostalRevenue").textContent = money(overview.postalRevenue);
+
+    const storeSelect = $("#adminUserStore");
+    if (storeSelect) {
+      storeSelect.innerHTML = '<option value="">Selecione...</option>' +
+        state.admin.stores.filter(s=>s.active).map(s=>`<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)} (${escapeHtml(s.code)})</option>`).join("");
+    }
+
+    const storesHost = $("#adminStoresList");
+    if (storesHost) {
+      storesHost.innerHTML = state.admin.stores.length ? state.admin.stores.map(s=>`
+        <div class="admin-row" data-store-id="${escapeHtml(s.id)}">
+          <div><strong>${escapeHtml(s.name)}</strong><span>${escapeHtml(s.code)} · ${escapeHtml(s.cnpj || "CNPJ não informado")}</span></div>
+          <div><span>Comissão</span><strong>${Number(s.commissionPercent||0).toFixed(1)}%</strong></div>
+          <div><span>Usuários</span><strong>${Number(s.activeUsers||0)}</strong></div>
+          <div><span>Fretes</span><strong>${Number(s.totalOrders||0)}</strong></div>
+          <div><span>Venda</span><strong>${money(s.grossSales)}</strong></div>
+          <div><span>Financeiro</span><strong>${s.asaasWalletId ? "Wallet vinculada" : "Pendente"}</strong></div>
+          <button class="ghost" type="button" data-edit-store="${escapeHtml(s.id)}">Editar</button>
+        </div>`).join("") : '<div class="empty-state">Nenhum ponto cadastrado.</div>';
+
+      storesHost.querySelectorAll("[data-edit-store]").forEach(btn=>btn.addEventListener("click",async()=>{
+        const store=state.admin.stores.find(s=>s.id===btn.dataset.editStore);
+        if(!store) return;
+        const commission=window.prompt("Comissão do ponto (%):",String(store.commissionPercent));
+        if(commission==null) return;
+        const wallet=window.prompt("Wallet Asaas (pode ficar vazia):",store.asaasWalletId||"");
+        if(wallet==null) return;
+        const active=window.confirm("OK = ponto ativo. Cancelar = desativar o ponto.");
+        try{
+          await api(`/api/admin/stores/${store.id}`,{method:"PATCH",body:JSON.stringify({commissionPercent:Number(String(commission).replace(",",".")),asaasWalletId:wallet.trim(),active})});
+          toast("Ponto atualizado."); await loadMaster();
+        }catch(err){toast(err.message,"error");}
+      }));
+    }
+
+    const usersHost=$("#adminUsersList");
+    if(usersHost){
+      usersHost.innerHTML=state.admin.users.length?state.admin.users.map(u=>`
+        <div class="admin-row admin-user-row">
+          <div><strong>${escapeHtml(u.name)}</strong><span>${escapeHtml(u.email)}</span></div>
+          <div><span>Perfil</span><strong>${escapeHtml(u.role)}</strong></div>
+          <div><span>Ponto</span><strong>${escapeHtml(u.store_name || "Postal")}</strong></div>
+          <div><span>Status</span><strong>${u.active ? "Ativo" : "Inativo"}</strong></div>
+          <div><span>Último acesso</span><strong>${u.last_login_at ? new Date(u.last_login_at).toLocaleString("pt-BR") : "—"}</strong></div>
+        </div>`).join(""):'<div class="empty-state">Nenhum usuário cadastrado.</div>';
+    }
+
+    const catalogHost=$("#adminCatalogList");
+    if(catalogHost){
+      catalogHost.innerHTML=state.admin.catalog.length?state.admin.catalog.map(item=>`
+        <div class="inventory-row">
+          <div><span class="addon-type">${escapeHtml(item.item_type)} · ${escapeHtml(item.category)}</span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.code)}</small></div>
+          <div><span>Preço</span><strong>${money(item.unit_price)}</strong></div>
+          <div><span>Ponto</span><strong>${Number(item.point_share_percent||0)}%</strong></div>
+          <div><span>Postal</span><strong>${Number(item.postal_share_percent||0)}%</strong></div>
+          <div><span>Fornecedor</span><strong>${Number(item.provider_share_percent||0)}%</strong></div>
+        </div>`).join(""):'<div class="empty-state">Catálogo vazio.</div>';
+    }
+
+    const partnerSelect=$("#adminCreditProductPartner");
+    if(partnerSelect){
+      partnerSelect.innerHTML=state.admin.creditPartners.length
+        ?state.admin.creditPartners.filter(p=>p.active).map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join("")
+        :'<option value="">Cadastre um parceiro primeiro</option>';
+    }
+
+    const auditHost=$("#adminAuditList");
+    const logs=auditResult.logs||[];
+    if(auditHost){
+      auditHost.innerHTML=logs.length?logs.map(log=>`
+        <div class="audit-row">
+          <span>${new Date(log.created_at).toLocaleString("pt-BR")}</span>
+          <strong>${escapeHtml(log.action)}</strong>
+          <span>${escapeHtml(log.user_email || "sistema")}</span>
+          <small>${escapeHtml(log.entity_type || "")} ${escapeHtml(log.entity_id || "")}</small>
+        </div>`).join(""):'<div class="empty-state">Sem eventos de auditoria.</div>';
+    }
+  } catch (err) {
+    toast(err.message,"error");
+  }
+}
+
+$("#refreshMasterBtn")?.addEventListener("click",loadMaster);
+$("#refreshCreditBtn")?.addEventListener("click",loadCredit);
+
+$("#adminStoreForm")?.addEventListener("submit",async event=>{
+  event.preventDefault();
+  const btn=event.currentTarget.querySelector("button[type='submit']");
+  btn.disabled=true;
+  try{
+    await api("/api/admin/stores",{method:"POST",body:JSON.stringify({
+      code:$("#adminStoreCode").value.trim(),
+      name:$("#adminStoreName").value.trim(),
+      cnpj:$("#adminStoreCnpj").value.trim(),
+      email:$("#adminStoreEmail").value.trim(),
+      commissionPercent:Number($("#adminStoreCommission").value||20),
+      asaasWalletId:$("#adminStoreWallet").value.trim()
+    })});
+    event.currentTarget.reset(); $("#adminStoreCommission").value="20"; toast("Ponto cadastrado."); await loadMaster();
+  }catch(err){toast(err.message,"error");}finally{btn.disabled=false;}
+});
+
+$("#adminUserForm")?.addEventListener("submit",async event=>{
+  event.preventDefault();
+  const role=$("#adminUserRole").value;
+  const btn=event.currentTarget.querySelector("button[type='submit']"); btn.disabled=true;
+  try{
+    await api("/api/admin/users",{method:"POST",body:JSON.stringify({
+      name:$("#adminUserName").value.trim(),email:$("#adminUserEmail").value.trim(),
+      password:$("#adminUserPassword").value,role,storeId:role==="ADMIN"?null:$("#adminUserStore").value
+    })});
+    event.currentTarget.reset(); toast("Usuário criado."); await loadMaster();
+  }catch(err){toast(err.message,"error");}finally{btn.disabled=false;}
+});
+
+$("#adminUserRole")?.addEventListener("change",()=>{
+  $("#adminUserStore").disabled=$("#adminUserRole").value==="ADMIN";
+});
+
+$("#adminCatalogForm")?.addEventListener("submit",async event=>{
+  event.preventDefault();
+  const btn=event.currentTarget.querySelector("button[type='submit']"); btn.disabled=true;
+  try{
+    const code=$("#adminCatalogCode").value.trim().toUpperCase();
+    await api("/api/admin/catalog/"+encodeURIComponent(code),{method:"PUT",body:JSON.stringify({
+      name:$("#adminCatalogName").value.trim(),itemType:$("#adminCatalogType").value,
+      category:$("#adminCatalogCategory").value.trim(),unitPrice:Number($("#adminCatalogPrice").value||0),
+      trackStock:$("#adminCatalogStock").checked,
+      pointSharePercent:Number($("#adminCatalogPointShare").value||0),
+      postalSharePercent:Number($("#adminCatalogPostalShare").value||0),
+      providerSharePercent:Number($("#adminCatalogProviderShare").value||0),
+      externalProvider:$("#adminCatalogProvider").value.trim()
+    })});
+    event.currentTarget.reset(); $("#adminCatalogPointShare").value="100"; $("#adminCatalogPostalShare").value="0"; $("#adminCatalogProviderShare").value="0";
+    toast("Item salvo no catálogo."); await loadMaster();
+  }catch(err){toast(err.message,"error");}finally{btn.disabled=false;}
+});
+
+$("#adminCreditPartnerForm")?.addEventListener("submit",async event=>{
+  event.preventDefault(); const btn=event.currentTarget.querySelector("button[type='submit']");btn.disabled=true;
+  try{
+    await api("/api/admin/credit/partners",{method:"POST",body:JSON.stringify({
+      code:$("#adminCreditPartnerCode").value.trim(),name:$("#adminCreditPartnerName").value.trim(),
+      integrationMode:$("#adminCreditPartnerMode").value,apiBaseUrl:$("#adminCreditPartnerApi").value.trim()
+    })});
+    event.currentTarget.reset();toast("Parceiro financeiro salvo.");await loadMaster();
+  }catch(err){toast(err.message,"error");}finally{btn.disabled=false;}
+});
+
+$("#adminCreditProductForm")?.addEventListener("submit",async event=>{
+  event.preventDefault(); const btn=event.currentTarget.querySelector("button[type='submit']");btn.disabled=true;
+  try{
+    await api("/api/admin/credit/products",{method:"POST",body:JSON.stringify({
+      partnerId:$("#adminCreditProductPartner").value,code:$("#adminCreditProductCode").value.trim(),
+      name:$("#adminCreditProductName").value.trim(),minAmount:Number($("#adminCreditMin").value||0),
+      maxAmount:Number($("#adminCreditMax").value||0),pointCommissionPercent:Number($("#adminCreditPointCommission").value||0),
+      postalCommissionPercent:Number($("#adminCreditPostalCommission").value||0)
+    })});
+    event.currentTarget.reset();toast("Produto financeiro salvo.");await loadMaster();
+  }catch(err){toast(err.message,"error");}finally{btn.disabled=false;}
+});
+
+$("#creditProposalForm")?.addEventListener("submit",async event=>{
+  event.preventDefault(); const btn=event.currentTarget.querySelector("button[type='submit']");btn.disabled=true;
+  try{
+    await api("/api/credit/proposals",{method:"POST",body:JSON.stringify({
+      productId:$("#creditProduct").value,applicantName:$("#creditApplicantName").value.trim(),
+      document:$("#creditDocument").value.trim(),phone:$("#creditPhone").value.trim(),
+      requestedAmount:Number($("#creditAmount").value||0),consent:$("#creditConsent").checked
+    })});
+    event.currentTarget.reset();toast("Intenção de crédito registrada.");await loadCredit();
+  }catch(err){toast(err.message,"error");}finally{btn.disabled=false;}
+});
+
 $("#paymentMethod")?.addEventListener("change", async () => {
   const method = $("#paymentMethod").value;
   const btn = $("#createShipmentBtn");
