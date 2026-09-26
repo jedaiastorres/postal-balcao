@@ -959,7 +959,7 @@ function orderMatchesFilters(order) {
   const haystack = [
     order.id, order.trackingCode, order.sender?.name, order.sender?.document,
     order.recipient?.name, order.recipient?.document, order.sender?.city,
-    order.recipient?.city, order.carrier, order.serviceName
+    order.recipient?.city, order.carrier, order.serviceName, order.storeName, order.storeCode
   ].filter(Boolean).join(" ").toLowerCase();
   return haystack.includes(search);
 }
@@ -1017,7 +1017,7 @@ function renderOrders() {
     card.innerHTML = `
       <div class="order-top">
         <div>
-          <div class="order-id">#${escapeHtml(order.id.slice(0,8).toUpperCase())} · ${escapeHtml(date)}${order.isSimulation ? " · HOMOLOGAÇÃO" : ""}</div>
+          <div class="order-id">#${escapeHtml(order.id.slice(0,8).toUpperCase())} · ${escapeHtml(date)}${order.storeName ? " · " + escapeHtml(order.storeName) : ""}${order.isSimulation ? " · HOMOLOGAÇÃO" : ""}</div>
           <h3>${escapeHtml(order.carrier)} <span>${escapeHtml(order.serviceName)}</span></h3>
           <p>${route}</p>
         </div>
