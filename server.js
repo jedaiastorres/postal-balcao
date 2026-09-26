@@ -951,7 +951,7 @@ app.post("/api/admin/credit/products", requireAuth, requireRole("ADMIN"), async 
   } catch(error){ res.status(500).json({error:"Não foi possível salvar o produto de crédito."}); }
 });
 
-app.get("/api/credit/products", requireAuth, async (_req,res)=>{
+app.get("/api/credit/products", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK"), async (_req,res)=>{
   try {
     const products=await db.listCreditProducts(true);
     res.json({products:products.map(p=>({
@@ -962,7 +962,7 @@ app.get("/api/credit/products", requireAuth, async (_req,res)=>{
   } catch(error){ res.status(500).json({error:"Não foi possível carregar as ofertas."}); }
 });
 
-app.get("/api/credit/proposals", requireAuth, async (req,res)=>{
+app.get("/api/credit/proposals", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK"), async (req,res)=>{
   try {
     const proposals=await db.listCreditProposals(req.user.role==="ADMIN"?{}:{storeId:req.user.storeId||null});
     res.json({proposals});
@@ -1003,7 +1003,7 @@ app.post("/api/credit/proposals", requireAuth, requireRole("ADMIN","STORE_OWNER"
  *   cep_to: "01310100"
  * }
  */
-app.post("/api/cotacao", requireAuth, async (req, res) => {
+app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK"), async (req, res) => {
   try {
     const body = req.body || {};
     const required = ["cepOrigem", "cepDestino", "peso", "comprimento", "largura", "altura"];
@@ -1175,7 +1175,7 @@ app.get("/api/catalog", requireAuth, async (req, res) => {
   }
 });
 
-app.post("/api/payment-preview", requireAuth, async (req, res) => {
+app.post("/api/payment-preview", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK"), async (req, res) => {
   try {
     const body = req.body || {};
     const selection = verifySelectionToken(body.selectionToken);
@@ -1208,7 +1208,7 @@ app.post("/api/payment-preview", requireAuth, async (req, res) => {
   }
 });
 
-app.get("/api/inventory", requireAuth, async (req, res) => {
+app.get("/api/inventory", requireAuth, requireRole("ADMIN","STORE_OWNER","OPS"), async (req, res) => {
   try {
     const items = await db.getPartnerCatalog(inventoryOwner(req.user));
     res.json({
@@ -1298,7 +1298,7 @@ app.post("/api/inventory/adjust", requireAuth, requireRole("ADMIN","STORE_OWNER"
   }
 });
 
-app.get("/api/inventory/movements", requireAuth, async (req,res)=>{
+app.get("/api/inventory/movements", requireAuth, requireRole("ADMIN","STORE_OWNER","OPS"), async (req,res)=>{
   try {
     const movements=await db.listInventoryMovements(inventoryOwner(req.user),Number(req.query.limit||100));
     res.json({movements:movements.map(m=>({
@@ -1815,6 +1815,10 @@ app.post("/api/documento-proxy", requireAuth, async (req, res) => {
     console.error("document proxy error:", error.message);
     res.status(502).json({ error: "Falha ao obter etiqueta ou declaracao." });
   }
+});
+
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "Endpoint da API não encontrado." });
 });
 
 app.use((_req, res) => {
