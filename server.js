@@ -582,7 +582,7 @@ async function processAsaasWebhookEvent(eventRow) {
     if (eventType === "CHECKOUT_PAID") {
       const paidOrder = await db.markPaid(order.id, ENABLE_SHIPMENT_CREATION ? "PAYMENT_CONFIRMED" : "PAID_WAITING_SHIPMENT");
       if (order.payment_method !== "DINHEIRO") {
-        await db.consumeOrderInventory(order.id, order.partner_email);
+        await db.consumeOrderInventory(order.id, inventoryOwnerFromOrder(order));
       }
       if (ENABLE_SHIPMENT_CREATION) {
         try {
@@ -593,7 +593,7 @@ async function processAsaasWebhookEvent(eventRow) {
         }
       }
     } else if (eventType === "CHECKOUT_CANCELED") {
-      if (order.payment_method !== "DINHEIRO") await db.releaseOrderInventory(order.id, order.partner_email);
+      if (order.payment_method !== "DINHEIRO") await db.releaseOrderInventory(order.id, inventoryOwnerFromOrder(order));
       await db.updateStatus(order.id, "PAYMENT_CANCELED", "CANCELED");
     } else if (eventType === "CHECKOUT_EXPIRED") {
       if (order.payment_method !== "DINHEIRO") await db.releaseOrderInventory(order.id, order.partner_email);
@@ -900,7 +900,7 @@ app.post("/api/prazo", requireAuth, async (req, res) => {
 
 app.get("/api/catalog", requireAuth, async (req, res) => {
   try {
-    const items = await db.getPartnerCatalog(req.user.email);
+    const items = await db.getPartnerCatalog(inventoryOwner(req.user));
     res.json({
       items: items.map(item => ({
         code: item.code,
@@ -937,7 +937,7 @@ app.post("/api/payment-preview", requireAuth, async (req, res) => {
       return res.status(400).json({ error: "Selecione a forma de pagamento." });
     }
 
-    const addons = await resolveRequestedAddons(req.user.email, body.addons);
+    const addons = await resolveRequestedAddons(inventoryOwner(req.user), body.addons);
     const financials = summarizeFinancials(selection, addons, paymentMethod);
 
     res.json({
@@ -959,7 +959,7 @@ app.post("/api/payment-preview", requireAuth, async (req, res) => {
 
 app.get("/api/inventory", requireAuth, async (req, res) => {
   try {
-    const items = await db.getPartnerCatalog(req.user.email);
+    const items = await db.getPartnerCatalog(inventoryOwner(req.user));
     res.json({
       items: items.map(item => ({
         code: item.code,
@@ -998,7 +998,7 @@ app.post("/api/inventory/receive", requireAuth, async (req, res) => {
     if (!item.track_stock) return res.status(400).json({ error: "Este item não controla estoque físico." });
 
     const inventory = await db.receiveInventory(
-      req.user.email,
+      inventoryOwner(req.user),
       item.id,
       quantity,
       String(req.body.note || "Recebimento pelo ponto"),
@@ -1026,7 +1026,7 @@ app.post("/api/inventory/adjust", requireAuth, async (req, res) => {
     if (!item.track_stock) return res.status(400).json({ error: "Este item não controla estoque físico." });
 
     const inventory = await db.setInventory(
-      req.user.email,
+      inventoryOwner(req.user),
       item.id,
       quantity,
       minQuantity,
@@ -1162,7 +1162,7 @@ app.post("/api/orders", requireAuth, async (req, res) => {
       return res.status(400).json({ error: "Os CEPs mudaram após a cotação. Calcule novamente." });
     }
 
-    const addons = await resolveRequestedAddons(req.user.email, body.addons);
+    const addons = await resolveRequestedAddons(inventoryOwner(req.user), body.addons);
     const financials = summarizeFinancials(selection, addons, paymentMethod);
 
     const salePrice = round2(Number(selection.salePrice));
@@ -1176,6 +1176,7 @@ app.post("/api/orders", requireAuth, async (req, res) => {
 
     const baseOrder = {
       id: orderId,
+      storeId: req.user.storeId || null,
       partnerEmail: req.user.email,
       paymentMethod,
       paymentProvider: paymentMethod === "DINHEIRO" ? "CASH" : "ASAAS",
@@ -1210,8 +1211,8 @@ app.post("/api/orders", requireAuth, async (req, res) => {
         cashRemittanceAmount: financials.cashRemittanceBase
       });
 
-      await db.insertOrderAddons(order.id, req.user.email, addons);
-      await db.consumeOrderInventory(order.id, req.user.email);
+      await db.insertOrderAddons(order.id, inventoryOwner(req.user), addons);
+      await db.consumeOrderInventory(order.id, inventoryOwner(req.user));
 
       const complete = await db.getOrder(order.id, req.user.email);
       return res.status(201).json({
@@ -1230,7 +1231,7 @@ app.post("/api/orders", requireAuth, async (req, res) => {
       cashRemittanceAmount: 0
     });
 
-    await db.insertOrderAddons(order.id, req.user.email, addons);
+    await db.insertOrderAddons(order.id, inventoryOwner(req.user), addons);
 
     if (!asaas.configured()) {
       const complete = await db.getOrder(order.id, req.user.email);
