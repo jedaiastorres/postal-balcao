@@ -1,15 +1,15 @@
 {
   "name": "postal-balcao-v1",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
-  "description": "Postal Balcao V1.4: fretes, Asaas fee pass-through, split, produtos, serviços, estoque e API de integrações.",
+  "description": "Postal Balcao V1.5: multi-ponto, painel master, homologacao de pagamentos, estoque profissional, credito e APIs.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
