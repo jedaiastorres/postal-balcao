@@ -223,6 +223,11 @@ $("#quoteForm").addEventListener("submit", async (event) => {
     state.currentQuote = payload;
     state.selectedOption = null;
     state.shipmentResult = null;
+    if (result.commissionPercent != null) {
+      const pct = Number(result.commissionPercent).toFixed(1).replace(".0","");
+      $("#commissionCaption").textContent = pct + "% sobre o preço final";
+      $("#commissionBig").textContent = pct + "%";
+    }
     renderResults(result, payload);
     saveRecent(result, payload);
     refreshDashboard();
