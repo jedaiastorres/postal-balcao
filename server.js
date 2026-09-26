@@ -645,19 +645,59 @@ app.get("/api/public-config", (_req, res) => {
   });
 });
 
-app.post("/api/login", (req, res) => {
+app.post("/api/login", async (req, res) => {
   const { email, password } = req.body || {};
-  if (email !== APP_USER || password !== APP_PASSWORD) {
-    return res.status(401).json({ error: "E-mail ou senha inválidos." });
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const rate = checkLoginRate(req, normalizedEmail);
+  if (!rate.ok) {
+    res.setHeader("Retry-After", String(rate.retryAfter || 900));
+    return res.status(429).json({ error: "Muitas tentativas. Aguarde alguns minutos e tente novamente." });
   }
 
-  const token = signSession({ email, exp: Date.now() + 12 * 60 * 60 * 1000 });
-  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  res.setHeader(
-    "Set-Cookie",
-    `postal_session=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=43200${secure}`
-  );
-  res.json({ ok: true, user: { email } });
+  try {
+    const user = await db.findUserByEmail(normalizedEmail);
+    if (!user || !user.active || user.store_active === false || !verifyPassword(password, user.password_hash)) {
+      recordLoginFailure(rate.key);
+      return res.status(401).json({ error: "E-mail ou senha inválidos." });
+    }
+
+    clearLoginFailures(rate.key);
+    await db.touchUserLogin(user.id);
+    const csrf = crypto.randomBytes(24).toString("base64url");
+    const token = signSession({
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      storeId: user.store_id || null,
+      storeName: user.store_name || null,
+      storeCode: user.store_code || null,
+      storeCommissionPercent: user.store_commission_percent == null ? null : Number(user.store_commission_percent),
+      csrf,
+      exp: Date.now() + 12 * 60 * 60 * 1000
+    });
+    const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+    res.setHeader(
+      "Set-Cookie",
+      `postal_session=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=43200${secure}`
+    );
+    await audit({ user: { userId:user.id, storeId:user.store_id, email:user.email } }, "LOGIN", "USER", user.id);
+    res.json({
+      ok: true,
+      csrfToken: csrf,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        storeId: user.store_id || null,
+        storeName: user.store_name || null
+      }
+    });
+  } catch (error) {
+    console.error("login error:", error.message);
+    res.status(500).json({ error: "Não foi possível entrar no sistema." });
+  }
 });
 
 app.post("/api/logout", (_req, res) => {
@@ -666,7 +706,37 @@ app.post("/api/logout", (_req, res) => {
 });
 
 app.get("/api/session", requireAuth, (req, res) => {
-  res.json({ ok: true, user: { email: req.user.email } });
+  res.json({
+    ok: true,
+    csrfToken: req.user.csrf,
+    user: {
+      id: req.user.userId,
+      email: req.user.email,
+      name: req.user.name,
+      role: req.user.role,
+      storeId: req.user.storeId || null,
+      storeName: req.user.storeName || null,
+      storeCode: req.user.storeCode || null
+    }
+  });
+});
+
+// CSRF para mutações autenticadas do painel. Webhooks e API externa usam autenticação própria.
+app.use("/api", (req, res, next) => {
+  if (!["POST","PUT","PATCH","DELETE"].includes(req.method)) return next();
+  if (req.path.startsWith("/webhooks/") || req.path.startsWith("/integrations/")) return next();
+
+  const session = verifySession(parseCookies(req).postal_session);
+  if (!session) return res.status(401).json({ error: "Sessão expirada. Entre novamente." });
+  const received = String(req.get("x-csrf-token") || "");
+  const expected = String(session.csrf || "");
+  const a = Buffer.from(received);
+  const b = Buffer.from(expected);
+  if (!received || a.length !== b.length || !crypto.timingSafeEqual(a,b)) {
+    return res.status(403).json({ error: "Sessão de segurança inválida. Atualize a página e tente novamente." });
+  }
+  req.user = session;
+  next();
 });
 
 /**
@@ -732,7 +802,14 @@ app.post("/api/cotacao", requireAuth, async (req, res) => {
       }
     }
 
-    const options = normalizeQuote(providerData).map(option => {
+    let partnerCommissionRate = PARTNER_COMMISSION;
+    if (req.user.storeId) {
+      const store = await db.getStore(req.user.storeId);
+      if (store?.commission_percent != null) {
+        partnerCommissionRate = Math.max(0, Math.min(0.50, Number(store.commission_percent) / 100));
+      }
+    }
+    const options = normalizeQuote(providerData, partnerCommissionRate).map(option => {
       const selectionToken = signSelectionToken({
         exp: Date.now() + 2 * 60 * 60 * 1000,
         postalCompanyId: option.postalCompanyId,
@@ -766,7 +843,7 @@ app.post("/api/cotacao", requireAuth, async (req, res) => {
     res.json({
       demo,
       provider: "ConectEnvios",
-      commissionPercent: round2(PARTNER_COMMISSION * 100),
+      commissionPercent: round2(partnerCommissionRate * 100),
       options
     });
   } catch (error) {
