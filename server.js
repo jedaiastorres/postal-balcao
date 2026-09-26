@@ -592,6 +592,7 @@ async function processAsaasWebhookEvent(eventRow) {
       if (order.payment_method !== "DINHEIRO") {
         await db.consumeOrderInventory(order.id, inventoryOwnerFromOrder(order));
       }
+      await db.addOrderEvent(order.id, "PAYMENT_CONFIRMED", "Pagamento confirmado", "Confirmação recebida pelo gateway de pagamento.");
       if (ENABLE_SHIPMENT_CREATION) {
         try {
           await createShipmentFromOrder(paidOrder);
@@ -603,9 +604,11 @@ async function processAsaasWebhookEvent(eventRow) {
     } else if (eventType === "CHECKOUT_CANCELED") {
       if (order.payment_method !== "DINHEIRO") await db.releaseOrderInventory(order.id, inventoryOwnerFromOrder(order));
       await db.updateStatus(order.id, "PAYMENT_CANCELED", "CANCELED");
+      await db.addOrderEvent(order.id, "PAYMENT_CANCELED", "Pagamento cancelado", "O checkout foi cancelado.");
     } else if (eventType === "CHECKOUT_EXPIRED") {
       if (order.payment_method !== "DINHEIRO") await db.releaseOrderInventory(order.id, inventoryOwnerFromOrder(order));
       await db.updateStatus(order.id, "PAYMENT_EXPIRED", "EXPIRED");
+      await db.addOrderEvent(order.id, "PAYMENT_EXPIRED", "Pagamento expirado", "O checkout expirou sem confirmação.");
     }
 
     await db.markWebhookProcessed(eventRow.id, null);
@@ -772,6 +775,7 @@ app.get("/api/admin/stores", requireAuth, requireRole("ADMIN"), async (_req, res
     res.json({ stores: stores.map(store => ({
       id: store.id, code: store.code, name: store.name, legalName: store.legal_name || "",
       cnpj: store.cnpj || "", phone: store.phone || "", email: store.email || "",
+      asaasWalletId: store.asaas_wallet_id || "",
       address: store.address || {}, commissionPercent: Number(store.commission_percent || 0),
       active: Boolean(store.active), activeUsers: Number(store.active_users || 0),
       totalOrders: Number(store.total_orders || 0), grossSales: Number(store.gross_sales || 0)
@@ -793,7 +797,7 @@ app.post("/api/admin/stores", requireAuth, requireRole("ADMIN"), async (req, res
     }
     const store = await db.createStore({
       code,name,legalName:body.legalName,cnpj:cleanDigits(body.cnpj),phone:body.phone,email:body.email,
-      address:body.address||{},commissionPercent,active:body.active!==false
+      asaasWalletId:body.asaasWalletId||null,address:body.address||{},commissionPercent,active:body.active!==false
     });
     await audit(req,"CREATE_STORE","STORE",store.id,{code:store.code});
     res.status(201).json({ store });
@@ -1381,8 +1385,14 @@ app.post("/api/orders", requireAuth, async (req, res) => {
     const postalMargin = round2(Math.max(0, salePrice - partnerCommission - providerCost));
     const orderId = crypto.randomUUID();
     const invoiceNumber = String(body.invoiceNumber || "").trim();
-    const partner = await db.ensurePartner(req.user.email);
-    const partnerWalletId = String(partner?.asaas_wallet_id || ASAAS_DEFAULT_PARTNER_WALLET_ID || "").trim();
+    let partnerWalletId = ASAAS_DEFAULT_PARTNER_WALLET_ID;
+    if (req.user.storeId) {
+      const financialStore = await db.getStore(req.user.storeId);
+      partnerWalletId = String(financialStore?.asaas_wallet_id || ASAAS_DEFAULT_PARTNER_WALLET_ID || "").trim();
+    } else {
+      const partner = await db.ensurePartner(req.user.email);
+      partnerWalletId = String(partner?.asaas_wallet_id || ASAAS_DEFAULT_PARTNER_WALLET_ID || "").trim();
+    }
 
     const baseOrder = {
       id: orderId,
@@ -1736,6 +1746,25 @@ app.use((_req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
+async function ensureBootstrapAdmin() {
+  if (process.env.NODE_ENV === "production" && SESSION_SECRET === "postal-v1-dev-secret-change-me") {
+    throw new Error("APP_SESSION_SECRET inseguro em produção.");
+  }
+
+  const existing = await db.findUserByEmail(APP_USER);
+  if (!existing) {
+    const admin = await db.createUser({
+      email: APP_USER,
+      name: "Administrador Postal",
+      passwordHash: hashPassword(APP_PASSWORD),
+      role: "ADMIN",
+      active: true,
+      storeId: null
+    });
+    console.log("Usuário administrador inicial criado:", admin.email);
+  }
+}
+
 async function seedDefaultCatalog() {
   const defaults = [
     { code: "CX-P", name: "Caixa pequena", category: "EMBALAGENS" },
@@ -1768,10 +1797,11 @@ async function seedDefaultCatalog() {
 
 async function start() {
   await db.initDb();
+  await ensureBootstrapAdmin();
   await seedDefaultCatalog();
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Postal Balcao V1.4 disponivel na porta ${PORT}`);
+    console.log(`Postal Balcao V1.5 disponivel na porta ${PORT}`);
     console.log(`ConectEnvios: ${TOKEN ? "configurada" : "modo demonstracao"}`);
     console.log(`Asaas: ${asaas.configured() ? "configurado" : "aguardando chave"}`);
     console.log(`Banco: ${process.env.DATABASE_URL ? "PostgreSQL configurado" : "nao configurado"}`);
