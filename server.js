@@ -1128,6 +1128,7 @@ app.get("/api/catalog", requireAuth, async (req, res) => {
         reservedQuantity: Number(item.reserved_quantity || 0),
         availableQuantity: Number(item.available_quantity || 0),
         minQuantity: Number(item.min_quantity || 0),
+        averageCost: Number(item.average_cost || 0),
         externalProvider: item.external_provider || "",
         metadata: item.metadata || {}
       }))
@@ -1186,7 +1187,8 @@ app.get("/api/inventory", requireAuth, async (req, res) => {
         stockQuantity: Number(item.stock_quantity || 0),
         reservedQuantity: Number(item.reserved_quantity || 0),
         availableQuantity: Number(item.available_quantity || 0),
-        minQuantity: Number(item.min_quantity || 0)
+        minQuantity: Number(item.min_quantity || 0),
+        averageCost: Number(item.average_cost || 0)
       }))
     });
   } catch (error) {
@@ -1200,6 +1202,8 @@ app.post("/api/inventory/receive", requireAuth, async (req, res) => {
     const code = String(req.body.code || "").trim();
     const quantity = Number(req.body.quantity || 0);
     const salePrice = req.body.salePrice === "" || req.body.salePrice == null ? null : Number(req.body.salePrice);
+    const unitCost = Math.max(0, Number(req.body.unitCost || 0));
+    const lotCode = String(req.body.lotCode || "").trim();
     if (!code || !Number.isFinite(quantity) || quantity <= 0) {
       return res.status(400).json({ error: "Informe produto e quantidade válida." });
     }
@@ -1216,8 +1220,11 @@ app.post("/api/inventory/receive", requireAuth, async (req, res) => {
       item.id,
       quantity,
       String(req.body.note || "Recebimento pelo ponto"),
-      salePrice
+      salePrice,
+      unitCost,
+      lotCode || null
     );
+    await audit(req,"INVENTORY_RECEIVE","CATALOG_ITEM",item.id,{code:item.code,quantity,lotCode:lotCode||null});
     res.json({ ok: true, inventory });
   } catch (error) {
     console.error("receive inventory error:", error.message);
@@ -1247,11 +1254,24 @@ app.post("/api/inventory/adjust", requireAuth, async (req, res) => {
       String(req.body.note || "Ajuste pelo ponto"),
       salePrice
     );
+    await audit(req,"INVENTORY_ADJUST","CATALOG_ITEM",item.id,{code:item.code,quantity,minQuantity});
     res.json({ ok: true, inventory });
   } catch (error) {
     console.error("adjust inventory error:", error.message);
     res.status(500).json({ error: "Não foi possível ajustar o estoque." });
   }
+});
+
+app.get("/api/inventory/movements", requireAuth, async (req,res)=>{
+  try {
+    const movements=await db.listInventoryMovements(inventoryOwner(req.user),Number(req.query.limit||100));
+    res.json({movements:movements.map(m=>({
+      id:m.id,code:m.code,name:m.name,movementType:m.movement_type,
+      quantity:Number(m.quantity||0),lotCode:m.lot_code||"",unitCost:Number(m.unit_cost||0),
+      note:m.note||"",referenceType:m.reference_type||"",referenceId:m.reference_id||"",
+      createdAt:m.created_at
+    }))});
+  } catch(error){ res.status(500).json({error:"Não foi possível carregar o histórico de estoque."}); }
 });
 
 // API versionada para futuras integrações de produtos, serviços e ofertas financeiras.
