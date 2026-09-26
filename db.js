@@ -26,6 +26,51 @@ async function initDb() {
   }
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS stores (
+      id UUID PRIMARY KEY,
+      code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      legal_name TEXT,
+      cnpj TEXT,
+      phone TEXT,
+      email TEXT,
+      address JSONB NOT NULL DEFAULT '{}'::jsonb,
+      commission_percent NUMERIC(6,3) NOT NULL DEFAULT 20,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS app_users (
+      id UUID PRIMARY KEY,
+      store_id UUID REFERENCES stores(id) ON DELETE SET NULL,
+      email TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('ADMIN','STORE_OWNER','STORE_CLERK','OPS')),
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      last_login_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS app_users_store_idx ON app_users(store_id);
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id UUID PRIMARY KEY,
+      user_id UUID,
+      store_id UUID,
+      user_email TEXT,
+      action TEXT NOT NULL,
+      entity_type TEXT,
+      entity_id TEXT,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS audit_logs_created_idx ON audit_logs(created_at DESC);
+    CREATE INDEX IF NOT EXISTS audit_logs_store_idx ON audit_logs(store_id,created_at DESC);
+
     CREATE TABLE IF NOT EXISTS partner_accounts (
       email TEXT PRIMARY KEY,
       asaas_wallet_id TEXT,
@@ -37,6 +82,7 @@ async function initDb() {
 
     CREATE TABLE IF NOT EXISTS freight_orders (
       id UUID PRIMARY KEY,
+      store_id UUID REFERENCES stores(id) ON DELETE SET NULL,
       partner_email TEXT NOT NULL,
       status TEXT NOT NULL,
       payment_method TEXT NOT NULL,
@@ -77,6 +123,7 @@ async function initDb() {
       label_a6_url TEXT,
       declaration_url TEXT,
       public_tracking_url TEXT,
+      is_simulation BOOLEAN NOT NULL DEFAULT FALSE,
 
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -157,6 +204,66 @@ async function initDb() {
 
     CREATE INDEX IF NOT EXISTS order_addons_order_idx ON order_addons(order_id);
 
+    CREATE TABLE IF NOT EXISTS order_events (
+      id UUID PRIMARY KEY,
+      order_id UUID NOT NULL REFERENCES freight_orders(id) ON DELETE CASCADE,
+      event_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      detail TEXT,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS order_events_order_idx ON order_events(order_id,created_at);
+
+    CREATE TABLE IF NOT EXISTS credit_partners (
+      id UUID PRIMARY KEY,
+      code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      integration_mode TEXT NOT NULL DEFAULT 'MANUAL',
+      api_base_url TEXT,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS credit_products (
+      id UUID PRIMARY KEY,
+      partner_id UUID NOT NULL REFERENCES credit_partners(id) ON DELETE CASCADE,
+      code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      min_amount NUMERIC(14,2),
+      max_amount NUMERIC(14,2),
+      point_commission_percent NUMERIC(6,3) NOT NULL DEFAULT 0,
+      postal_commission_percent NUMERIC(6,3) NOT NULL DEFAULT 0,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS credit_proposals (
+      id UUID PRIMARY KEY,
+      store_id UUID REFERENCES stores(id) ON DELETE SET NULL,
+      user_id UUID,
+      product_id UUID NOT NULL REFERENCES credit_products(id),
+      applicant_name TEXT NOT NULL,
+      applicant_document_hash TEXT,
+      applicant_document_last4 TEXT,
+      applicant_phone TEXT,
+      requested_amount NUMERIC(14,2) NOT NULL,
+      status TEXT NOT NULL DEFAULT 'LEAD',
+      consent_at TIMESTAMPTZ NOT NULL,
+      external_ref TEXT,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS credit_proposals_store_idx ON credit_proposals(store_id,created_at DESC);
+
     CREATE TABLE IF NOT EXISTS payment_webhook_events (
       id TEXT PRIMARY KEY,
       provider TEXT NOT NULL,
@@ -179,6 +286,8 @@ async function initDb() {
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS point_revenue_total NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS postal_revenue_total NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS provider_revenue_total NUMERIC(12,2) NOT NULL DEFAULT 0;
+    ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS store_id UUID REFERENCES stores(id) ON DELETE SET NULL;
+    ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS is_simulation BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE partner_inventory ADD COLUMN IF NOT EXISTS sale_price NUMERIC(12,2);
   `);
 
