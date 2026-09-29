@@ -915,14 +915,20 @@ app.use("/api", (req, res, next) => {
 
 app.get("/api/client/dashboard", requireAuth, requireRole("CLIENT"), async (req,res)=>{
   try{
-    const wallet=await clientDb.getWallet(req.user.userId);
-    const orders=await clientDb.listClientOrders(req.user.userId,20);
-    const collections=await clientDb.listCollections({clientUserId:req.user.userId},20);
-    const connections=await clientDb.listConnections(req.user.userId);
+    const [wallet,operations,collections,connections]=await Promise.all([
+      clientDb.getWallet(req.user.userId),
+      clientDb.listClientOperations(req.user.userId,250),
+      clientDb.listCollections({clientUserId:req.user.userId},250),
+      clientDb.listConnections(req.user.userId)
+    ]);
+    const shipmentStatuses=operations.shipments.map(clientOpsStatus);
     res.json({
       balance:Number(wallet?.balance||0),
       referralStore:wallet?.account?.referral_store_name||"",
-      totalShipments:orders.length,
+      totalShipments:operations.shipments.length,
+      importedOrders:operations.imports.length,
+      readyToShip:shipmentStatuses.filter(x=>x==="READY_TO_SHIP").length,
+      sentOrders:shipmentStatuses.filter(x=>x==="SENT").length,
       pendingCollections:collections.filter(x=>!["COLLECTED","RECEIVED_AT_POINT","COMPLETED","CANCELED"].includes(x.status)).length,
       connections:connections.length
     });
