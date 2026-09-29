@@ -208,18 +208,52 @@ async function createCheckout({
   };
 }
 
-async function ensurePixKey() {
+async function ensurePixKey({ waitForActiveMs = 60000 } = {}) {
   if (!ASAAS_API_KEY) return { ok: false, reason: "not_configured" };
-  const listed = await asaasFetch("/pix/addressKeys?limit=20", { method: "GET" });
-  const rows = Array.isArray(listed) ? listed : (Array.isArray(listed?.data) ? listed.data : []);
-  const active = rows.find(item => ["ACTIVE","AWAITING_ACTIVATION"].includes(String(item?.status || "").toUpperCase()));
-  if (active) return { ok: true, created: false, id: active.id || null, status: active.status || null };
 
-  const created = await asaasFetch("/pix/addressKeys", {
-    method: "POST",
-    body: JSON.stringify({ type: "EVP" })
-  });
-  return { ok: true, created: true, id: created?.id || null, status: created?.status || null };
+  const listKeys = async () => {
+    const listed = await asaasFetch("/pix/addressKeys?limit=20", { method: "GET" });
+    return Array.isArray(listed) ? listed : (Array.isArray(listed?.data) ? listed.data : []);
+  };
+
+  let rows = await listKeys();
+  let active = rows.find(item => String(item?.status || "").toUpperCase() === "ACTIVE");
+  if (active) return { ok: true, created: false, id: active.id || null, status: "ACTIVE" };
+
+  let pending = rows.find(item => String(item?.status || "").toUpperCase() === "AWAITING_ACTIVATION");
+  let created = false;
+  if (!pending) {
+    pending = await asaasFetch("/pix/addressKeys", {
+      method: "POST",
+      body: JSON.stringify({ type: "EVP" })
+    });
+    created = true;
+  }
+
+  const deadline = Date.now() + Math.max(0, Number(waitForActiveMs || 0));
+  while (Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 2500));
+    rows = await listKeys();
+    active = rows.find(item => String(item?.status || "").toUpperCase() === "ACTIVE");
+    if (active) return { ok: true, created, id: active.id || null, status: "ACTIVE" };
+
+    const failed = rows.find(item => String(item?.id || "") === String(pending?.id || "") && String(item?.status || "").toUpperCase() === "ERROR");
+    if (failed) {
+      const error = new Error("A chave Pix criada no Asaas entrou em estado de erro.");
+      error.providerData = failed;
+      throw error;
+    }
+  }
+
+  rows = await listKeys();
+  pending = rows.find(item => ["AWAITING_ACTIVATION","ACTIVE"].includes(String(item?.status || "").toUpperCase())) || pending;
+  return {
+    ok: String(pending?.status || "").toUpperCase() === "ACTIVE",
+    created,
+    id: pending?.id || null,
+    status: pending?.status || "AWAITING_ACTIVATION",
+    reason: "activation_pending"
+  };
 }
 
 async function cancelCheckout(checkoutId) {
