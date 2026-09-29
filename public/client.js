@@ -5,7 +5,11 @@
     collections: [],
     connections: [],
     adminStores: [],
-    pickupCoords: null
+    pickupCoords: null,
+    operations: [],
+    selectedOperations: new Set(),
+    opsStatus: "",
+    pendingImport: null
   };
 
   function isClient(){ return state.user?.role === "CLIENT"; }
@@ -55,6 +59,7 @@
     const clientMode=user?.role==="CLIENT";
     $("#clientNavSection")?.classList.toggle("hidden",!clientMode);
     document.querySelector('[data-view="inventory"]')?.classList.toggle("hidden",clientMode||!["ADMIN","STORE_OWNER","OPS"].includes(user?.role));
+    document.querySelector('[data-view="orders"]')?.classList.toggle("hidden",clientMode);
     document.querySelector('[data-view="credit"]')?.classList.toggle("hidden",clientMode||!["ADMIN","STORE_OWNER","STORE_CLERK"].includes(user?.role));
     document.querySelector('[data-view="cash"]')?.classList.toggle("hidden",clientMode||!["ADMIN","STORE_OWNER"].includes(user?.role));
     document.querySelector('[data-view="clients"]')?.classList.toggle("hidden",clientMode);
@@ -68,6 +73,7 @@
     document.querySelector('[data-view="dashboard"]')?.classList.toggle("hidden",clientMode);
     if(clientMode){
       $("#partnerEmail").textContent=user.name||user.email;
+      $("#clientTopBalance")?.classList.remove("hidden");
       $(".page-kicker").textContent="POSTAL SERVIÇOS · CLIENTE";
       const badge=$("#apiBadge");
       badge.className="status-badge connected";
@@ -86,9 +92,10 @@
       const d=await api("/api/client/dashboard");
       client.walletBalance=Number(d.balance||0);
       $("#clientBalance").textContent=money(d.balance);
-      $("#clientShipments").textContent=d.totalShipments||0;
-      $("#clientCollectionsPending").textContent=d.pendingCollections||0;
-      $("#clientConnections").textContent=d.connections||0;
+      $("#clientImportedOrders").textContent=d.importedOrders||0;
+      $("#clientReadyToShip").textContent=d.readyToShip||0;
+      $("#clientSentOrders").textContent=d.sentOrders||0;
+      $("#clientTopBalance strong").textContent=money(d.balance);
     }catch(err){toast(err.message,"error");}
   }
 
@@ -97,6 +104,7 @@
     const d=await api("/api/client/wallet");
     client.walletBalance=Number(d.balance||0);
     $("#walletBalanceHero").textContent=money(d.balance);
+    $("#clientTopBalance strong").textContent=money(d.balance);
     await previewTopup();
     $("#walletModeNote").textContent=state.config?.paymentsConfigured
       ?"Recargas são confirmadas automaticamente pelo gateway de pagamento."
