@@ -698,6 +698,17 @@ function prepareShipmentView() {
     : (state.config?.paymentSimulatorEnabled
         ? "Modo homologação ativo: o pagamento pode ser simulado em Meus Fretes sem movimentar dinheiro."
         : "A integração Asaas está preparada e aguarda a chave da conta para processar cobranças.");
+
+  const saldoOption = $("#paymentMethod")?.querySelector('option[value="SALDO"]');
+  if (state.user?.role === "CLIENT") {
+    saldoOption?.classList.remove("hidden");
+    window.PostalClient?.prepareShipment?.();
+  } else {
+    $("#clientFirstMilePanel")?.classList.add("hidden");
+    $(".addons-panel")?.classList.remove("hidden");
+    $("#paymentMethod")?.closest("label")?.classList.remove("hidden");
+    saldoOption?.classList.add("hidden");
+  }
   return true;
 }
 
