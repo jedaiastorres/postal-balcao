@@ -622,6 +622,7 @@
           <select id="ordersPaymentFilter">
             <option value="">Todos os pagamentos</option>
             <option value="PIX">PIX</option><option value="CARTAO">Cartão</option><option value="DINHEIRO">Dinheiro</option>
+                  <option value="SALDO">Saldo Postal</option>
           </select>
           <button id="clearOrderFilters" class="ghost" type="button">Limpar</button>
         </div>
@@ -695,6 +696,24 @@
             </div>
             <div id="contentItems" class="content-items"></div>
             <button id="addContentItemBtn" class="ghost" type="button">+ Adicionar item</button>
+          </article>
+
+          <article id="clientFirstMilePanel" class="form-panel client-only hidden">
+            <div class="form-panel-head">
+              <span class="step-number">4</span>
+              <div><h3>Como o pacote chega até a Postal?</h3><p>Escolha coleta no endereço ou entrega em um ponto parceiro. O serviço custa R$ 5,00 por pacote.</p></div>
+            </div>
+            <div class="client-firstmile-grid">
+              <label class="choice-card"><input type="radio" name="firstMileType" value="PICKUP" checked /><span><strong>Coleta no endereço</strong><small>A Postal direciona para o ponto habilitado mais próximo quando houver.</small></span></label>
+              <label class="choice-card"><input type="radio" name="firstMileType" value="DROPOFF" /><span><strong>Levar a um ponto Postal</strong><small>Você escolhe o ponto e deixa os pacotes no balcão.</small></span></label>
+            </div>
+            <div class="form-grid">
+              <label>Quantidade de pacotes*<input id="clientPackageCount" type="number" min="1" max="100" value="1" /></label>
+              <label id="clientDropoffField" class="hidden">Ponto Postal<select id="clientDropoffStore"></select></label>
+              <label>Agendar para<input id="clientScheduledFor" type="datetime-local" /></label>
+              <label class="span-2">Observação<input id="clientCollectionNotes" placeholder="Ex.: coleta na recepção, horário comercial" /></label>
+            </div>
+            <div class="payment-method-note">Coleta: o ponto executor recebe R$ 3,00 por pacote. Postagem no ponto: o ponto recebe R$ 2,00 por pacote. O restante do valor de R$ 5,00 fica com a Postal.</div>
           </article>
 
           <article class="form-panel addons-panel">
