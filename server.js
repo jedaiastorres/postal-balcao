@@ -1009,7 +1009,7 @@ app.post("/api/credit/proposals", requireAuth, requireRole("ADMIN","STORE_OWNER"
  *   cep_to: "01310100"
  * }
  */
-app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK"), async (req, res) => {
+app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK","CLIENT"), async (req, res) => {
   try {
     const body = req.body || {};
     const required = ["cepOrigem", "cepDestino", "peso", "comprimento", "largura", "altura"];
@@ -1058,8 +1058,8 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
       }
     }
 
-    let partnerCommissionRate = PARTNER_COMMISSION;
-    if (req.user.storeId) {
+    let partnerCommissionRate = req.user.role === "CLIENT" ? 0 : PARTNER_COMMISSION;
+    if (req.user.role !== "CLIENT" && req.user.storeId) {
       const store = await db.getStore(req.user.storeId);
       if (store?.commission_percent != null) {
         partnerCommissionRate = Math.max(0, Math.min(0.50, Number(store.commission_percent) / 100));
