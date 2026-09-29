@@ -1154,7 +1154,12 @@ async function updateCreditProposalStatus(id, status, externalRef = null, metada
 
 async function exportOperationalSnapshot() {
   const db = requireDb();
-  const [stores,users,catalog,inventory,movements,orders,events,addons,creditPartners,creditProducts,creditProposals,audit] = await Promise.all([
+  const [
+    stores,users,catalog,inventory,movements,orders,events,addons,
+    creditPartners,creditProducts,creditProposals,audit,
+    customerAccounts,walletTransactions,walletTopups,ecommerceConnections,ecommerceOrders,
+    collectionRequests,pointEarnings
+  ] = await Promise.all([
     db.query("SELECT * FROM stores ORDER BY created_at"),
     db.query("SELECT id,store_id,email,name,role,active,last_login_at,created_at,updated_at FROM app_users ORDER BY created_at"),
     db.query("SELECT * FROM catalog_items ORDER BY created_at"),
@@ -1166,13 +1171,23 @@ async function exportOperationalSnapshot() {
     db.query("SELECT * FROM credit_partners ORDER BY created_at"),
     db.query("SELECT * FROM credit_products ORDER BY created_at"),
     db.query("SELECT * FROM credit_proposals ORDER BY created_at"),
-    db.query("SELECT * FROM audit_logs ORDER BY created_at")
+    db.query("SELECT * FROM audit_logs ORDER BY created_at"),
+    db.query("SELECT * FROM customer_accounts ORDER BY created_at"),
+    db.query("SELECT * FROM wallet_transactions ORDER BY created_at"),
+    db.query("SELECT * FROM wallet_topups ORDER BY created_at"),
+    db.query("SELECT * FROM ecommerce_connections ORDER BY created_at"),
+    db.query("SELECT * FROM ecommerce_orders ORDER BY created_at"),
+    db.query("SELECT * FROM collection_requests ORDER BY requested_at"),
+    db.query("SELECT * FROM point_earnings ORDER BY created_at")
   ]);
   return {
     generatedAt:new Date().toISOString(),
     stores:stores.rows,users:users.rows,catalog:catalog.rows,inventory:inventory.rows,
     inventoryMovements:movements.rows,orders:orders.rows,orderEvents:events.rows,orderAddons:addons.rows,
-    creditPartners:creditPartners.rows,creditProducts:creditProducts.rows,creditProposals:creditProposals.rows,audit:audit.rows
+    creditPartners:creditPartners.rows,creditProducts:creditProducts.rows,creditProposals:creditProposals.rows,
+    customerAccounts:customerAccounts.rows,walletTransactions:walletTransactions.rows,walletTopups:walletTopups.rows,
+    ecommerceConnections:ecommerceConnections.rows,ecommerceOrders:ecommerceOrders.rows,
+    collectionRequests:collectionRequests.rows,pointEarnings:pointEarnings.rows,audit:audit.rows
   };
 }
 
