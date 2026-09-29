@@ -415,14 +415,30 @@ async function createShipmentFromOrder(order) {
   if (!pkg) throw new Error("A ConectEnvios não retornou os dados do pacote.");
 
   const shipment = {
-    cartId: cart.id || pkg.cart_id || null,
-    packageId: pkg.id || null,
-    trackingCode: pkg.postal_service_track || "",
-    labelA4Url: pkg.api_print_url || cart.public_print_url || "",
-    labelA6Url: pkg.api_print_url_a6 || "",
-    declarationUrl: pkg.api_declaration_url || "",
-    publicTrackingUrl: pkg.public_tracking_url || ""
+    cartId: cart.id || cart.cart_id || pkg.cart_id || null,
+    packageId: pkg.id || pkg.package_id || null,
+    trackingCode:
+      pkg.postal_service_track ||
+      pkg.tracking_code ||
+      pkg.trackingCode ||
+      pkg.tracking ||
+      pkg.track ||
+      cart.tracking_code ||
+      cart.trackingCode ||
+      "",
+    labelA4Url: pkg.api_print_url || pkg.label_url || cart.public_print_url || cart.label_url || "",
+    labelA6Url: pkg.api_print_url_a6 || pkg.label_a6_url || "",
+    declarationUrl: pkg.api_declaration_url || pkg.declaration_url || "",
+    publicTrackingUrl: pkg.public_tracking_url || pkg.tracking_url || cart.public_tracking_url || ""
   };
+
+  if (!shipment.trackingCode) {
+    console.warn("ConectEnvios criou a postagem sem retornar rastreio no payload imediato.", {
+      orderId: order.id,
+      cartId: shipment.cartId,
+      packageId: shipment.packageId
+    });
+  }
 
   await db.saveShipment(order.id, shipment);
   await db.addOrderEvent(order.id, "LABEL_AVAILABLE", "Etiqueta liberada", "Postagem criada na ConectEnvios e etiqueta disponível.");
@@ -752,7 +768,7 @@ app.get("/api/public-config", (_req, res) => {
     paymentsProvider: "ASAAS",
     paymentsConfigured: asaas.configured(),
     databaseConfigured: Boolean(process.env.DATABASE_URL),
-    version: "1.7.0",
+    version: "1.7.3",
     paymentSimulatorEnabled: PAYMENT_SIMULATOR_ENABLED && !asaas.configured(),
     clientPickupFeePerPackage: CLIENT_PICKUP_FEE_PER_PACKAGE,
     pointPickupEarningPerPackage: POINT_PICKUP_EARNING_PER_PACKAGE,
