@@ -820,6 +820,26 @@ async function processAsaasWebhookEvent(eventRow) {
   }
 }
 
+async function processPendingProviderPayments() {
+  if (!process.env.DATABASE_URL || !ENABLE_SHIPMENT_CREATION || !TOKEN) return;
+  try {
+    const candidates = await db.listProviderPaymentRetryCandidates(20);
+    for (const order of candidates) {
+      try {
+        console.log("CONECTENVIOS_RETRY", order.id, "attempt", Number(order.provider_payment_attempts || 0) + 1);
+        await createShipmentFromOrder(order);
+      } catch (error) {
+        const status = providerPaymentFailureStatus(error);
+        if (status !== "AWAITING_FUNDS") {
+          console.error("ConectEnvios retry stopped:", order.id, providerFailureText(error));
+        }
+      }
+    }
+  } catch (error) {
+    console.error("provider payment worker error:", error.message);
+  }
+}
+
 async function processPendingAsaasEvents() {
   if (!process.env.DATABASE_URL) return;
   try {
@@ -1738,8 +1758,9 @@ app.post("/api/integrations/v1/ecommerce/connections/:id/orders", requireIntegra
 app.get("/api/admin/system-health", requireAuth, requireRole("ADMIN"), async (_req,res)=>{
   const health={
     database:{ok:false},
-    conectenvios:{ok:Boolean(TOKEN),mode:CONECTENVIOS_PAYMENT_MODE},
+    conectenvios:{ok:false,configured:Boolean(TOKEN),mode:CONECTENVIOS_PAYMENT_MODE},
     asaas:{ok:false,...asaas.environmentInfo()},
+    providerPayments:{awaitingFunds:0,awaitingProvider:0,errors:0,paid:0},
     shipmentCreationEnabled:ENABLE_SHIPMENT_CREATION,
     checkedAt:new Date().toISOString()
   };
@@ -1748,13 +1769,35 @@ app.get("/api/admin/system-health", requireAuth, requireRole("ADMIN"), async (_r
     health.database.ok=true;
   }catch(error){health.database.error=String(error.message||error);}
   try{
+    if(TOKEN){
+      const ce=await providerFetch("/postal_company",{method:"GET",timeout:15000});
+      health.conectenvios.ok=Boolean(ce && ce.data);
+    }
+  }catch(error){
+    health.conectenvios.error=providerFailureText(error);
+    health.conectenvios.status=error.status||null;
+  }
+  try{
     if(asaas.configured()){
       await asaas.asaasFetch("/checkouts?limit=1",{method:"GET"});
-      health.asaas.ok=true;
+      const pix=await asaas.ensurePixKey({waitForActiveMs:0});
+      health.asaas.pixReady=Boolean(pix.ok && String(pix.status||"").toUpperCase()==="ACTIVE");
+      health.asaas.ok=health.asaas.pixReady;
     }
   }catch(error){
     health.asaas.error=asaas.providerErrorMessage(error.providerData,error.message);
     health.asaas.status=error.status||null;
+  }
+  try{
+    const summary=await db.providerPaymentSummary();
+    health.providerPayments={
+      awaitingFunds:Number(summary.awaiting_funds||0),
+      awaitingProvider:Number(summary.awaiting_provider||0),
+      errors:Number(summary.provider_errors||0),
+      paid:Number(summary.provider_paid||0)
+    };
+  }catch(error){
+    health.providerPayments.error=String(error.message||error);
   }
   res.json(health);
 });
@@ -2976,6 +3019,10 @@ async function start() {
   setInterval(() => {
     processPendingAsaasEvents().catch(error => console.error("webhook worker error:", error.message));
   }, 10000).unref();
+
+  setInterval(() => {
+    processPendingProviderPayments().catch(error => console.error("provider payment worker error:", error.message));
+  }, 5 * 60 * 1000).unref();
 }
 
 start().catch(error => {
