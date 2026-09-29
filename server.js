@@ -855,7 +855,7 @@ app.get("/api/public-config", (_req, res) => {
     paymentsProvider: "ASAAS",
     paymentsConfigured: asaas.configured(),
     databaseConfigured: Boolean(process.env.DATABASE_URL),
-    version: "1.7.7",
+    version: "1.7.8",
     paymentSimulatorEnabled: PAYMENT_SIMULATOR_ENABLED && !asaas.configured(),
     clientPickupFeePerPackage: CLIENT_PICKUP_FEE_PER_PACKAGE,
     pointPickupEarningPerPackage: POINT_PICKUP_EARNING_PER_PACKAGE,
@@ -2943,26 +2943,31 @@ async function start() {
   await seedDefaultCatalog();
   await ensureAsaasCheckoutWebhook();
 
+  let asaasPixReady=!asaas.configured();
   if (asaas.configured()) {
     try {
-      const pixKey=await asaas.ensurePixKey();
-      console.log("ASAAS_PIX_KEY_READY", pixKey.created ? "CREATED" : (pixKey.status || "EXISTING"));
+      const pixKey=await asaas.ensurePixKey({waitForActiveMs:60000});
+      asaasPixReady=Boolean(pixKey.ok && String(pixKey.status||"").toUpperCase()==="ACTIVE");
+      console.log("ASAAS_PIX_KEY_READY", asaasPixReady ? "ACTIVE" : (pixKey.status || "PENDING"));
     } catch (error) {
+      asaasPixReady=false;
       console.error("ASAAS_PIX_KEY_FAIL", error.status || "", asaas.providerErrorMessage(error.providerData,error.message));
     }
   }
 
-  if (ASAAS_SELF_TEST_ON_BOOT && asaas.configured()) {
+  if (ASAAS_SELF_TEST_ON_BOOT && asaas.configured() && asaasPixReady) {
     try {
       const test=await asaas.selfTestCheckout();
       console.log("ASAAS_SELF_TEST_OK",test.status||"OK");
     } catch (error) {
       console.error("ASAAS_SELF_TEST_FAIL",error.status||"",asaas.providerErrorMessage(error.providerData,error.message));
     }
+  } else if (ASAAS_SELF_TEST_ON_BOOT && asaas.configured() && !asaasPixReady) {
+    console.warn("ASAAS_SELF_TEST_SKIPPED Pix key ainda não ativa.");
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Postal Balcao V1.7.7 disponivel na porta ${PORT}`);
+    console.log(`Postal Balcao V1.7.8 disponivel na porta ${PORT}`);
     console.log(`ConectEnvios: ${TOKEN ? "configurada" : "modo demonstracao"}`);
     console.log(`Asaas: ${asaas.configured() ? "configurado" : "aguardando chave"}`);
     console.log(`Banco: ${process.env.DATABASE_URL ? "PostgreSQL configurado" : "nao configurado"}`);
