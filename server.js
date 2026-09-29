@@ -1038,7 +1038,8 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
   let createdOrderId=null;
   try{
     const body=req.body||{};
-    if (asaas.configured() && !ENABLE_SHIPMENT_CREATION) {
+    const safeSandbox=asaas.isSandbox();
+    if (asaas.configured() && !ENABLE_SHIPMENT_CREATION && !safeSandbox) {
       return res.status(503).json({error:"A emissão real ainda está em homologação. Seu saldo não será debitado até a geração real de etiquetas ser liberada."});
     }
     const selection=verifySelectionToken(body.selectionToken);
@@ -1056,12 +1057,13 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
       return res.status(400).json({error:"Os CEPs mudaram após a cotação."});
     }
 
-    const firstMileType=String(body.firstMileType||"").toUpperCase();
-    if(!["PICKUP","DROPOFF"].includes(firstMileType)){
-      return res.status(400).json({error:"Escolha coleta no endereço ou postagem em um ponto Postal."});
+    const firstMileType=String(body.firstMileType||"LATER").toUpperCase();
+    if(!["PICKUP","DROPOFF","LATER"].includes(firstMileType)){
+      return res.status(400).json({error:"Escolha coleta, postagem em um ponto ou solicitar depois."});
     }
-    const packageCount=1; // uma cotação/etiqueta representa um pacote; a taxa de primeira milha é por etiqueta/pacote.
-    const firstMileFee=round2(CLIENT_PICKUP_FEE_PER_PACKAGE*packageCount);
+
+    const packageCount=1;
+    const firstMileFee=firstMileType==="LATER"?0:round2(CLIENT_PICKUP_FEE_PER_PACKAGE*packageCount);
     const account=await clientDb.getCustomerAccount(req.user.userId);
     if(!account) return res.status(400).json({error:"Conta cliente não encontrada."});
 
@@ -1076,7 +1078,7 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
       const choice=await clientDb.choosePickupStore({address,latitude:body.latitude,longitude:body.longitude});
       assignedStore=choice?.store||null;
       pointRate=assignedStore?POINT_PICKUP_EARNING_PER_PACKAGE:0;
-    }else{
+    }else if(firstMileType==="DROPOFF"){
       const stores=await clientDb.listPublicStores();
       assignedStore=stores.find(s=>s.id===String(body.dropoffStoreId||""))||null;
       if(!assignedStore) return res.status(400).json({error:"Selecione o ponto Postal onde os pacotes serão deixados."});
@@ -1098,27 +1100,35 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
       id:orderId,clientUserId:req.user.userId,referralStoreId:account.referral_store_id||null,
       referralCommission,partnerEmail:req.user.email,status:"PAYMENT_CONFIRMED",
       totalAmount,freightPrice,customerSubtotal:totalAmount,postalRevenueTotal,providerCost,postalMargin,
-      firstMileType,firstMileFee,packageCount,postalCompanyId:selection.postalCompanyId,
+      firstMileType:firstMileType==="LATER"?null:firstMileType,firstMileFee,packageCount,
+      postalCompanyId:selection.postalCompanyId,
       carrier:String(body.carrier||""),serviceName:String(selection.service||""),deadline:Number(selection.deadline||0),
       quoteToken:body.selectionToken,sender,recipient,items,invoiceNumber:String(body.invoiceNumber||"").trim(),
       packageData:selection.package
     });
 
-    const collection=await clientDb.createCollectionRequest({
-      clientUserId:req.user.userId,freightOrderId:orderId,serviceType:firstMileType,
-      status:firstMileType==="DROPOFF"?"WAITING_DROPOFF":(assignedStore?"ASSIGNED":"REQUESTED"),
-      packageCount,feePerPackage:CLIENT_PICKUP_FEE_PER_PACKAGE,totalFee:firstMileFee,
-      assignedStoreId:assignedStore?.id||null,pointRate,pointCompensation,
-      postalCompensation:postalFirstMile,address:sender,latitude:body.latitude||null,longitude:body.longitude||null,
-      scheduledFor:body.scheduledFor||null,notes:String(body.collectionNotes||"")
-    });
+    let collection=null;
+    if(firstMileType!=="LATER"){
+      collection=await clientDb.createCollectionRequest({
+        clientUserId:req.user.userId,freightOrderId:orderId,serviceType:firstMileType,
+        status:firstMileType==="DROPOFF"?"WAITING_DROPOFF":(assignedStore?"ASSIGNED":"REQUESTED"),
+        packageCount,feePerPackage:CLIENT_PICKUP_FEE_PER_PACKAGE,totalFee:firstMileFee,
+        assignedStoreId:assignedStore?.id||null,pointRate,pointCompensation,
+        postalCompensation:postalFirstMile,address:sender,latitude:body.latitude||null,longitude:body.longitude||null,
+        scheduledFor:body.scheduledFor||null,notes:String(body.collectionNotes||"")
+      });
+    }
 
     await db.addOrderEvent(orderId,"WALLET_PAYMENT","Pagamento com saldo Postal","Valor debitado da carteira pré-paga.");
-    await db.addOrderEvent(orderId,"FIRST_MILE_REQUESTED",
-      firstMileType==="PICKUP"?"Coleta solicitada":"Postagem no ponto selecionada",
-      assignedStore?("Ponto: "+assignedStore.name):"Aguardando direcionamento pela Postal.");
+    if(firstMileType==="LATER"){
+      await db.addOrderEvent(orderId,"FIRST_MILE_PENDING","Coleta ainda não solicitada","O cliente poderá selecionar vários envios e solicitar a coleta em lote.");
+    }else{
+      await db.addOrderEvent(orderId,"FIRST_MILE_REQUESTED",
+        firstMileType==="PICKUP"?"Coleta solicitada":"Postagem no ponto selecionada",
+        assignedStore?("Ponto: "+assignedStore.name):"Aguardando direcionamento pela Postal.");
+    }
 
-    const simulation=PAYMENT_SIMULATOR_ENABLED&&!asaas.configured()&&!ENABLE_SHIPMENT_CREATION;
+    const simulation=!ENABLE_SHIPMENT_CREATION && (safeSandbox || (PAYMENT_SIMULATOR_ENABLED&&!asaas.configured()));
     let shipmentIssued=false;
 
     if(ENABLE_SHIPMENT_CREATION){
@@ -1135,16 +1145,21 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
       await db.updateStatus(orderId,"PAID_WAITING_SHIPMENT","PAID");
     }
 
+    if(body.sourceEcommerceOrderId){
+      await clientDb.linkImportedOrder(String(body.sourceEcommerceOrderId),req.user.userId,orderId);
+    }
+
     if(shipmentIssued&&account.referral_store_id){
       await clientDb.createPointEarning({
         storeId:account.referral_store_id,clientUserId:req.user.userId,earningType:"REFERRAL",
         amount:referralCommission,referenceType:"FREIGHT_ORDER",referenceId:orderId,
-        status:simulation?"SIMULATED":"EARNED",metadata:{clientEmail:req.user.email}
+        status:simulation?"SIMULATED":"EARNED",metadata:{source:"client_portal"}
       });
     }
 
     await audit(req,"CREATE_CLIENT_SHIPMENT","FREIGHT_ORDER",orderId,{
-      firstMileType,packageCount,collectionId:collection.id,referral:Boolean(account.referral_store_id)
+      firstMileType,packageCount,collectionId:collection?.id||null,
+      referral:Boolean(account.referral_store_id),sourceEcommerceOrderId:body.sourceEcommerceOrderId||null
     });
     const complete=await clientDb.getClientOrder(orderId,req.user.userId);
     res.status(201).json({order:publicOrder(complete),collection,balance:created.balance});
@@ -1153,7 +1168,7 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
     if(createdOrderId){
       try{
         const existing=await clientDb.getClientOrder(createdOrderId,req.user.userId);
-        if(existing&&existing.status==="PAYMENT_CONFIRMED"){
+        if(existing&&["PAYMENT_CONFIRMED","PAID_WAITING_SHIPMENT"].includes(existing.status)){
           await clientDb.creditWallet(req.user.userId,Number(existing.payment_amount||0),{
             type:"REFUND",description:"Estorno automático por falha na criação do envio",
             orderId:createdOrderId,idempotencyKey:"client-order-refund:"+createdOrderId
