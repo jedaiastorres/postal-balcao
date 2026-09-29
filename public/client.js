@@ -418,25 +418,54 @@
   async function loadConnections(){
     if(!isClient())return;
     const d=await api("/api/client/connections"); client.connections=d.connections||[];
+    const connectedPlatforms=new Set(client.connections.map(x=>x.platform));
     $("#platformCards").innerHTML=(d.supported||[]).map(p=>`
       <article class="platform-card">
         <div class="platform-logo">${escapeHtml(p.name.slice(0,2).toUpperCase())}</div>
         <div><strong>${escapeHtml(p.name)}</strong><p>Importe pedidos e centralize fretes, etiquetas, coletas e rastreamento na Postal.</p></div>
-        <button class="primary" type="button" data-platform="${escapeHtml(p.code)}">Conectar</button>
+        <button class="primary" type="button" data-platform="${escapeHtml(p.code)}" ${connectedPlatforms.has(p.code)?"disabled":""}>${connectedPlatforms.has(p.code)?"Já adicionada":"Adicionar loja"}</button>
       </article>`).join("");
-    $$("#platformCards [data-platform]").forEach(btn=>btn.addEventListener("click",async()=>{
+    $("#platformCards [data-platform]").forEach(btn=>btn.addEventListener("click",async()=>{
       const name=prompt("Nome desta loja na Postal (opcional):","Minha loja")||"";
+      const storeUrl=prompt("Endereço da loja (URL/domínio). Ex.: minhaloja.com.br","")||"";
       try{
-        const r=await api("/api/client/connections",{method:"POST",body:JSON.stringify({platform:btn.dataset.platform,displayName:name})});
-        toast(r.message||"Conexão preparada."); await loadConnections();
+        const r=await api("/api/client/connections",{method:"POST",body:JSON.stringify({platform:btn.dataset.platform,displayName:name,storeUrl})});
+        toast(r.message||"Integração criada."); await loadConnections();
       }catch(err){toast(err.message,"error");}
     }));
+
+    const statusLabel=s=>({
+      AWAITING_PROVIDER_AUTH:"Aguardando autorização",
+      CONNECTED:"Conectada",
+      SYNC_REQUESTED:"Sincronização solicitada",
+      SYNCING:"Sincronizando",
+      ERROR:"Erro de integração",
+      DISCONNECTED:"Desconectada"
+    })[s]||s||"—";
+
     $("#connectionsList").innerHTML=client.connections.length?client.connections.map(x=>`
-      <div class="inventory-row">
-        <div><span class="addon-type">${escapeHtml(x.platform)}</span><strong>${escapeHtml(x.displayName||"Loja")}</strong><small>Conexão Postal</small></div>
-        <div><span>Status</span><strong>${escapeHtml(x.status)}</strong></div>
-        <div><span>Pedidos</span><strong>${Number(x.importedOrders||0)}</strong></div>
-      </div>`).join(""):'<div class="empty-state">Nenhuma loja conectada ainda.</div>';
+      <div class="inventory-row connection-row">
+        <div><span class="addon-type">${escapeHtml(x.platform)}</span><strong>${escapeHtml(x.displayName||"Loja")}</strong><small>${escapeHtml(x.storeUrl||x.externalStoreId||"")}</small></div>
+        <div><span>Status</span><strong>${escapeHtml(statusLabel(x.status))}</strong><small>${x.lastSyncAt?"Última sincronização: "+new Date(x.lastSyncAt).toLocaleString("pt-BR"):"Ainda não sincronizada"}</small></div>
+        <div><span>Pedidos</span><strong>${Number(x.importedOrders||0)}</strong><small>${escapeHtml(x.lastError||"")}</small></div>
+        <div class="inventory-actions">
+          ${x.authorizationUrl?`<button class="primary" type="button" data-auth="${escapeHtml(x.authorizationUrl)}">Autorizar</button>`:""}
+          <button class="ghost" type="button" data-sync="${escapeHtml(x.id)}" ${x.status!=="CONNECTED"?"disabled":""}>Sincronizar</button>
+          <button class="ghost" type="button" data-delete="${escapeHtml(x.id)}">Desconectar</button>
+        </div>
+      </div>`).join(""):'<div class="empty-state">Nenhuma loja adicionada ainda.</div>';
+
+    $("#connectionsList [data-auth]").forEach(btn=>btn.addEventListener("click",()=>window.open(btn.dataset.auth,"_blank","noopener")));
+    $("#connectionsList [data-sync]").forEach(btn=>btn.addEventListener("click",async()=>{
+      try{const r=await api("/api/client/connections/"+encodeURIComponent(btn.dataset.sync)+"/sync",{method:"POST",body:"{}"});toast(r.message||"Sincronização solicitada.");await loadConnections();}
+      catch(err){toast(err.message,"error");}
+    }));
+    $("#connectionsList [data-delete]").forEach(btn=>btn.addEventListener("click",async()=>{
+      if(!confirm("Desconectar esta loja da Postal?"))return;
+      try{await api("/api/client/connections/"+encodeURIComponent(btn.dataset.delete),{method:"DELETE",body:"{}"});toast("Loja desconectada.");await loadConnections();}
+      catch(err){toast(err.message,"error");}
+    }));
+
     $("#ecommerceOrdersList").innerHTML=(d.orders||[]).length?(d.orders||[]).map(o=>`
       <div class="inventory-row"><div><span class="addon-type">${escapeHtml(o.platform)}</span><strong>#${escapeHtml(o.external_order_id)}</strong><small>${escapeHtml(o.connection_name||"")}</small></div>
       <div><span>Cliente</span><strong>${escapeHtml(o.customer_name||"—")}</strong></div><div><span>Status</span><strong>${escapeHtml(o.external_status||o.import_status)}</strong></div></div>`).join("")
