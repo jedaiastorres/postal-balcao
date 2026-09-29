@@ -1151,7 +1151,8 @@ function renderOrders() {
       labelBtn.addEventListener("click",()=>openSimulatedLabel(order)); actions.appendChild(labelBtn);
     }
     if (["LABEL_AVAILABLE","LABEL_AVAILABLE_SIMULATED"].includes(order.status)) {
-      const receiptBtn=document.createElement("button"); receiptBtn.className="ghost"; receiptBtn.type="button"; receiptBtn.textContent="Comprovante 80 mm";
+      const receiptBtn=document.createElement("button"); receiptBtn.className="ghost"; receiptBtn.type="button"; receiptBtn.textContent=order.trackingCode ? "Comprovante com rastreio" : "Rastreio pendente";
+      receiptBtn.disabled=!order.trackingCode;
       receiptBtn.addEventListener("click",()=>openReceipt(receiptPayloadFromOrder(order),true)); actions.appendChild(receiptBtn);
     }
 
