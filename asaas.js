@@ -208,6 +208,20 @@ async function createCheckout({
   };
 }
 
+async function ensurePixKey() {
+  if (!ASAAS_API_KEY) return { ok: false, reason: "not_configured" };
+  const listed = await asaasFetch("/pix/addressKeys?limit=20", { method: "GET" });
+  const rows = Array.isArray(listed) ? listed : (Array.isArray(listed?.data) ? listed.data : []);
+  const active = rows.find(item => ["ACTIVE","AWAITING_ACTIVATION"].includes(String(item?.status || "").toUpperCase()));
+  if (active) return { ok: true, created: false, id: active.id || null, status: active.status || null };
+
+  const created = await asaasFetch("/pix/addressKeys", {
+    method: "POST",
+    body: JSON.stringify({ type: "EVP" })
+  });
+  return { ok: true, created: true, id: created?.id || null, status: created?.status || null };
+}
+
 async function cancelCheckout(checkoutId) {
   if (!checkoutId) return null;
   return asaasFetch("/checkouts/" + encodeURIComponent(checkoutId) + "/cancel", {
@@ -248,6 +262,7 @@ module.exports = {
   safeCompareToken,
   grossUp,
   createCheckout,
+  ensurePixKey,
   cancelCheckout,
   selfTestCheckout,
   asaasFetch,
