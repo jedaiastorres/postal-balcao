@@ -1,8 +1,8 @@
 {
   "name": "postal-balcao-v1",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "private": true,
-  "description": "Postal Balcao V1.6: portal cliente, saldo, ecommerce, coletas, pontos e indicacoes.",
+  "description": "Postal Balcao V1.7: operacao ecommerce profissional, selecao em massa, etiquetas em lote e coletas em lote.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -15,6 +15,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
     "helmet": "^8.0.0",
-    "pg": "^8.13.1"
+    "pg": "^8.13.1",
+    "pdf-lib": "^1.17.1"
   }
 }
