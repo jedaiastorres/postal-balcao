@@ -315,6 +315,12 @@ function renderResults(result, payload) {
     `;
 
     const priceReveal = card.querySelector(".price-reveal");
+    if (state.user?.role === "CLIENT") {
+      card.querySelector(".price-commission-label")?.classList.add("hidden");
+      card.querySelector(".price-commission")?.classList.add("hidden");
+      const hint = priceReveal.querySelector("small");
+      if (hint) hint.textContent = "Preço Postal para sua conta";
+    }
     priceReveal.addEventListener("click", () => {
       priceReveal.classList.toggle("show-commission");
     });
@@ -912,7 +918,7 @@ function orderStatusMeta(status) {
 }
 
 function paymentMethodLabel(method) {
-  return ({ PIX: "PIX", CARTAO: "Cartão", DINHEIRO: "Dinheiro" })[method] || method || "-";
+  return ({ PIX: "PIX", CARTAO: "Cartão", DINHEIRO: "Dinheiro", SALDO: "Saldo Postal" })[method] || method || "-";
 }
 
 function receiptPayloadFromOrder(order) {
@@ -1049,7 +1055,12 @@ function renderOrders() {
   const commissionStatuses = new Set(["CASH_REMITTANCE_PENDING","CASH_REMITTANCE_PAYMENT_PENDING","SIMULATED_REMITTANCE_PENDING","PAYMENT_CONFIRMED","PAID_WAITING_SHIPMENT","LABEL_AVAILABLE","LABEL_AVAILABLE_SIMULATED","SHIPMENT_ERROR"]);
   $("#ordersPendingCount").textContent = allOrders.filter(o => pendingStatuses.has(o.status)).length;
   $("#ordersReadyCount").textContent = allOrders.filter(o => ["LABEL_AVAILABLE","LABEL_AVAILABLE_SIMULATED"].includes(o.status)).length;
-  $("#ordersCommissionTotal").textContent = money(allOrders.filter(o => commissionStatuses.has(o.status)).reduce((s,o) => s + Number(o.pointRevenueTotal || o.partnerCommission || 0), 0));
+  const clientOrdersMode = state.user?.role === "CLIENT";
+  const summaryLabel = document.querySelector("#ordersView .orders-summary > div:nth-child(3) span");
+  if (summaryLabel) summaryLabel.textContent = clientOrdersMode ? "Total utilizado" : "Comissão acumulada";
+  $("#ordersCommissionTotal").textContent = clientOrdersMode
+    ? money(allOrders.reduce((s,o) => s + Number(o.totalToCustomer || o.salePrice || 0), 0))
+    : money(allOrders.filter(o => commissionStatuses.has(o.status)).reduce((s,o) => s + Number(o.pointRevenueTotal || o.partnerCommission || 0), 0));
 
   if (!orders.length) {
     host.innerHTML = `<div class="orders-empty"><strong>Nenhum frete encontrado.</strong><span>Ajuste os filtros ou faça uma nova cotação.</span><button class="primary" type="button" data-empty-new>Nova cotação</button></div>`;
@@ -1075,7 +1086,7 @@ function renderOrders() {
       </div>
       <div class="order-metrics">
         <div><span>Total cliente</span><strong>${money(order.totalToCustomer || order.salePrice)}</strong></div>
-        <div><span>Sua receita</span><strong>${money(order.pointRevenueTotal || order.partnerCommission)}</strong></div>
+        <div><span>${clientOrdersMode ? "Primeira milha" : "Sua receita"}</span><strong>${clientOrdersMode ? money(order.firstMileFee || 0) : money(order.pointRevenueTotal || order.partnerCommission)}</strong></div>
         <div><span>Pagamento</span><strong>${escapeHtml(paymentMethodLabel(order.paymentMethod))}</strong></div>
         <div><span>Rastreio</span><strong>${escapeHtml(order.trackingCode || "—")}</strong></div>
       </div>
