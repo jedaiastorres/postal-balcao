@@ -2396,11 +2396,12 @@ async function seedDefaultCatalog() {
 
 async function start() {
   await db.initDb();
+  await clientDb.initClientDb();
   await ensureBootstrapAdmin();
   await seedDefaultCatalog();
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Postal Balcao V1.5 disponivel na porta ${PORT}`);
+    console.log(`Postal Balcao V1.6 disponivel na porta ${PORT}`);
     console.log(`ConectEnvios: ${TOKEN ? "configurada" : "modo demonstracao"}`);
     console.log(`Asaas: ${asaas.configured() ? "configurado" : "aguardando chave"}`);
     console.log(`Banco: ${process.env.DATABASE_URL ? "PostgreSQL configurado" : "nao configurado"}`);
