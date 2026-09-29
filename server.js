@@ -5,6 +5,7 @@ const helmet = require("helmet");
 const crypto = require("crypto");
 const path = require("path");
 const db = require("./db");
+const clientDb = require("./client_db");
 const asaas = require("./asaas");
 
 const app = express();
@@ -27,6 +28,10 @@ const ASAAS_DEFAULT_PARTNER_WALLET_ID = String(process.env.ASAAS_DEFAULT_PARTNER
 const INTEGRATION_API_KEY = String(process.env.INTEGRATION_API_KEY || "").trim();
 const PAYMENT_SIMULATOR_ENABLED = String(process.env.PAYMENT_SIMULATOR_ENABLED || "true").toLowerCase() === "true";
 const ADMIN_PASSWORD_RESET_HASH = String(process.env.ADMIN_PASSWORD_RESET_HASH || "").trim();
+const CLIENT_PICKUP_FEE_PER_PACKAGE = Math.max(0, Number(process.env.CLIENT_PICKUP_FEE_PER_PACKAGE || 5));
+const POINT_PICKUP_EARNING_PER_PACKAGE = Math.max(0, Number(process.env.POINT_PICKUP_EARNING_PER_PACKAGE || 3));
+const POINT_DROPOFF_EARNING_PER_PACKAGE = Math.max(0, Number(process.env.POINT_DROPOFF_EARNING_PER_PACKAGE || 2));
+const REFERRAL_EARNING_PER_SHIPMENT = Math.max(0, Number(process.env.REFERRAL_EARNING_PER_SHIPMENT || 0.50));
 
 app.disable("x-powered-by");
 app.use(helmet({
@@ -658,7 +663,7 @@ app.get("/api/public-config", (_req, res) => {
     paymentsProvider: "ASAAS",
     paymentsConfigured: asaas.configured(),
     databaseConfigured: Boolean(process.env.DATABASE_URL),
-    version: "1.5.0",
+    version: "1.6.0",
     paymentSimulatorEnabled: PAYMENT_SIMULATOR_ENABLED && !asaas.configured()
   });
 });
