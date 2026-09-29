@@ -313,6 +313,103 @@
         </article>
       </section>
 
+      <section id="clientHomeView" class="view hidden client-only">
+        <div class="hero client-hero">
+          <div>
+            <div class="eyebrow">POSTAL PARA EMPRESAS</div>
+            <h1>Envios, saldo, coletas e suas lojas em um só lugar.</h1>
+            <p>Adicione saldo, importe pedidos das suas plataformas de venda e gere etiquetas com a Postal Serviços.</p>
+          </div>
+          <button class="primary" data-go="quote" type="button">+ Novo envio</button>
+        </div>
+        <div class="cards-4">
+          <article class="metric-card"><span>Saldo disponível</span><strong id="clientBalance">R$ 0,00</strong><small>Crédito pré-pago Postal</small></article>
+          <article class="metric-card"><span>Envios</span><strong id="clientShipments">0</strong><small>Histórico da conta</small></article>
+          <article class="metric-card"><span>Coletas pendentes</span><strong id="clientCollectionsPending">0</strong><small>Primeira milha</small></article>
+          <article class="metric-card"><span>Lojas conectadas</span><strong id="clientConnections">0</strong><small>Nuvemshop e outras</small></article>
+        </div>
+        <div class="panel-grid">
+          <article class="panel accent-panel">
+            <div class="eyebrow">SALDO POSTAL</div><h3>Abasteça sua conta e envie sem pagar etiqueta por etiqueta.</h3>
+            <p>O saldo é usado exclusivamente para serviços contratados na Postal Serviços.</p>
+            <button class="primary" data-go="wallet" type="button">Adicionar saldo</button>
+          </article>
+          <article class="panel">
+            <div class="eyebrow">AUTOMAÇÃO</div><h3>Conecte sua loja virtual.</h3>
+            <p>Pedidos importados aparecem dentro da Postal para cotação, etiqueta, coleta e rastreamento.</p>
+            <button class="ghost" data-go="connections" type="button">Ver integrações</button>
+          </article>
+        </div>
+      </section>
+
+      <section id="walletView" class="view hidden client-only">
+        <div class="orders-head">
+          <div><div class="eyebrow">CARTEIRA POSTAL</div><h1>Saldo</h1><p>Adicione créditos e acompanhe cada movimentação da sua conta.</p></div>
+          <strong id="walletBalanceHero" class="wallet-hero-value">R$ 0,00</strong>
+        </div>
+        <div class="master-grid">
+          <article class="form-panel">
+            <div class="form-panel-head"><span class="step-number">+</span><div><h3>Adicionar saldo</h3><p>As taxas do meio de pagamento são somadas ao valor pago, sem reduzir seu crédito.</p></div></div>
+            <form id="walletTopupForm" class="inventory-form">
+              <label>Valor que deseja creditar<div class="money-field"><span>R$</span><input id="walletTopupAmount" type="number" min="10" step="0.01" value="100" required /></div></label>
+              <label>Pagamento<select id="walletTopupMethod"><option value="PIX">PIX</option><option value="CARTAO">Cartão</option></select></label>
+              <button class="primary" type="submit">Adicionar saldo</button>
+              <small id="walletModeNote"></small>
+            </form>
+          </article>
+          <article class="panel"><div class="panel-head"><div><span class="eyebrow">MOVIMENTAÇÕES</span><h3>Extrato</h3></div></div><div id="walletTransactions" class="inventory-list"><div class="empty-state">Carregando...</div></div></article>
+        </div>
+      </section>
+
+      <section id="connectionsView" class="view hidden client-only">
+        <div class="orders-head">
+          <div><div class="eyebrow">INTEGRAÇÕES POSTAL</div><h1>Suas plataformas de venda</h1><p>Conecte a loja à Postal. A tecnologia logística parceira trabalha por trás da interface Postal.</p></div>
+        </div>
+        <div id="platformCards" class="platform-grid"></div>
+        <article class="panel master-section"><div class="panel-head"><div><span class="eyebrow">CONEXÕES</span><h3>Lojas conectadas</h3></div></div><div id="connectionsList" class="inventory-list"><div class="empty-state">Carregando...</div></div></article>
+        <article class="panel master-section"><div class="panel-head"><div><span class="eyebrow">PEDIDOS IMPORTADOS</span><h3>Pedidos das suas lojas</h3></div></div><div id="ecommerceOrdersList" class="inventory-list"><div class="empty-state">Nenhum pedido importado ainda.</div></div></article>
+      </section>
+
+      <section id="collectionsView" class="view hidden">
+        <div class="orders-head">
+          <div><div class="eyebrow">PRIMEIRA MILHA</div><h1>Coletas</h1><p id="collectionsSubtitle">Acompanhe solicitações de coleta e postagem em pontos Postal.</p></div>
+          <button id="refreshCollectionsBtn" class="ghost" type="button">Atualizar</button>
+        </div>
+        <div id="pickupSettingsCard" class="form-panel hidden">
+          <div class="form-panel-head"><span class="step-number">✓</span><div><h3>Quero realizar coletas</h3><p>Ao aderir, a Postal poderá direcionar coletas próximas ao seu ponto. A remuneração padrão é R$ 3,00 por pacote coletado.</p></div></div>
+          <form id="pickupSettingsForm" class="inventory-form">
+            <label class="checkline"><input id="pickupEnabled" type="checkbox" /> Disponível para receber coletas</label>
+            <label>Raio operacional (km)<input id="pickupRadius" type="number" min="1" step="1" value="10" /></label>
+            <div class="form-grid"><label>Latitude<input id="pickupLatitude" type="number" step="0.000001" /></label><label>Longitude<input id="pickupLongitude" type="number" step="0.000001" /></label></div>
+            <button class="primary" type="submit">Salvar disponibilidade</button>
+          </form>
+        </div>
+        <div id="collectionsList" class="orders-list"><div class="empty-state">Carregando coletas...</div></div>
+      </section>
+
+      <section id="referralsView" class="view hidden">
+        <div class="orders-head"><div><div class="eyebrow">INDIQUE & GANHE</div><h1>Clientes indicados pelo seu ponto</h1><p>Receba R$ 0,50 por cada envio realizado por um cliente vinculado ao seu link ou cadastro.</p></div></div>
+        <div class="cards-4">
+          <article class="metric-card"><span>Clientes indicados</span><strong id="refClients">0</strong></article>
+          <article class="metric-card"><span>Envios indicados</span><strong id="refShipments">0</strong></article>
+          <article class="metric-card"><span>Ganhos indicação</span><strong id="refEarnings">R$ 0,00</strong></article>
+          <article class="metric-card"><span>Ganhos coletas/pontos</span><strong id="refLogisticsEarnings">R$ 0,00</strong></article>
+        </div>
+        <article class="panel"><div class="panel-head"><div><span class="eyebrow">SEU LINK</span><h3>Compartilhe e acompanhe automaticamente</h3></div></div><div class="referral-link-row"><input id="referralLink" readonly /><button id="copyReferralLinkBtn" class="primary" type="button">Copiar link</button></div></article>
+        <div class="master-grid">
+          <article class="form-panel">
+            <div class="form-panel-head"><span class="step-number">+</span><div><h3>Cadastrar cliente</h3><p>Também é possível vincular o cliente diretamente pelo balcão.</p></div></div>
+            <form id="referredClientForm" class="inventory-form">
+              <label>Nome*<input id="referredClientName" required /></label><label>E-mail*<input id="referredClientEmail" type="email" required /></label>
+              <label>Telefone<input id="referredClientPhone" /></label><label>CPF/CNPJ<input id="referredClientDocument" /></label>
+              <label>Senha inicial<input id="referredClientPassword" type="password" minlength="6" placeholder="Deixe vazio para gerar" /></label>
+              <button class="primary" type="submit">Cadastrar e vincular</button>
+            </form>
+          </article>
+          <article class="panel"><div class="panel-head"><div><span class="eyebrow">CARTEIRA DE CLIENTES</span><h3>Indicados</h3></div></div><div id="referredClientsList" class="inventory-list"><div class="empty-state">Carregando...</div></div></article>
+        </div>
+      </section>
+
       <section id="masterView" class="view hidden admin-only">
         <div class="orders-head">
           <div>
