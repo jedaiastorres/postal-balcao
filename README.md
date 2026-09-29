@@ -112,3 +112,66 @@ O simulador só funciona quando `PAYMENT_SIMULATOR_ENABLED=true` e o Asaas ainda
 ### Exportação e recuperação
 
 O Painel Master possui exportação operacional JSON contendo os dados de negócio do PostgreSQL, sem hashes de senha. Isso complementa o volume persistente do PostgreSQL; snapshots físicos do banco devem ser configurados no provedor de infraestrutura conforme a política de backup adotada.
+
+
+## V1.6 — portal cliente, saldo, integrações, coletas e indicação
+
+A V1.6 acrescenta uma experiência de autoatendimento para clientes da Postal Serviços, separada da operação de balcão dos pontos parceiros.
+
+### Conta e saldo do cliente
+
+- perfil `CLIENT` com cadastro próprio e sessão individual;
+- carteira pré-paga Postal com extrato de créditos e débitos;
+- recarga por PIX/cartão preparada para Asaas;
+- a taxa financeira da recarga é acrescentada ao pagamento para que o valor creditado permaneça integral;
+- enquanto o Asaas não estiver ativo, recargas funcionam somente em homologação e não movimentam dinheiro real;
+- cada frete do cliente é debitado do saldo antes da emissão;
+- se a emissão real estiver desativada e o Asaas já estiver em produção, o sistema bloqueia o débito para não consumir saldo sem gerar etiqueta.
+
+### Primeira milha
+
+Cada etiqueta do portal cliente representa um pacote e acrescenta **R$ 5,00 por pacote**:
+
+- coleta no endereço: um ponto habilitado pode receber **R$ 3,00** e os **R$ 2,00** restantes ficam com a Postal;
+- postagem em ponto Postal: o ponto escolhido recebe **R$ 2,00** e os **R$ 3,00** restantes ficam com a Postal;
+- pontos parceiros podem aderir ou sair da rede de coletas, definir raio operacional e informar coordenadas;
+- o roteamento usa coordenadas quando disponíveis e, como fallback, CEP/cidade;
+- solicitações sem um ponto compatível permanecem no painel da Postal para direcionamento manual;
+- pagamentos aos pontos são registrados em ledger próprio e são idempotentes.
+
+### Indicação de clientes
+
+Cada ponto possui código/link rastreável. Clientes cadastrados pelo link ou diretamente pelo ponto ficam vinculados ao indicador. Para cada envio efetivamente emitido desse cliente, o ponto acumula **R$ 0,50**. Envios de homologação geram apenas lançamentos simulados.
+
+### E-commerce em marca Postal
+
+O portal apresenta as integrações sob a marca Postal Serviços. O backend mantém uma camada de ponte para o provedor logístico, sem enviar tokens da ConectEnvios ao navegador.
+
+Plataformas preparadas no catálogo de conexão:
+- Nuvemshop;
+- WooCommerce;
+- Loja Integrada;
+- Shopify;
+- Tray.
+
+A ConectEnvios publica que possui API REST e integrações com e-commerces/ERPs e cita publicamente Nuvemshop, WooCommerce, Loja Integrada e Shopify. A Tray possui um aplicativo público da ConectEnvios. Entretanto, a documentação pública da API V1 disponível para este projeto não expõe endpoints de provisionamento/OAuth dessas integrações nativas. Por isso, a V1.6 cria a conexão Postal com status `AWAITING_PROVIDER_AUTH` e disponibiliza uma API de ponte para receber a ativação e os pedidos quando a ConectEnvios fornecer os dados privados de autorização.
+
+Endpoints da ponte:
+- `PATCH /api/integrations/v1/ecommerce/connections/:id`
+- `POST /api/integrations/v1/ecommerce/connections/:id/orders`
+
+### Painéis de coletas
+
+- cliente: acompanha sua coleta/postagem no ponto;
+- ponto: recebe e atualiza coletas atribuídas;
+- Postal ADMIN: visualiza todas as solicitações e pode direcionar/reencaminhar para um ponto;
+- ponto parceiro: acompanha ganhos de coleta, postagem e indicação.
+
+### Segurança e dados
+
+- saldo é mantido em ledger e as baixas de saldo + criação do frete são atômicas no PostgreSQL;
+- recargas têm chave de idempotência;
+- criação de ganhos do ponto usa restrição única por referência;
+- tokens dos provedores continuam somente no servidor;
+- exportação operacional ADMIN inclui clientes, carteira, recargas, conexões de e-commerce, coletas e ganhos dos pontos;
+- backups diários do volume PostgreSQL devem permanecer ativos na infraestrutura.
