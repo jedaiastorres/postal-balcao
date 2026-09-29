@@ -293,6 +293,11 @@ async function initDb() {
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS provider_revenue_total NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS store_id UUID REFERENCES stores(id) ON DELETE SET NULL;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS is_simulation BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS provider_payment_status TEXT NOT NULL DEFAULT 'PENDING';
+    ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS provider_payment_ref TEXT;
+    ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS provider_payment_attempts INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS provider_payment_last_error TEXT;
+    ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS provider_payment_updated_at TIMESTAMPTZ;
     ALTER TABLE partner_inventory ADD COLUMN IF NOT EXISTS sale_price NUMERIC(12,2);
     ALTER TABLE partner_inventory ADD COLUMN IF NOT EXISTS average_cost NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS lot_code TEXT;
@@ -502,6 +507,23 @@ async function updateStatus(id, status, paymentStatus = null) {
   return rows[0] || null;
 }
 
+async function updateProviderPayment(id, {status, ref=null, error=null, incrementAttempt=false} = {}) {
+  const db = requireDb();
+  const { rows } = await db.query(
+    `UPDATE freight_orders SET
+       provider_payment_status=COALESCE($2,provider_payment_status),
+       provider_payment_ref=COALESCE($3,provider_payment_ref),
+       provider_payment_last_error=$4,
+       provider_payment_attempts=provider_payment_attempts + CASE WHEN $5 THEN 1 ELSE 0 END,
+       provider_payment_updated_at=NOW(),
+       updated_at=NOW()
+     WHERE id=$1
+     RETURNING *`,
+    [id,status||null,ref||null,error||null,Boolean(incrementAttempt)]
+  );
+  return rows[0] || null;
+}
+
 async function saveShipment(id, shipment) {
   const db = requireDb();
   const { rows } = await db.query(
@@ -514,6 +536,10 @@ async function saveShipment(id, shipment) {
        label_a6_url=$6,
        declaration_url=$7,
        public_tracking_url=$8,
+       provider_payment_status='PAID',
+       provider_payment_ref=COALESCE(provider_payment_ref,$2,$3),
+       provider_payment_last_error=NULL,
+       provider_payment_updated_at=NOW(),
        shipped_at=NOW(),
        updated_at=NOW()
      WHERE id=$1
@@ -1239,6 +1265,7 @@ module.exports = {
   setCheckout,
   markPaid,
   updateStatus,
+  updateProviderPayment,
   saveShipment,
   listCatalogItems,
   getCatalogItemByCode,
