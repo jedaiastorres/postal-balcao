@@ -2422,11 +2422,59 @@ async function seedDefaultCatalog() {
   }
 }
 
+async function ensureAsaasCheckoutWebhook() {
+  if (!asaas.configured() || !asaas.webhookConfigured()) return { configured: false, reason: "missing_credentials" };
+
+  const url = String(process.env.APP_PUBLIC_URL || "").replace(/\/$/, "") + "/api/webhooks/asaas";
+  if (!url.startsWith("https://")) {
+    console.warn("Asaas webhook não configurado: APP_PUBLIC_URL precisa usar HTTPS.");
+    return { configured: false, reason: "invalid_public_url" };
+  }
+
+  const desired = {
+    name: "Postal Balcao Checkout",
+    url,
+    email: APP_USER,
+    enabled: true,
+    interrupted: false,
+    apiVersion: 3,
+    authToken: String(process.env.ASAAS_WEBHOOK_TOKEN || ""),
+    sendType: "SEQUENTIALLY",
+    events: ["CHECKOUT_PAID","CHECKOUT_CANCELED","CHECKOUT_EXPIRED"]
+  };
+
+  try {
+    const listed = await asaas.asaasFetch("/webhooks", { method: "GET" });
+    const rows = Array.isArray(listed) ? listed : (Array.isArray(listed?.data) ? listed.data : []);
+    const existing = rows.find(item => String(item.url || "") === url || String(item.name || "") === desired.name);
+
+    if (existing?.id) {
+      await asaas.asaasFetch("/webhooks/" + encodeURIComponent(existing.id), {
+        method: "PUT",
+        body: JSON.stringify(desired)
+      });
+      console.log("Asaas webhook de Checkout validado/atualizado.");
+      return { configured: true, created: false, id: existing.id };
+    }
+
+    const created = await asaas.asaasFetch("/webhooks", {
+      method: "POST",
+      body: JSON.stringify(desired)
+    });
+    console.log("Asaas webhook de Checkout criado.");
+    return { configured: true, created: true, id: created?.id || null };
+  } catch (error) {
+    console.error("Falha ao configurar webhook Asaas:", error.status || "", error.message);
+    return { configured: false, reason: "asaas_error", status: error.status || null };
+  }
+}
+
 async function start() {
   await db.initDb();
   await clientDb.initClientDb();
   await ensureBootstrapAdmin();
   await seedDefaultCatalog();
+  await ensureAsaasCheckoutWebhook();
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Postal Balcao V1.6 disponivel na porta ${PORT}`);
