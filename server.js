@@ -4,6 +4,7 @@ const express = require("express");
 const helmet = require("helmet");
 const crypto = require("crypto");
 const path = require("path");
+const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
 const db = require("./db");
 const clientDb = require("./client_db");
 const asaas = require("./asaas");
@@ -588,6 +589,68 @@ function summarizeFinancials(selection, addons, paymentMethod) {
     totalToCustomer,
     cashRemittanceBase
   };
+}
+
+function clientOpsStatus(order) {
+  const collectionStatus=String(order?.collection_status||"").toUpperCase();
+  if(["COLLECTED","RECEIVED_AT_POINT","COMPLETED"].includes(collectionStatus)) return "SENT";
+  if(String(order?.payment_status||"").toUpperCase()!=="PAID") return "AWAITING_PAYMENT";
+  return "READY_TO_SHIP";
+}
+
+async function simulatedLabelPdf(order) {
+  const pdf=await PDFDocument.create();
+  const page=pdf.addPage([283.46,425.2]); // A6 em pontos
+  const font=await pdf.embedFont(StandardFonts.Helvetica);
+  const bold=await pdf.embedFont(StandardFonts.HelveticaBold);
+  const draw=(text,x,y,size=10,isBold=false)=>{
+    page.drawText(String(text||""),{x,y,size,font:isBold?bold:font,color:rgb(0,0,0)});
+  };
+  draw("POSTAL SERVIÇOS",20,392,15,true);
+  draw("ETIQUETA DE HOMOLOGAÇÃO — SEM VALIDADE LOGÍSTICA",20,370,8,true);
+  draw("Rastreio:",20,340,9,true); draw(order.tracking_code||"—",80,340,11,true);
+  draw("Transportadora:",20,315,8,true); draw(order.carrier||"Postal",100,315,9);
+  draw("Serviço:",20,298,8,true); draw(order.service_name||"",62,298,9);
+  const sender=order.sender||{},recipient=order.recipient||{};
+  draw("REMETENTE",20,265,9,true);
+  draw((sender.name||"").slice(0,40),20,248,9);
+  draw(((sender.address||"")+" "+(sender.number||"")).slice(0,48),20,232,8);
+  draw(((sender.city||"")+" "+(sender.cep||"")).slice(0,48),20,216,8);
+  draw("DESTINATÁRIO",20,185,9,true);
+  draw((recipient.name||"").slice(0,40),20,168,9);
+  draw(((recipient.address||"")+" "+(recipient.number||"")).slice(0,48),20,152,8);
+  draw(((recipient.city||"")+" "+(recipient.cep||"")).slice(0,48),20,136,8);
+  draw("Pedido Postal: "+String(order.id||"").slice(0,12).toUpperCase(),20,92,8);
+  draw("Documento gerado somente para testes do fluxo de impressão.",20,56,7);
+  return Buffer.from(await pdf.save());
+}
+
+async function mergedLabelPdf(orders) {
+  const target=await PDFDocument.create();
+  for(const order of orders){
+    if(order.is_simulation || !order.label_a6_url && !order.label_a4_url){
+      const simBytes=await simulatedLabelPdf(order);
+      const simDoc=await PDFDocument.load(simBytes);
+      const pages=await target.copyPages(simDoc,simDoc.getPageIndices());
+      pages.forEach(page=>target.addPage(page));
+      continue;
+    }
+
+    const rawUrl=String(order.label_a6_url||order.label_a4_url||"");
+    const allowedPrefix=`${API_URL}/package/`;
+    if(!rawUrl.startsWith(allowedPrefix)) throw new Error("Etiqueta inválida para o pedido "+order.id);
+    const response=await fetch(rawUrl,{
+      method:"GET",
+      headers:providerHeaders(),
+      signal:AbortSignal.timeout(30000)
+    });
+    if(!response.ok) throw new Error("Não foi possível carregar uma das etiquetas.");
+    const bytes=Buffer.from(await response.arrayBuffer());
+    const source=await PDFDocument.load(bytes);
+    const pages=await target.copyPages(source,source.getPageIndices());
+    pages.forEach(page=>target.addPage(page));
+  }
+  return Buffer.from(await target.save());
 }
 
 async function processAsaasWebhookEvent(eventRow) {
