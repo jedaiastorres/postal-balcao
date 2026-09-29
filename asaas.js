@@ -22,6 +22,10 @@ function configured() {
   return Boolean(ASAAS_API_KEY);
 }
 
+function isSandbox() {
+  return /sandbox/i.test(ASAAS_API_URL) || /^\$aact_hmlg_/i.test(ASAAS_API_KEY);
+}
+
 function webhookConfigured() {
   return Boolean(ASAAS_WEBHOOK_TOKEN);
 }
@@ -181,6 +185,7 @@ function safeCompareToken(received) {
 
 module.exports = {
   configured,
+  isSandbox,
   webhookConfigured,
   safeCompareToken,
   grossUp,
