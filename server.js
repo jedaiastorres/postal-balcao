@@ -14,6 +14,8 @@ const PORT = Number(process.env.PORT || 3000);
 
 const API_URL = (process.env.CONECTENVIOS_API_URL || "https://app.conectenvios.com.br/api/v1").replace(/\/$/, "");
 const TOKEN = (process.env.CONECTENVIOS_TOKEN || "").trim();
+const CONECTENVIOS_PAYMENT_MODE = String(process.env.CONECTENVIOS_PAYMENT_MODE || "WALLET").trim().toUpperCase();
+const ASAAS_SELF_TEST_ON_BOOT = String(process.env.ASAAS_SELF_TEST_ON_BOOT || "false").toLowerCase() === "true";
 
 const APP_USER = process.env.APP_USER || "parceiro@postalservicos.com.br";
 const APP_PASSWORD = process.env.APP_PASSWORD || "postal123";
@@ -252,6 +254,31 @@ async function providerFetch(pathname, options = {}) {
   return { response, data, contentType: type };
 }
 
+function providerFailureText(error) {
+  const data = error?.providerData;
+  if (typeof data === "string") return data;
+  if (data && typeof data === "object") {
+    const candidates = [
+      data.message, data.error, data.description, data.detail,
+      data.data?.message, data.data?.error, data.data?.description
+    ].filter(Boolean);
+    if (Array.isArray(data.errors)) {
+      for (const item of data.errors) candidates.push(item?.message || item?.description || item?.error || item?.code);
+    }
+    const text = candidates.filter(Boolean).map(String).join(" | ");
+    if (text) return text;
+  }
+  return String(error?.message || "");
+}
+
+function providerPaymentFailureStatus(error) {
+  const text = providerFailureText(error).toLowerCase();
+  if (/saldo|balance|insuficient|insufficient|pagamento|payment|carteira|wallet|cr[eé]dito/.test(text)) {
+    return "AWAITING_FUNDS";
+  }
+  return "ERROR";
+}
+
 function parseMoney(value) {
   if (typeof value === "number") return value;
   if (value == null) return NaN;
@@ -330,7 +357,7 @@ function toPositiveInteger(value, label) {
 async function createShipmentFromOrder(order) {
   if (!order) throw new Error("Pedido não encontrado.");
 
-  if (order.tracking_code || order.conect_package_id) {
+  if (order.tracking_code && (order.label_a6_url || order.label_a4_url)) {
     return {
       cartId: order.conect_cart_id || null,
       packageId: order.conect_package_id || null,
@@ -348,6 +375,17 @@ async function createShipmentFromOrder(order) {
   }
   if (!TOKEN) throw new Error("CONECTENVIOS_TOKEN não configurado.");
 
+  // Não recria um carrinho que já existe: isso evita cobrança/etiqueta duplicada.
+  if (order.conect_package_id || order.conect_cart_id) {
+    await db.updateProviderPayment(order.id,{
+      status: order.provider_payment_status || "AWAITING_PROVIDER_CONFIRMATION",
+      ref: order.conect_cart_id || order.conect_package_id || null,
+      error: "Postagem já criada no provedor e aguardando liberação/retorno completo."
+    });
+    await db.updateStatus(order.id,"PROVIDER_PAYMENT_PENDING","PAID");
+    throw new Error("A postagem já foi criada na ConectEnvios e ainda aguarda liberação da etiqueta. Não será gerada em duplicidade.");
+  }
+
   const packageData = order.package_data || {};
   const sender = order.sender || {};
   const recipient = order.recipient || {};
@@ -364,7 +402,6 @@ async function createShipmentFromOrder(order) {
     extra_notify: true,
     extra_in_hand: false,
     extra_declared_value: round2(Number(packageData.declaredValue || declaredFallback)),
-
     addr_from_document: cleanDigits(sender.document),
     addr_from_phone: cleanDigits(sender.phone),
     addr_from_name: String(sender.name || "").trim(),
@@ -373,7 +410,6 @@ async function createShipmentFromOrder(order) {
     addr_from_address: String(sender.address || "").trim(),
     addr_from_neighborhood: String(sender.neighborhood || "").trim(),
     addr_from_complement: String(sender.complement || "").trim(),
-
     addr_to_document: cleanDigits(recipient.document),
     addr_to_phone: cleanDigits(recipient.phone),
     addr_to_name: String(recipient.name || "").trim(),
@@ -382,7 +418,6 @@ async function createShipmentFromOrder(order) {
     addr_to_address: String(recipient.address || "").trim(),
     addr_to_neighborhood: String(recipient.neighborhood || "").trim(),
     addr_to_complement: String(recipient.complement || "").trim(),
-
     postal_service_name: String(order.service_name || ""),
     postal_company_id: Number(order.postal_company_id || 0)
   };
@@ -397,22 +432,54 @@ async function createShipmentFromOrder(order) {
     }));
   }
 
-  const result = await providerFetch("/cart", {
-    method: "POST",
-    body: JSON.stringify({ package: [packageItem] }),
-    timeout: 45000
+  await db.updateProviderPayment(order.id,{
+    status:"PROCESSING",
+    error:null,
+    incrementAttempt:true
   });
+
+  let result;
+  try {
+    result = await providerFetch("/cart", {
+      method: "POST",
+      body: JSON.stringify({
+        package: [packageItem],
+        payment_mode: CONECTENVIOS_PAYMENT_MODE
+      }),
+      timeout: 45000
+    });
+  } catch (error) {
+    const failureStatus=providerPaymentFailureStatus(error);
+    const detail=providerFailureText(error).slice(0,1000);
+    await db.updateProviderPayment(order.id,{status:failureStatus,error:detail});
+    await db.updateStatus(order.id,"PROVIDER_PAYMENT_PENDING","PAID");
+    await db.addOrderEvent(
+      order.id,
+      "PROVIDER_PAYMENT_PENDING",
+      failureStatus==="AWAITING_FUNDS" ? "Saldo do provedor precisa de reposição" : "ConectEnvios não liberou a postagem",
+      detail || "Falha ao gerar a etiqueta no provedor."
+    );
+    throw error;
+  }
 
   const providerPayload = result.data || {};
   if (providerPayload.error === true) {
-    const err = new Error("A ConectEnvios recusou a postagem.");
+    const err = new Error(providerFailureText({providerData:providerPayload}) || "A ConectEnvios recusou a postagem.");
     err.providerData = providerPayload;
+    const failureStatus=providerPaymentFailureStatus(err);
+    await db.updateProviderPayment(order.id,{status:failureStatus,error:providerFailureText(err).slice(0,1000)});
+    await db.updateStatus(order.id,"PROVIDER_PAYMENT_PENDING","PAID");
     throw err;
   }
 
   const cart = providerPayload.data || providerPayload;
   const pkg = Array.isArray(cart.packages) ? cart.packages[0] : null;
-  if (!pkg) throw new Error("A ConectEnvios não retornou os dados do pacote.");
+  if (!pkg) {
+    const err=new Error("A ConectEnvios não retornou os dados do pacote.");
+    await db.updateProviderPayment(order.id,{status:"ERROR",error:err.message});
+    await db.updateStatus(order.id,"PROVIDER_PAYMENT_PENDING","PAID");
+    throw err;
+  }
 
   const shipment = {
     cartId: cart.id || cart.cart_id || pkg.cart_id || null,
@@ -432,16 +499,34 @@ async function createShipmentFromOrder(order) {
     publicTrackingUrl: pkg.public_tracking_url || pkg.tracking_url || cart.public_tracking_url || ""
   };
 
-  if (!shipment.trackingCode) {
-    console.warn("ConectEnvios criou a postagem sem retornar rastreio no payload imediato.", {
-      orderId: order.id,
-      cartId: shipment.cartId,
-      packageId: shipment.packageId
+  const hasLabel=Boolean(shipment.labelA6Url || shipment.labelA4Url);
+  const hasTracking=Boolean(shipment.trackingCode);
+
+  if (!hasLabel || !hasTracking) {
+    await db.saveProviderPendingShipment(order.id,shipment);
+    await db.updateProviderPayment(order.id,{
+      status:"AWAITING_PROVIDER_CONFIRMATION",
+      ref:shipment.cartId || shipment.packageId || null,
+      error:!hasLabel && !hasTracking
+        ? "ConectEnvios criou o carrinho, mas ainda não retornou etiqueta nem rastreio."
+        : (!hasLabel ? "ConectEnvios ainda não retornou a etiqueta." : "ConectEnvios ainda não retornou o código de rastreio.")
     });
+    await db.addOrderEvent(
+      order.id,
+      "PROVIDER_PAYMENT_PENDING",
+      "Aguardando liberação da ConectEnvios",
+      "O pedido foi criado no provedor, mas a etiqueta/rastreio ainda não foram liberados."
+    );
+    return shipment;
   }
 
   await db.saveShipment(order.id, shipment);
-  await db.addOrderEvent(order.id, "LABEL_AVAILABLE", "Etiqueta liberada", "Postagem criada na ConectEnvios e etiqueta disponível.");
+  await db.updateProviderPayment(order.id,{
+    status:"PAID",
+    ref:shipment.cartId || shipment.packageId || null,
+    error:null
+  });
+  await db.addOrderEvent(order.id, "LABEL_AVAILABLE", "Etiqueta liberada", "Postagem paga/criada na ConectEnvios e etiqueta disponível.");
   return shipment;
 }
 
@@ -489,6 +574,10 @@ function publicOrder(order) {
     labelA6Url: order.label_a6_url || "",
     declarationUrl: order.declaration_url || "",
     publicTrackingUrl: order.public_tracking_url || "",
+    providerPaymentStatus: order.provider_payment_status || "PENDING",
+    providerPaymentRef: order.provider_payment_ref || "",
+    providerPaymentAttempts: Number(order.provider_payment_attempts || 0),
+    providerPaymentLastError: order.provider_payment_last_error || "",
     clientUserId: order.client_user_id || null,
     firstMileType: order.first_mile_type || "",
     firstMileFee: Number(order.first_mile_fee || 0),
@@ -768,7 +857,7 @@ app.get("/api/public-config", (_req, res) => {
     paymentsProvider: "ASAAS",
     paymentsConfigured: asaas.configured(),
     databaseConfigured: Boolean(process.env.DATABASE_URL),
-    version: "1.7.3",
+    version: "1.7.4",
     paymentSimulatorEnabled: PAYMENT_SIMULATOR_ENABLED && !asaas.configured(),
     clientPickupFeePerPackage: CLIENT_PICKUP_FEE_PER_PACKAGE,
     pointPickupEarningPerPackage: POINT_PICKUP_EARNING_PER_PACKAGE,
@@ -994,6 +1083,7 @@ app.post("/api/client/wallet/topup-preview", requireAuth, requireRole("CLIENT"),
 });
 
 app.post("/api/client/wallet/topups", requireAuth, requireRole("CLIENT"), async (req,res)=>{
+  let topup=null;
   try{
     const amount=round2(Number(req.body.amount||0));
     const paymentMethod=String(req.body.paymentMethod||"PIX").toUpperCase();
@@ -1002,7 +1092,7 @@ app.post("/api/client/wallet/topups", requireAuth, requireRole("CLIENT"), async 
 
     const preview=asaas.grossUp(amount,paymentMethod);
     const simulation=PAYMENT_SIMULATOR_ENABLED&&!asaas.configured();
-    const topup=await clientDb.createTopup({
+    topup=await clientDb.createTopup({
       userId:req.user.userId,amount,fee:preview.surcharge,totalAmount:preview.grossAmount,
       paymentMethod,provider:simulation?"SIMULATOR":"ASAAS",isSimulation:simulation
     });
@@ -1018,9 +1108,11 @@ app.post("/api/client/wallet/topups", requireAuth, requireRole("CLIENT"), async 
     }
 
     if(!asaas.configured()){
+      await clientDb.updateTopupStatus(topup.id,"FAILED");
       return res.status(503).json({error:"A recarga real será liberada assim que a conta Asaas estiver ativa."});
     }
 
+    const account=await clientDb.getCustomerAccount(req.user.userId);
     const checkout=await asaas.createCheckout({
       orderId:"TOPUP-"+topup.id,
       billingType:paymentMethod,
@@ -1028,16 +1120,28 @@ app.post("/api/client/wallet/topups", requireAuth, requireRole("CLIENT"), async 
       itemName:"Adicionar saldo Postal",
       itemDescription:"Crédito pré-pago para uso exclusivo em serviços Postal Serviços",
       partnerWalletId:null,reserveWalletId:null,partnerCommission:0,providerCost:0,
-      customerData:null
+      customerData:account ? {
+        name:account.name||req.user.name||"",
+        cpfCnpj:account.document||"",
+        email:account.email||req.user.email||"",
+        phone:account.phone||""
+      } : null
     });
+
     const updated=await clientDb.setTopupCheckout(topup.id,{
       checkoutId:checkout.id,checkoutUrl:checkout.url,fee:checkout.surcharge,totalAmount:checkout.grossAmount
     });
     await audit(req,"CREATE_WALLET_TOPUP","WALLET_TOPUP",topup.id,{amount,paymentMethod});
     res.status(201).json({topup:updated,checkoutUrl:checkout.url});
   }catch(error){
-    console.error("wallet topup error:",error.message);
-    res.status(500).json({error:error.message||"Não foi possível gerar a recarga."});
+    if(topup?.id){
+      try{await clientDb.updateTopupStatus(topup.id,"FAILED");}catch{}
+    }
+    const providerDetail=asaas.providerErrorMessage?.(error.providerData,error.message) || error.message;
+    console.error("wallet topup error:",error.status||"",providerDetail);
+    res.status(error.status && error.status<500 ? error.status : 502).json({
+      error:providerDetail||"Não foi possível gerar a recarga."
+    });
   }
 });
 
@@ -1631,6 +1735,30 @@ app.post("/api/integrations/v1/ecommerce/connections/:id/orders", requireIntegra
     await clientDb.updateConnection(connection.id,connection.user_id,{status:"CONNECTED",markSynced:true});
     res.status(201).json({ok:true,version:"v1",order:imported});
   }catch(error){res.status(500).json({error:"Falha ao importar pedido da plataforma."});}
+});
+
+app.get("/api/admin/system-health", requireAuth, requireRole("ADMIN"), async (_req,res)=>{
+  const health={
+    database:{ok:false},
+    conectenvios:{ok:Boolean(TOKEN),mode:CONECTENVIOS_PAYMENT_MODE},
+    asaas:{ok:false,...asaas.environmentInfo()},
+    shipmentCreationEnabled:ENABLE_SHIPMENT_CREATION,
+    checkedAt:new Date().toISOString()
+  };
+  try{
+    await db.pool.query("SELECT 1");
+    health.database.ok=true;
+  }catch(error){health.database.error=String(error.message||error);}
+  try{
+    if(asaas.configured()){
+      await asaas.asaasFetch("/checkouts?limit=1",{method:"GET"});
+      health.asaas.ok=true;
+    }
+  }catch(error){
+    health.asaas.error=asaas.providerErrorMessage(error.providerData,error.message);
+    health.asaas.status=error.status||null;
+  }
+  res.json(health);
 });
 
 app.get("/api/admin/overview", requireAuth, requireRole("ADMIN"), async (_req, res) => {
@@ -2817,8 +2945,17 @@ async function start() {
   await seedDefaultCatalog();
   await ensureAsaasCheckoutWebhook();
 
+  if (ASAAS_SELF_TEST_ON_BOOT && asaas.configured()) {
+    try {
+      const test=await asaas.selfTestCheckout();
+      console.log("ASAAS_SELF_TEST_OK",test.status||"OK");
+    } catch (error) {
+      console.error("ASAAS_SELF_TEST_FAIL",error.status||"",asaas.providerErrorMessage(error.providerData,error.message));
+    }
+  }
+
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Postal Balcao V1.7 disponivel na porta ${PORT}`);
+    console.log(`Postal Balcao V1.7.4 disponivel na porta ${PORT}`);
     console.log(`ConectEnvios: ${TOKEN ? "configurada" : "modo demonstracao"}`);
     console.log(`Asaas: ${asaas.configured() ? "configurado" : "aguardando chave"}`);
     console.log(`Banco: ${process.env.DATABASE_URL ? "PostgreSQL configurado" : "nao configurado"}`);
