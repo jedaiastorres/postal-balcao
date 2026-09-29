@@ -939,6 +939,7 @@ function orderStatusMeta(status) {
     PAYMENT_PENDING: ["Aguardando pagamento", "warning", "A etiqueta não será criada enquanto o pagamento não for confirmado."],
     PAYMENT_CONFIRMED: ["Pagamento confirmado", "info", "Pagamento recebido. Preparando a postagem."],
     PAID_WAITING_SHIPMENT: ["Pago • etiqueta pendente", "info", "Pagamento confirmado. A emissão real da etiqueta está bloqueada até a homologação final."],
+    PROVIDER_PAYMENT_PENDING: ["Aguardando ConectEnvios", "warning", "O pagamento do cliente está confirmado; a plataforma aguarda a liberação financeira/etiqueta da ConectEnvios."],
     LABEL_AVAILABLE: ["Etiqueta disponível", "success", "Pagamento e postagem confirmados."],
     LABEL_AVAILABLE_SIMULATED: ["Etiqueta de teste", "info", "Homologação concluída sem movimentação financeira ou postagem real."],
     SHIPMENT_ERROR: ["Revisão necessária", "danger", "O pagamento foi confirmado, mas houve erro ao gerar a postagem."],
