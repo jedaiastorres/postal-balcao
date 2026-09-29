@@ -64,9 +64,16 @@
     document.querySelector('[data-view="connections"]')?.classList.toggle("hidden",!clientMode);
     document.querySelector('[data-view="wallet"]')?.classList.toggle("hidden",!clientMode);
 
+    document.querySelector('[data-view="dashboard"]')?.classList.toggle("hidden",clientMode);
     if(clientMode){
       $("#partnerEmail").textContent=user.name||user.email;
       $(".page-kicker").textContent="POSTAL SERVIÇOS · CLIENTE";
+      const badge=$("#apiBadge");
+      badge.className="status-badge connected";
+      badge.innerHTML='<span class="dot"></span> Rede Postal conectada';
+      $("#quoteModeLabel").textContent="Cotação Postal em tempo real";
+      const quoteText=document.querySelector("#quoteView .quote-head p");
+      if(quoteText) quoteText.textContent="Compare transportadoras, escolha o melhor frete e pague com seu saldo Postal.";
       await loadClientHome();
       navigate("clientHome");
     }
