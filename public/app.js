@@ -111,10 +111,11 @@ function showApp(user) {
 
   const params = new URLSearchParams(window.location.search);
   if (params.get("payment")) {
-    navigate("orders");
+    const isTopup = user?.role === "CLIENT" && String(params.get("order") || "").startsWith("TOPUP-");
+    navigate(isTopup ? "wallet" : "orders");
     toast(params.get("payment") === "success"
-      ? "Pagamento concluído. Estamos confirmando pelo webhook."
-      : "Pagamento não concluído. Você pode tentar novamente em Meus Fretes.");
+      ? (isTopup ? "Pagamento concluído. Seu saldo será atualizado após a confirmação." : "Pagamento concluído. Estamos confirmando pelo webhook.")
+      : (isTopup ? "Recarga não concluída. Você pode tentar novamente." : "Pagamento não concluído. Você pode tentar novamente em Meus Fretes."));
     history.replaceState({}, "", window.location.pathname);
   }
 }
