@@ -99,6 +99,269 @@
     }catch(err){toast(err.message,"error");}
   }
 
+
+  function opsStatusMeta(status){
+    return ({
+      IMPORTED:["Importado","muted"],
+      AWAITING_PAYMENT:["Aguardando pagamento","warning"],
+      READY_TO_SHIP:["Pronto para envio","success"],
+      SENT:["Enviado","info"]
+    })[status]||[status||"—","muted"];
+  }
+
+  function visibleOperations(){
+    const q=String($("#clientOpsSearch")?.value||"").trim().toLowerCase();
+    const source=String($("#clientOpsSourceFilter")?.value||"");
+    return (client.operations||[]).filter(item=>{
+      if(client.opsStatus&&item.status!==client.opsStatus)return false;
+      if(source&&String(item.sourcePlatform||"")!==source)return false;
+      if(!q)return true;
+      const hay=[
+        item.externalOrderId,item.sourceOrderId,item.customerName,item.trackingCode,
+        item.sourcePlatform,item.destination,item.id
+      ].map(x=>String(x||"").toLowerCase()).join(" ");
+      return hay.includes(q);
+    });
+  }
+
+  function updateBulkBar(){
+    const count=client.selectedOperations.size;
+    $("#clientSelectedCount").textContent=count;
+    $("#clientBulkBar").classList.toggle("hidden",!count);
+    const visible=visibleOperations();
+    const selectable=visible.filter(x=>x.kind==="SHIPMENT"||x.kind==="IMPORTED");
+    $("#clientOpsSelectAll").checked=Boolean(selectable.length)&&selectable.every(x=>client.selectedOperations.has(x.id));
+  }
+
+  function renderOperations(){
+    const items=visibleOperations();
+    const host=$("#clientOpsRows");
+    if(!host)return;
+    host.innerHTML="";
+    if(!items.length){
+      host.innerHTML='<tr><td colspan="8"><div class="empty-state">Nenhum pedido neste filtro.</div></td></tr>';
+      updateBulkBar(); return;
+    }
+
+    items.forEach(item=>{
+      const [statusLabel,tone]=opsStatusMeta(item.status);
+      const row=document.createElement("tr");
+      row.className="client-ops-row";
+      const orderCode=item.kind==="IMPORTED"
+        ?("#"+escapeHtml(item.externalOrderId||String(item.id).slice(0,8)))
+        :("#"+escapeHtml(item.sourceOrderId||String(item.id).slice(0,8).toUpperCase()));
+      const source=escapeHtml(item.sourcePlatform||"POSTAL");
+      const total=item.kind==="SHIPMENT"?money(item.total):"—";
+      row.innerHTML=`
+        <td class="check-col"><input type="checkbox" data-op-select="${escapeHtml(item.id)}" ${client.selectedOperations.has(item.id)?"checked":""} /></td>
+        <td><strong>${orderCode}</strong><small>${source}</small></td>
+        <td><strong>${escapeHtml(item.customerName||"—")}</strong><small>${escapeHtml(item.destination||item.sourceConnection||"")}</small></td>
+        <td><span class="source-pill">${source}</span></td>
+        <td><span class="order-status ${tone}">${escapeHtml(statusLabel)}</span><small>${escapeHtml(item.internalStatus||item.sourceStatus||"")}</small></td>
+        <td><strong>${total}</strong></td>
+        <td><strong class="tracking-mini">${escapeHtml(item.trackingCode||"—")}</strong></td>
+        <td class="row-action-cell"></td>`;
+      const actions=row.querySelector(".row-action-cell");
+      if(item.kind==="IMPORTED"){
+        const btn=document.createElement("button");btn.className="ghost";btn.type="button";btn.textContent="Preparar envio";
+        btn.addEventListener("click",()=>prepareImportedOrder(item.id));
+        actions.appendChild(btn);
+      }else{
+        if(item.status==="READY_TO_SHIP"&&!item.labelReady){
+          const btn=document.createElement("button");btn.className="ghost";btn.type="button";btn.textContent="Emitir";
+          btn.addEventListener("click",()=>bulkIssue([item.id]));
+          actions.appendChild(btn);
+        }
+        if(item.labelReady){
+          const btn=document.createElement("button");btn.className="ghost";btn.type="button";btn.textContent="Etiqueta";
+          btn.addEventListener("click",()=>printLabels([item.id]));
+          actions.appendChild(btn);
+        }
+      }
+      row.querySelector("[data-op-select]")?.addEventListener("change",e=>{
+        if(e.target.checked)client.selectedOperations.add(item.id);else client.selectedOperations.delete(item.id);
+        updateBulkBar();
+      });
+      host.appendChild(row);
+    });
+    updateBulkBar();
+  }
+
+  async function loadOperations(){
+    if(!isClient())return;
+    const d=await api("/api/client/operations");
+    client.operations=d.items||[];
+    client.walletBalance=Number(d.balance||0);
+    $("#opsBalance").textContent=money(d.balance);
+    $("#clientTopBalance strong").textContent=money(d.balance);
+    $("#opsCountImported").textContent=d.counts?.imported||0;
+    $("#opsCountAwaiting").textContent=d.counts?.awaitingPayment||0;
+    $("#opsCountReady").textContent=d.counts?.readyToShip||0;
+    $("#opsCountSent").textContent=d.counts?.sent||0;
+    $("#opsCountAll").textContent=client.operations.length;
+    const sources=[...new Set(client.operations.map(x=>x.sourcePlatform).filter(Boolean))].sort();
+    $("#clientOpsSourceFilter").innerHTML='<option value="">Todas</option>'+sources.map(x=>`<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join("");
+    renderOperations();
+  }
+
+  function normalizedImportedPayload(payload){
+    const p=payload||{};
+    const sender=p.sender||p.remetente||p.origin||p.from||p.shipping_from||{};
+    const recipient=p.recipient||p.destinatario||p.destination||p.to||p.shipping_address||p.customer||{};
+    const pack=p.package||p.parcel||p.volume||p.shipping_package||{};
+    const products=p.items||p.products||p.line_items||[];
+    const value=(obj,...keys)=>{for(const k of keys){if(obj&&obj[k]!=null&&obj[k]!=="")return obj[k];}return "";};
+    const party=(obj)=>({
+      name:value(obj,"name","nome","full_name"),
+      document:value(obj,"document","cpfCnpj","cpf_cnpj","cpf","cnpj"),
+      phone:value(obj,"phone","telefone","mobile"),
+      cep:value(obj,"cep","zip","zipcode","postal_code"),
+      address:value(obj,"address","logradouro","street","street_name"),
+      number:value(obj,"number","numero","street_number"),
+      neighborhood:value(obj,"neighborhood","bairro","district"),
+      complement:value(obj,"complement","complemento"),
+      city:value(obj,"city","cidade"),
+      state:value(obj,"state","uf")
+    });
+    return {
+      sender:party(sender),recipient:party(recipient),
+      package:{
+        weightKg:Number(value(pack,"weightKg","weight_kg")||0)||Number(value(pack,"weight","peso")||0),
+        length:Number(value(pack,"length","comprimento")||0),
+        width:Number(value(pack,"width","largura")||0),
+        height:Number(value(pack,"height","altura")||0),
+        declaredValue:Number(value(pack,"declaredValue","declared_value","value","valor")||0)
+      },
+      items:(Array.isArray(products)?products:[]).map(x=>({
+        description:String(value(x,"description","name","nome","title")||"Produto"),
+        quantity:Number(value(x,"quantity","qty","quantidade")||1),
+        value:Number(value(x,"value","price","preco","unit_price")||0)
+      })),
+      invoiceNumber:String(p.invoiceNumber||p.invoice_number||p.nfe||"")
+    };
+  }
+
+  async function prepareImportedOrder(id){
+    try{
+      const r=await api("/api/client/imported-orders/"+encodeURIComponent(id));
+      const normalized=normalizedImportedPayload(r.order.payload||{});
+      client.pendingImport={id:r.order.id,normalized,externalOrderId:r.order.externalOrderId,platform:r.order.platform};
+      if(normalized.sender.cep)$("#cepOrigem").value=String(normalized.sender.cep).replace(/\D/g,"");
+      if(normalized.recipient.cep)$("#cepDestino").value=String(normalized.recipient.cep).replace(/\D/g,"");
+      if(normalized.package.weightKg)$("#peso").value=normalized.package.weightKg;
+      if(normalized.package.length)$("#comprimento").value=normalized.package.length;
+      if(normalized.package.width)$("#largura").value=normalized.package.width;
+      if(normalized.package.height)$("#altura").value=normalized.package.height;
+      if(normalized.package.declaredValue)$("#vlDeclarado").value=normalized.package.declaredValue;
+      navigate("quote");
+      toast("Pedido importado carregado. Confira dimensões e escolha o frete.");
+    }catch(err){toast(err.message,"error");}
+  }
+
+  function fillImportedShipment(){
+    const imp=client.pendingImport?.normalized;if(!imp)return;
+    const set=(id,value)=>{const el=$("#"+id);if(el&&value!=null&&String(value)!=="")el.value=value;};
+    const apply=(prefix,p)=>{
+      set(prefix+"Name",p.name);set(prefix+"Document",p.document);set(prefix+"Phone",p.phone);
+      set(prefix+"Cep",p.cep);set(prefix+"Address",p.address);set(prefix+"Number",p.number);
+      set(prefix+"Neighborhood",p.neighborhood);set(prefix+"Complement",p.complement);
+      set(prefix+"City",[p.city,p.state].filter(Boolean).join("/"));
+    };
+    apply("sender",imp.sender);apply("recipient",imp.recipient);
+    if(imp.items?.length){
+      $("#contentItems").innerHTML="";
+      imp.items.forEach(item=>addContentItem(item));
+    }
+    if(imp.invoiceNumber){
+      document.querySelector('input[name="documentType"][value="invoice"]').checked=true;
+      $("#invoiceField").classList.remove("hidden");$("#invoiceNumber").value=imp.invoiceNumber;
+    }
+    const later=document.querySelector('input[name="firstMileType"][value="LATER"]');
+    if(later)later.checked=true;
+  }
+
+  async function bulkIssue(ids){
+    const shipmentIds=(ids||[...client.selectedOperations]).filter(id=>{
+      const item=client.operations.find(x=>x.id===id);
+      return item?.kind==="SHIPMENT"&&item.status==="READY_TO_SHIP"&&!item.labelReady;
+    });
+    if(!shipmentIds.length){toast("Selecione envios pagos que ainda precisam de etiqueta.","error");return;}
+    const r=await api("/api/client/orders/bulk-issue",{method:"POST",body:JSON.stringify({orderIds:shipmentIds})});
+    toast(r.failed?`${r.issued} etiqueta(s) emitida(s); ${r.failed} com pendência.`:`${r.issued} etiqueta(s) pronta(s).`);
+    await loadOperations();
+  }
+
+  async function postPdf(path,payload){
+    const response=await fetch(path,{
+      method:"POST",credentials:"same-origin",
+      headers:{"Content-Type":"application/json","x-csrf-token":state.csrfToken},
+      body:JSON.stringify(payload)
+    });
+    if(!response.ok){
+      let message="Não foi possível gerar o arquivo.";
+      try{message=(await response.json()).error||message;}catch{}
+      throw new Error(message);
+    }
+    return response.blob();
+  }
+
+  async function printLabels(ids){
+    const labelIds=(ids||[...client.selectedOperations]).filter(id=>{
+      const item=client.operations.find(x=>x.id===id);
+      return item?.kind==="SHIPMENT"&&item.labelReady;
+    });
+    if(!labelIds.length){toast("Selecione pedidos com etiqueta disponível.","error");return;}
+    try{
+      const blob=await postPdf("/api/client/orders/bulk-labels",{orderIds:labelIds});
+      const url=URL.createObjectURL(blob);window.open(url,"_blank","noopener");
+      setTimeout(()=>URL.revokeObjectURL(url),60000);
+    }catch(err){toast(err.message,"error");}
+  }
+
+  function openBulkCollection(){
+    const selected=[...client.selectedOperations].map(id=>client.operations.find(x=>x.id===id)).filter(Boolean);
+    const eligible=selected.filter(x=>x.kind==="SHIPMENT"&&x.status==="READY_TO_SHIP"&&x.labelReady&&!x.collectionId);
+    if(!eligible.length){toast("Selecione envios prontos, com etiqueta e ainda sem coleta.","error");return;}
+    const first=eligible[0],a=first.sender||{};
+    $("#bulkPickupAddress").value=a.address||"";
+    $("#bulkPickupNumber").value=a.number||"";
+    $("#bulkPickupNeighborhood").value=a.neighborhood||"";
+    $("#bulkPickupCep").value=a.cep||"";
+    $("#bulkPickupCity").value=a.city||"";
+    $("#bulkPickupCount").textContent=eligible.length;
+    $("#bulkPickupTotal").textContent=money(eligible.length*Number(state.config?.clientPickupFeePerPackage||5));
+    $("#bulkCollectionModal").dataset.orderIds=eligible.map(x=>x.id).join(",");
+    $("#bulkCollectionModal").classList.remove("hidden");
+  }
+
+  function closeBulkCollection(){
+    $("#bulkCollectionModal")?.classList.add("hidden");
+  }
+
+  async function confirmBulkCollection(){
+    const modal=$("#bulkCollectionModal");
+    const orderIds=String(modal.dataset.orderIds||"").split(",").filter(Boolean);
+    if(!orderIds.length)return;
+    const btn=$("#confirmBulkCollectionBtn");btn.disabled=true;btn.textContent="Solicitando...";
+    try{
+      const r=await api("/api/client/collections/bulk",{method:"POST",body:JSON.stringify({
+        orderIds,
+        address:{
+          address:$("#bulkPickupAddress").value.trim(),number:$("#bulkPickupNumber").value.trim(),
+          neighborhood:$("#bulkPickupNeighborhood").value.trim(),cep:$("#bulkPickupCep").value.trim(),
+          city:$("#bulkPickupCity").value.trim()
+        },
+        scheduledFor:$("#bulkPickupScheduledFor").value||null,
+        notes:$("#bulkPickupNotes").value.trim()
+      })});
+      client.walletBalance=Number(r.balance||client.walletBalance);
+      $("#clientTopBalance strong").textContent=money(client.walletBalance);
+      toast(r.assignedStore?`Coleta criada e direcionada para ${r.assignedStore.name}.`:"Coleta criada e enviada ao painel da Postal.");
+      closeBulkCollection();client.selectedOperations.clear();await loadOperations();await loadClientHome();
+    }catch(err){toast(err.message,"error");}
+    finally{btn.disabled=false;btn.textContent="Confirmar coleta";}
+  }
+
   async function loadWallet(){
     if(!isClient())return;
     const d=await api("/api/client/wallet");
