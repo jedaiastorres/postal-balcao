@@ -889,6 +889,17 @@ app.get("/api/client/wallet", requireAuth, requireRole("CLIENT"), async (req,res
   }catch(error){res.status(500).json({error:"Não foi possível carregar o saldo."});}
 });
 
+app.post("/api/client/wallet/topup-preview", requireAuth, requireRole("CLIENT"), async (req,res)=>{
+  try{
+    const amount=round2(Number(req.body.amount||0));
+    const paymentMethod=String(req.body.paymentMethod||"PIX").toUpperCase();
+    if(!Number.isFinite(amount)||amount<10) return res.status(400).json({error:"Informe ao menos R$ 10,00."});
+    if(!["PIX","CARTAO"].includes(paymentMethod)) return res.status(400).json({error:"Forma de pagamento inválida."});
+    const p=asaas.grossUp(amount,paymentMethod);
+    res.json({credit:amount,fee:Number(p.surcharge||0),total:Number(p.grossAmount||amount)});
+  }catch(error){res.status(400).json({error:error.message||"Não foi possível calcular a recarga."});}
+});
+
 app.post("/api/client/wallet/topups", requireAuth, requireRole("CLIENT"), async (req,res)=>{
   try{
     const amount=round2(Number(req.body.amount||0));
