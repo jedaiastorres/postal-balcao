@@ -590,13 +590,26 @@ async function processAsaasWebhookEvent(eventRow) {
   const eventType = String(eventRow.event_type || payload.event || "");
   const checkoutId = String(eventRow.checkout_id || payload.checkout?.id || "");
   const order = checkoutId ? await db.getOrderByCheckoutId(checkoutId) : null;
+  const topup = !order && checkoutId ? await clientDb.getTopupByCheckoutId(checkoutId) : null;
 
-  if (!order) {
-    await db.markWebhookProcessed(eventRow.id, "Pedido não encontrado para o checkout.");
+  if (!order && !topup) {
+    await db.markWebhookProcessed(eventRow.id, "Pedido ou recarga não encontrados para o checkout.");
     return;
   }
 
   try {
+    if (topup) {
+      if (eventType === "CHECKOUT_PAID") {
+        await clientDb.markTopupPaid(topup.id);
+      } else if (eventType === "CHECKOUT_CANCELED") {
+        await clientDb.updateTopupStatus(topup.id, "CANCELED");
+      } else if (eventType === "CHECKOUT_EXPIRED") {
+        await clientDb.updateTopupStatus(topup.id, "EXPIRED");
+      }
+      await db.markWebhookProcessed(eventRow.id, null);
+      return;
+    }
+
     if (eventType === "CHECKOUT_PAID") {
       const paidOrder = await db.markPaid(order.id, ENABLE_SHIPMENT_CREATION ? "PAYMENT_CONFIRMED" : "PAID_WAITING_SHIPMENT");
       if (order.payment_method !== "DINHEIRO") {
