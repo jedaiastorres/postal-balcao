@@ -452,6 +452,66 @@ async function insertClientOrder(order){
   ); return rows[0];
 }
 
+async function createClientOrderAndDebit(order){
+  const db=database();
+  const total=round2(order.totalAmount);
+  await db.query("BEGIN");
+  try{
+    const wallet=await db.query(
+      `UPDATE customer_accounts SET wallet_balance=wallet_balance-$2,updated_at=NOW()
+        WHERE user_id=$1 AND wallet_balance >= $2 RETURNING wallet_balance`,
+      [order.clientUserId,total]
+    );
+    if(!wallet.rows[0]) throw new Error("Saldo insuficiente.");
+
+    const {rows}=await db.query(
+      `INSERT INTO freight_orders(
+        id,store_id,client_user_id,referral_store_id,referral_commission,
+        partner_email,status,payment_method,payment_status,payment_provider,
+        payment_amount,payment_surcharge,cash_remittance_amount,
+        sale_price,addons_total,customer_subtotal,
+        point_revenue_total,postal_revenue_total,provider_revenue_total,
+        partner_commission,postal_margin,provider_cost,
+        first_mile_type,first_mile_fee,package_count,
+        postal_company_id,carrier,service_name,deadline,quote_token,
+        sender,recipient,items,invoice_number,package_data,paid_at
+      ) VALUES(
+        $1,NULL,$2,$3,$4,
+        $5,$6,'SALDO','PAID','POSTAL_WALLET',
+        $7,0,0,
+        $8,0,$9,
+        0,$10,$11,
+        0,$12,$13,
+        $14,$15,$16,
+        $17,$18,$19,$20,$21,
+        $22::jsonb,$23::jsonb,$24::jsonb,$25,$26::jsonb,NOW()
+      ) RETURNING *`,
+      [
+        order.id,order.clientUserId,order.referralStoreId||null,order.referralCommission||0,
+        order.partnerEmail,order.status,total,order.freightPrice,order.customerSubtotal,
+        order.postalRevenueTotal,order.providerCost,order.postalMargin,
+        order.firstMileType,order.firstMileFee,order.packageCount,
+        order.postalCompanyId||null,order.carrier||"",order.serviceName||"",order.deadline||0,order.quoteToken,
+        JSON.stringify(order.sender||{}),JSON.stringify(order.recipient||{}),JSON.stringify(order.items||[]),
+        order.invoiceNumber||"",JSON.stringify(order.packageData||{})
+      ]
+    );
+
+    await db.query(
+      `INSERT INTO wallet_transactions(
+        id,user_id,transaction_type,amount,status,description,order_id,idempotency_key,metadata
+      ) VALUES($1,$2,'SHIPMENT_DEBIT',$3,'POSTED',$4,$5,$6,$7::jsonb)`,
+      [
+        id(),order.clientUserId,-total,
+        "Pagamento de envio Postal",order.id,"client-order:"+order.id,
+        JSON.stringify({freight:round2(order.freightPrice),firstMile:round2(order.firstMileFee)})
+      ]
+    );
+    await db.query("COMMIT");
+    return {order:rows[0],balance:Number(wallet.rows[0].wallet_balance)};
+  }catch(error){await db.query("ROLLBACK");throw error;}
+}
+
 async function listClientOrders(userId,limit=100){
   const db=database();
   const {rows}=await db.query(
@@ -672,7 +732,7 @@ module.exports={
   initClientDb,createCustomerAccount,getCustomerAccount,findStoreByReferralCode,
   listPublicStores,listPickupStores,getWallet,listWalletTransactions,creditWallet,debitWallet,
   createTopup,setTopupCheckout,getTopupByCheckoutId,getTopup,listTopups,markTopupPaid,updateTopupStatus,
-  insertClientOrder,listClientOrders,getClientOrder,choosePickupStore,createCollectionRequest,
+  insertClientOrder,createClientOrderAndDebit,listClientOrders,getClientOrder,choosePickupStore,createCollectionRequest,
   listCollections,getCollection,updateCollection,createPointEarning,listPointEarnings,referralStats,
   createConnection,listConnections,updateConnection,importEcommerceOrder,listEcommerceOrders,
   listClientsByStore
