@@ -464,6 +464,11 @@ function publicOrder(order) {
     labelA6Url: order.label_a6_url || "",
     declarationUrl: order.declaration_url || "",
     publicTrackingUrl: order.public_tracking_url || "",
+    clientUserId: order.client_user_id || null,
+    firstMileType: order.first_mile_type || "",
+    firstMileFee: Number(order.first_mile_fee || 0),
+    packageCount: Number(order.package_count || 1),
+    referralCommission: Number(order.referral_commission || 0),
     isSimulation: Boolean(order.is_simulation),
     events: Array.isArray(order.events) ? order.events.map(event => ({
       id: event.id,
@@ -677,7 +682,11 @@ app.get("/api/public-config", (_req, res) => {
     paymentsConfigured: asaas.configured(),
     databaseConfigured: Boolean(process.env.DATABASE_URL),
     version: "1.6.0",
-    paymentSimulatorEnabled: PAYMENT_SIMULATOR_ENABLED && !asaas.configured()
+    paymentSimulatorEnabled: PAYMENT_SIMULATOR_ENABLED && !asaas.configured(),
+    clientPickupFeePerPackage: CLIENT_PICKUP_FEE_PER_PACKAGE,
+    pointPickupEarningPerPackage: POINT_PICKUP_EARNING_PER_PACKAGE,
+    pointDropoffEarningPerPackage: POINT_DROPOFF_EARNING_PER_PACKAGE,
+    referralEarningPerShipment: REFERRAL_EARNING_PER_SHIPMENT
   });
 });
 
