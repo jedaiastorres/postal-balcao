@@ -92,6 +92,7 @@
         <div class="nav-section">MINHA CONTA POSTAL</div>
         <nav>
           <button class="nav-item" data-view="clientHome"><span>⌂</span> Início</button>
+          <button class="nav-item" data-view="clientOrders"><span>▤</span> Pedidos</button>
           <button class="nav-item" data-view="wallet"><span>R$</span> Saldo</button>
           <button class="nav-item" data-view="connections"><span>⇄</span> Integrações</button>
         </nav>
@@ -121,6 +122,7 @@
           <h2 id="pageTitle">Visão geral</h2>
         </div>
         <div class="status-wrap">
+          <button id="clientTopBalance" class="client-top-balance hidden" data-go="wallet" type="button"><span>Saldo Postal</span><strong>R$ 0,00</strong></button>
           <div id="apiBadge" class="status-badge"><span class="dot"></span> Verificando API</div>
           <div class="avatar">P</div>
         </div>
@@ -324,9 +326,9 @@
         </div>
         <div class="cards-4">
           <article class="metric-card"><span>Saldo disponível</span><strong id="clientBalance">R$ 0,00</strong><small>Crédito pré-pago Postal</small></article>
-          <article class="metric-card"><span>Envios</span><strong id="clientShipments">0</strong><small>Histórico da conta</small></article>
-          <article class="metric-card"><span>Coletas pendentes</span><strong id="clientCollectionsPending">0</strong><small>Primeira milha</small></article>
-          <article class="metric-card"><span>Lojas conectadas</span><strong id="clientConnections">0</strong><small>Nuvemshop e outras</small></article>
+          <article class="metric-card"><span>Pedidos importados</span><strong id="clientImportedOrders">0</strong><small>Aguardando preparação</small></article>
+          <article class="metric-card"><span>Prontos para envio</span><strong id="clientReadyToShip">0</strong><small>Etiquetas e expedição</small></article>
+          <article class="metric-card"><span>Enviados</span><strong id="clientSentOrders">0</strong><small>Coletados / postados</small></article>
         </div>
         <div class="panel-grid">
           <article class="panel accent-panel">
@@ -335,11 +337,65 @@
             <button class="primary" data-go="wallet" type="button">Adicionar saldo</button>
           </article>
           <article class="panel">
-            <div class="eyebrow">AUTOMAÇÃO</div><h3>Conecte sua loja virtual.</h3>
-            <p>Pedidos importados aparecem dentro da Postal para cotação, etiqueta, coleta e rastreamento.</p>
-            <button class="ghost" data-go="connections" type="button">Ver integrações</button>
+            <div class="eyebrow">OPERAÇÃO</div><h3>Gerencie pedidos em lote.</h3>
+            <p>Selecione vários pedidos, emita etiquetas, imprima em lote e solicite uma única coleta.</p>
+            <button class="ghost" data-go="clientOrders" type="button">Abrir pedidos</button>
           </article>
         </div>
+      </section>
+
+      <section id="clientOrdersView" class="view hidden client-only">
+        <div class="client-ops-top">
+          <div>
+            <div class="eyebrow">CENTRAL DE PEDIDOS</div>
+            <h1>Pedidos e etiquetas</h1>
+            <p>Organize pedidos importados, gere etiquetas em massa, imprima lotes e solicite coletas sem sair da Postal.</p>
+          </div>
+          <div class="client-ops-head-actions">
+            <div class="client-ops-balance"><span>Saldo disponível</span><strong id="opsBalance">R$ 0,00</strong></div>
+            <button class="ghost" data-go="wallet" type="button">+ Adicionar saldo</button>
+            <button class="primary" data-go="quote" type="button">+ Novo envio</button>
+          </div>
+        </div>
+
+        <div class="client-status-tabs">
+          <button class="client-status-tab active" data-ops-status=""><span>Todos</span><strong id="opsCountAll">0</strong></button>
+          <button class="client-status-tab" data-ops-status="IMPORTED"><span>Importados</span><strong id="opsCountImported">0</strong></button>
+          <button class="client-status-tab" data-ops-status="AWAITING_PAYMENT"><span>Aguardando pagamento</span><strong id="opsCountAwaiting">0</strong></button>
+          <button class="client-status-tab" data-ops-status="READY_TO_SHIP"><span>Prontos para envio</span><strong id="opsCountReady">0</strong></button>
+          <button class="client-status-tab" data-ops-status="SENT"><span>Enviados</span><strong id="opsCountSent">0</strong></button>
+        </div>
+
+        <article class="panel client-ops-panel">
+          <div class="client-ops-filters">
+            <label class="client-ops-search"><span>Buscar</span><input id="clientOpsSearch" placeholder="Pedido, cliente, rastreio..." /></label>
+            <label><span>Origem</span><select id="clientOpsSourceFilter"><option value="">Todas</option></select></label>
+            <button id="clientOpsRefreshBtn" class="ghost" type="button">Atualizar</button>
+          </div>
+
+          <div id="clientBulkBar" class="client-bulk-bar hidden">
+            <div><strong id="clientSelectedCount">0</strong><span> selecionado(s)</span></div>
+            <div class="client-bulk-actions">
+              <button id="bulkIssueLabelsBtn" class="ghost" type="button">Emitir etiquetas</button>
+              <button id="bulkPrintLabelsBtn" class="ghost" type="button">Imprimir etiquetas</button>
+              <button id="bulkPickupBtn" class="primary" type="button">Solicitar coleta</button>
+            </div>
+          </div>
+
+          <div class="client-ops-table-wrap">
+            <table class="client-ops-table">
+              <thead>
+                <tr>
+                  <th class="check-col"><input id="clientOpsSelectAll" type="checkbox" /></th>
+                  <th>Pedido</th><th>Cliente</th><th>Origem</th><th>Status</th><th>Valor</th><th>Rastreio</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="clientOpsRows">
+                <tr><td colspan="8"><div class="empty-state">Carregando pedidos...</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
       </section>
 
       <section id="walletView" class="view hidden client-only">
@@ -714,8 +770,9 @@
               <div><h3>Como o pacote chega até a Postal?</h3><p>Escolha coleta no endereço ou entrega em um ponto parceiro. O serviço custa R$ 5,00 por pacote.</p></div>
             </div>
             <div class="client-firstmile-grid">
-              <label class="choice-card"><input type="radio" name="firstMileType" value="PICKUP" checked /><span><strong>Coleta no endereço</strong><small>A Postal direciona para o ponto habilitado mais próximo quando houver.</small></span></label>
+              <label class="choice-card"><input type="radio" name="firstMileType" value="PICKUP" /><span><strong>Coleta no endereço</strong><small>A Postal direciona para o ponto habilitado mais próximo quando houver.</small></span></label>
               <label class="choice-card"><input type="radio" name="firstMileType" value="DROPOFF" /><span><strong>Levar a um ponto Postal</strong><small>Você escolhe o ponto e deixa os pacotes no balcão.</small></span></label>
+              <label class="choice-card"><input type="radio" name="firstMileType" value="LATER" checked /><span><strong>Solicitar depois</strong><small>Gere a etiqueta agora e selecione vários pedidos para uma coleta em lote.</small></span></label>
             </div>
             <div class="form-grid">
               <label>Pacotes neste envio<input id="clientPackageCount" type="number" min="1" max="1" value="1" readonly /><small>Cada etiqueta corresponde a 1 pacote e recebe uma taxa de primeira milha de R$ 5,00.</small></label>
@@ -724,7 +781,7 @@
               <div class="span-2 geo-assist"><button id="clientGeoBtn" class="ghost" type="button">Usar localização para achar o ponto mais próximo</button><small id="clientGeoStatus">Opcional. Ajuda a Postal a direcionar a coleta com maior precisão.</small></div>
               <label class="span-2">Observação<input id="clientCollectionNotes" placeholder="Ex.: coleta na recepção, horário comercial" /></label>
             </div>
-            <div class="payment-method-note">Coleta: o ponto executor recebe R$ 3,00 por pacote. Postagem no ponto: o ponto recebe R$ 2,00 por pacote. O restante do valor de R$ 5,00 fica com a Postal.</div>
+            <div class="payment-method-note">Coleta: R$ 5,00 por pacote, com R$ 3,00 para o ponto executor e R$ 2,00 para a Postal. Se escolher “solicitar depois”, a taxa será debitada do saldo apenas quando a coleta em lote for solicitada.</div>
           </article>
 
           <article class="form-panel addons-panel">
@@ -809,6 +866,26 @@
         <button id="closeOrderDetailBtn" class="receipt-close" type="button">×</button>
       </div>
       <div id="orderDetailBody" class="order-detail-body"></div>
+    </div>
+  </div>
+
+  <div id="bulkCollectionModal" class="modal hidden">
+    <div class="modal-card bulk-collection-card">
+      <div class="modal-head"><div><span class="eyebrow">COLETA EM LOTE</span><h3>Solicitar coleta dos pedidos selecionados</h3></div><button id="closeBulkCollectionBtn" class="icon-btn" type="button">×</button></div>
+      <div class="modal-body">
+        <div class="payment-method-note">Será cobrado R$ 5,00 por pacote do Saldo Postal. A Postal tentará direcionar a coleta para o ponto habilitado mais próximo.</div>
+        <div class="form-grid">
+          <label class="span-2">Endereço<input id="bulkPickupAddress" /></label>
+          <label>Número<input id="bulkPickupNumber" /></label>
+          <label>Bairro<input id="bulkPickupNeighborhood" /></label>
+          <label>CEP<input id="bulkPickupCep" /></label>
+          <label>Cidade / UF<input id="bulkPickupCity" /></label>
+          <label class="span-2">Agendar para<input id="bulkPickupScheduledFor" type="datetime-local" /></label>
+          <label class="span-2">Observação<input id="bulkPickupNotes" placeholder="Ex.: retirar na expedição" /></label>
+        </div>
+        <div class="bulk-collection-summary"><span>Pacotes selecionados</span><strong id="bulkPickupCount">0</strong><span>Estimativa</span><strong id="bulkPickupTotal">R$ 0,00</strong></div>
+      </div>
+      <div class="modal-actions"><button id="cancelBulkCollectionBtn" class="ghost" type="button">Cancelar</button><button id="confirmBulkCollectionBtn" class="primary" type="button">Confirmar coleta</button></div>
     </div>
   </div>
 
