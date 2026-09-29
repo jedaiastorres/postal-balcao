@@ -260,6 +260,23 @@ async function listPickupStores() {
   return rows;
 }
 
+async function updateStorePickupSettings(storeId,{enabled,radiusKm,latitude,longitude}){
+  const db=database();
+  const {rows}=await db.query(
+    `UPDATE stores SET
+       pickup_enabled=$2,
+       pickup_radius_km=$3,
+       latitude=$4,
+       longitude=$5,
+       updated_at=NOW()
+     WHERE id=$1 RETURNING *`,
+    [storeId,Boolean(enabled),Math.max(1,Number(radiusKm||10)),
+     latitude==null||latitude===""?null:Number(latitude),
+     longitude==null||longitude===""?null:Number(longitude)]
+  );
+  return rows[0]||null;
+}
+
 async function getWallet(userId) {
   const account = await getCustomerAccount(userId);
   if (!account) return null;
@@ -730,7 +747,7 @@ async function listClientsByStore(storeId,limit=100){
 
 module.exports={
   initClientDb,createCustomerAccount,getCustomerAccount,findStoreByReferralCode,
-  listPublicStores,listPickupStores,getWallet,listWalletTransactions,creditWallet,debitWallet,
+  listPublicStores,listPickupStores,updateStorePickupSettings,getWallet,listWalletTransactions,creditWallet,debitWallet,
   createTopup,setTopupCheckout,getTopupByCheckoutId,getTopup,listTopups,markTopupPaid,updateTopupStatus,
   insertClientOrder,createClientOrderAndDebit,listClientOrders,getClientOrder,choosePickupStore,createCollectionRequest,
   listCollections,getCollection,updateCollection,createPointEarning,listPointEarnings,referralStats,
