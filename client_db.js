@@ -698,6 +698,17 @@ async function listConnections(userId){
   );return rows;
 }
 
+async function getConnectionById(connectionId){
+  const db=database();
+  const {rows}=await db.query(
+    `SELECT c.*,u.email AS client_email,u.name AS client_name
+       FROM ecommerce_connections c JOIN app_users u ON u.id=c.user_id
+      WHERE c.id=$1 LIMIT 1`,
+    [connectionId]
+  );
+  return rows[0]||null;
+}
+
 async function updateConnection(connectionId,userId,patch){
   const db=database();
   const {rows}=await db.query(
@@ -751,6 +762,6 @@ module.exports={
   createTopup,setTopupCheckout,getTopupByCheckoutId,getTopup,listTopups,markTopupPaid,updateTopupStatus,
   insertClientOrder,createClientOrderAndDebit,listClientOrders,getClientOrder,choosePickupStore,createCollectionRequest,
   listCollections,getCollection,updateCollection,createPointEarning,listPointEarnings,referralStats,
-  createConnection,listConnections,updateConnection,importEcommerceOrder,listEcommerceOrders,
+  createConnection,listConnections,getConnectionById,updateConnection,importEcommerceOrder,listEcommerceOrders,
   listClientsByStore
 };
