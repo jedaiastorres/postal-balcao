@@ -457,11 +457,12 @@
     $(".addons-panel")?.classList.add("hidden");
     $("#paymentMethod").value="SALDO";
     $("#paymentMethod").closest("label")?.classList.add("hidden");
-    $("#paymentMethodNote").textContent="O envio será debitado do seu saldo Postal. A coleta ou postagem no ponto custa R$ 5,00 por pacote.";
+    $("#paymentMethodNote").textContent="O envio será debitado do seu Saldo Postal. Você pode gerar a etiqueta agora e solicitar a coleta depois em lote.";
     $("#paymentFee").textContent=money(0);
     $("#paymentAddons").previousElementSibling && ($("#paymentAddons").previousElementSibling.textContent="Primeira milha");
     $("#createShipmentBtn").textContent="Pagar com saldo e gerar envio";
     $("#shipmentLockNote").textContent="Saldo disponível: "+money(client.walletBalance);
+    fillImportedShipment();
     refreshFirstMileTotal();
     return true;
   }
@@ -469,7 +470,8 @@
   function refreshFirstMileTotal(){
     if(!isClient()||!state.selectedOption)return;
     const count=Math.max(1,Number($("#clientPackageCount")?.value||1));
-    const fee=Number(state.config?.clientPickupFeePerPackage||5)*count;
+    const type=document.querySelector('input[name="firstMileType"]:checked')?.value||"LATER";
+    const fee=type==="LATER"?0:Number(state.config?.clientPickupFeePerPackage||5)*count;
     $("#paymentFreight").textContent=money(state.selectedOption.precoVenda);
     $("#paymentAddons").textContent=money(fee);
     $("#paymentFee").textContent=money(0);
@@ -489,12 +491,15 @@
       dropoffStoreId:firstMileType==="DROPOFF"?$("#clientDropoffStore").value:null,
       latitude:firstMileType==="PICKUP"?client.pickupCoords?.latitude:null,
       longitude:firstMileType==="PICKUP"?client.pickupCoords?.longitude:null,
-      scheduledFor:$("#clientScheduledFor").value||null,collectionNotes:$("#clientCollectionNotes").value.trim()
+      scheduledFor:$("#clientScheduledFor").value||null,collectionNotes:$("#clientCollectionNotes").value.trim(),
+      sourceEcommerceOrderId:client.pendingImport?.id||null
     };
     const r=await api("/api/client/orders",{method:"POST",body:JSON.stringify(payload)});
     client.walletBalance=Number(r.balance||client.walletBalance);
-    toast(r.order?.isSimulation?"Envio de homologação criado com saldo teste.":"Envio criado com saldo Postal.");
-    navigate("orders"); return true;
+    toast(r.order?.isSimulation?"Envio de homologação criado com saldo Sandbox.":"Envio criado com saldo Postal.");
+    client.pendingImport=null;
+    client.selectedOperations.clear();
+    navigate("clientOrders"); return true;
   }
 
   function renderCollectionCard(x,role){
@@ -563,6 +568,27 @@
     $("#walletTopupForm")?.addEventListener("submit",topup);
     $("#walletTopupAmount")?.addEventListener("input",previewTopup);
     $("#walletTopupMethod")?.addEventListener("change",previewTopup);
+    $("#clientOpsRefreshBtn")?.addEventListener("click",loadOperations);
+    $("#clientOpsSearch")?.addEventListener("input",renderOperations);
+    $("#clientOpsSourceFilter")?.addEventListener("change",renderOperations);
+    $(".client-status-tab").forEach(btn=>btn.addEventListener("click",()=>{
+      client.opsStatus=btn.dataset.opsStatus||"";
+      $(".client-status-tab").forEach(x=>x.classList.toggle("active",x===btn));
+      renderOperations();
+    }));
+    $("#clientOpsSelectAll")?.addEventListener("change",e=>{
+      visibleOperations().forEach(item=>{
+        if(e.target.checked)client.selectedOperations.add(item.id);else client.selectedOperations.delete(item.id);
+      });
+      renderOperations();
+    });
+    $("#bulkIssueLabelsBtn")?.addEventListener("click",()=>bulkIssue());
+    $("#bulkPrintLabelsBtn")?.addEventListener("click",()=>printLabels());
+    $("#bulkPickupBtn")?.addEventListener("click",openBulkCollection);
+    $("#closeBulkCollectionBtn")?.addEventListener("click",closeBulkCollection);
+    $("#cancelBulkCollectionBtn")?.addEventListener("click",closeBulkCollection);
+    $("#confirmBulkCollectionBtn")?.addEventListener("click",confirmBulkCollection);
+    $("#bulkCollectionModal")?.addEventListener("click",e=>{if(e.target.id==="bulkCollectionModal")closeBulkCollection();});
     $("#refreshCollectionsBtn")?.addEventListener("click",loadCollections);
     $("#pickupSettingsForm")?.addEventListener("submit",async e=>{
       e.preventDefault();
@@ -605,7 +631,7 @@
   }
 
   window.PostalClient={
-    bind,onShowApp,loadClientHome,loadWallet,loadConnections,loadCollections,loadReferrals,
+    bind,onShowApp,loadClientHome,loadOperations,loadWallet,loadConnections,loadCollections,loadReferrals,
     prepareShipment,submitShipment,refreshFirstMileTotal
   };
   bind();
