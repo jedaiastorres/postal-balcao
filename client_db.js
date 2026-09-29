@@ -758,6 +758,179 @@ async function listClientsByStore(storeId,limit=100){
   );return rows;
 }
 
+async function getImportedOrder(orderId,userId){
+  const db=database();
+  const {rows}=await db.query(
+    `SELECT o.*,c.platform,c.display_name AS connection_name
+       FROM ecommerce_orders o
+       JOIN ecommerce_connections c ON c.id=o.connection_id
+      WHERE o.id=$1 AND c.user_id=$2 LIMIT 1`,
+    [orderId,userId]
+  );
+  return rows[0]||null;
+}
+
+async function linkImportedOrder(orderId,userId,freightOrderId){
+  const db=database();
+  const {rows}=await db.query(
+    `UPDATE ecommerce_orders o SET
+       freight_order_id=$3,import_status='PROCESSED',updated_at=NOW()
+      FROM ecommerce_connections c
+      WHERE o.id=$1 AND o.connection_id=c.id AND c.user_id=$2
+      RETURNING o.*`,
+    [orderId,userId,freightOrderId]
+  );
+  return rows[0]||null;
+}
+
+async function listClientOperations(userId,limit=250){
+  const db=database();
+  const safeLimit=Math.max(1,Math.min(500,Number(limit)||250));
+  const [imports,shipments]=await Promise.all([
+    db.query(
+      `SELECT o.*,c.platform,c.display_name AS connection_name
+         FROM ecommerce_orders o
+         JOIN ecommerce_connections c ON c.id=o.connection_id
+        WHERE c.user_id=$1 AND o.freight_order_id IS NULL
+        ORDER BY o.created_at DESC LIMIT $2`,
+      [userId,safeLimit]
+    ),
+    db.query(
+      `SELECT f.*,
+          eo.external_order_id AS source_order_id,
+          ec.platform AS source_platform,
+          ec.display_name AS source_connection_name,
+          col.id AS collection_id,
+          col.status AS collection_status,
+          col.service_type AS collection_service_type,
+          col.assigned_store_id AS collection_store_id,
+          col.store_name AS collection_store_name
+         FROM freight_orders f
+         LEFT JOIN ecommerce_orders eo ON eo.freight_order_id=f.id
+         LEFT JOIN ecommerce_connections ec ON ec.id=eo.connection_id
+         LEFT JOIN LATERAL (
+           SELECT cr.*,s.name AS store_name
+             FROM collection_requests cr
+             LEFT JOIN stores s ON s.id=cr.assigned_store_id
+            WHERE cr.freight_order_id=f.id
+            ORDER BY cr.requested_at DESC LIMIT 1
+         ) col ON TRUE
+        WHERE f.client_user_id=$1
+        ORDER BY f.created_at DESC LIMIT $2`,
+      [userId,safeLimit]
+    )
+  ]);
+  return {imports:imports.rows,shipments:shipments.rows};
+}
+
+async function createBulkCollectionsAndDebit({
+  userId,orderIds,address={},latitude=null,longitude=null,scheduledFor=null,notes="",
+  feePerPackage=5,pointRate=3,assignedStoreId=null
+}){
+  const db=database();
+  const ids=[...new Set((orderIds||[]).map(String).filter(Boolean))];
+  if(!ids.length) throw new Error("Selecione ao menos um envio.");
+  const totalFeePerPackage=round2(feePerPackage);
+  const pointPerPackage=round2(pointRate);
+
+  await db.query("BEGIN");
+  try{
+    const ordersRes=await db.query(
+      `SELECT f.*
+         FROM freight_orders f
+        WHERE f.client_user_id=$1 AND f.id=ANY($2::uuid[])
+          AND f.payment_status='PAID'
+        FOR UPDATE`,
+      [userId,ids]
+    );
+    const orders=ordersRes.rows;
+    if(!orders.length) throw new Error("Nenhum envio elegível para coleta.");
+
+    const existingRes=await db.query(
+      `SELECT freight_order_id FROM collection_requests
+        WHERE client_user_id=$1 AND freight_order_id=ANY($2::uuid[])
+          AND status NOT IN ('CANCELED','DECLINED')`,
+      [userId,ids]
+    );
+    const existing=new Set(existingRes.rows.map(x=>String(x.freight_order_id)));
+    const eligible=orders.filter(o=>!existing.has(String(o.id)));
+    if(!eligible.length) throw new Error("Os envios selecionados já possuem coleta ou postagem vinculada.");
+
+    const totalPackages=eligible.reduce((sum,o)=>sum+Math.max(1,Number(o.package_count||1)),0);
+    const totalFee=round2(totalFeePerPackage*totalPackages);
+
+    const walletRes=await db.query(
+      `UPDATE customer_accounts
+          SET wallet_balance=wallet_balance-$2,updated_at=NOW()
+        WHERE user_id=$1 AND wallet_balance >= $2
+        RETURNING wallet_balance`,
+      [userId,totalFee]
+    );
+    if(!walletRes.rows[0]) throw new Error("Saldo insuficiente para solicitar as coletas.");
+
+    const created=[];
+    for(const order of eligible){
+      const count=Math.max(1,Number(order.package_count||1));
+      const orderFee=round2(totalFeePerPackage*count);
+      const pointComp=assignedStoreId?round2(pointPerPackage*count):0;
+      const postalComp=round2(orderFee-pointComp);
+      const collectionId=id();
+
+      const {rows}=await db.query(
+        `INSERT INTO collection_requests(
+          id,client_user_id,freight_order_id,service_type,status,package_count,
+          fee_per_package,total_fee,assigned_store_id,point_rate,point_compensation,postal_compensation,
+          address,latitude,longitude,scheduled_for,notes,assigned_at
+        ) VALUES(
+          $1,$2,$3,'PICKUP',$4,$5,$6,$7,$8,$9,$10,$11,
+          $12::jsonb,$13,$14,$15,$16,
+          CASE WHEN $8::uuid IS NULL THEN NULL ELSE NOW() END
+        ) RETURNING *`,
+        [
+          collectionId,userId,order.id,assignedStoreId?"ASSIGNED":"REQUESTED",count,
+          totalFeePerPackage,orderFee,assignedStoreId,assignedStoreId?pointPerPackage:0,
+          pointComp,postalComp,JSON.stringify(address||{}),latitude,longitude,
+          scheduledFor||null,notes||""
+        ]
+      );
+      created.push(rows[0]);
+
+      await db.query(
+        `UPDATE freight_orders SET
+           first_mile_type='PICKUP',
+           first_mile_fee=$2,
+           postal_revenue_total=postal_revenue_total+$3,
+           updated_at=NOW()
+         WHERE id=$1`,
+        [order.id,orderFee,postalComp]
+      );
+    }
+
+    await db.query(
+      `INSERT INTO wallet_transactions(
+        id,user_id,transaction_type,amount,status,description,idempotency_key,metadata
+      ) VALUES($1,$2,'COLLECTION_DEBIT',$3,'POSTED',$4,$5,$6::jsonb)`,
+      [
+        id(),userId,-totalFee,
+        "Solicitação de coleta em lote",
+        "bulk-collection:"+crypto.createHash("sha256").update(userId+"|"+eligible.map(x=>x.id).sort().join("|")+"|"+String(scheduledFor||"")).digest("hex").slice(0,32),
+        JSON.stringify({orderIds:eligible.map(x=>x.id),packages:totalPackages})
+      ]
+    );
+
+    await db.query("COMMIT");
+    return {
+      collections:created,
+      totalPackages,
+      totalFee,
+      balance:Number(walletRes.rows[0].wallet_balance)
+    };
+  }catch(error){
+    await db.query("ROLLBACK");
+    throw error;
+  }
+}
+
 module.exports={
   initClientDb,createCustomerAccount,getCustomerAccount,findStoreByReferralCode,
   listPublicStores,listPickupStores,updateStorePickupSettings,getWallet,listWalletTransactions,creditWallet,debitWallet,
@@ -765,5 +938,6 @@ module.exports={
   insertClientOrder,createClientOrderAndDebit,listClientOrders,getClientOrder,choosePickupStore,createCollectionRequest,
   listCollections,getCollection,updateCollection,createPointEarning,listPointEarnings,referralStats,
   createConnection,listConnections,getConnectionById,updateConnection,importEcommerceOrder,listEcommerceOrders,
+  getImportedOrder,linkImportedOrder,listClientOperations,createBulkCollectionsAndDebit,
   listClientsByStore
 };
