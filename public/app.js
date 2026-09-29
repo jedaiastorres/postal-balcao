@@ -1500,15 +1500,31 @@ $("#shipmentForm")?.addEventListener("submit", async event => {
     return;
   }
 
-  const paymentMethod = $("#paymentMethod").value;
   const declaration = contentData();
-
-  if (!paymentMethod) {
-    toast("Selecione a forma de pagamento.", "error");
-    return;
-  }
   if (!declaration.length || declaration.some(item => !item.description || item.quantity <= 0 || item.value < 0)) {
     toast("Revise a declaração de conteúdo.", "error");
+    return;
+  }
+
+  if (state.user?.role === "CLIENT") {
+    const btn = $("#createShipmentBtn");
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Gerando envio com saldo...";
+    try {
+      await window.PostalClient?.submitShipment?.();
+    } catch (err) {
+      toast(err.message, "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+    return;
+  }
+
+  const paymentMethod = $("#paymentMethod").value;
+  if (!paymentMethod) {
+    toast("Selecione a forma de pagamento.", "error");
     return;
   }
 
