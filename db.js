@@ -524,6 +524,37 @@ async function updateProviderPayment(id, {status, ref=null, error=null, incremen
   return rows[0] || null;
 }
 
+async function listProviderPaymentRetryCandidates(limit = 20) {
+  const db = requireDb();
+  const { rows } = await db.query(
+    `SELECT f.*
+       FROM freight_orders f
+      WHERE f.payment_status='PAID'
+        AND f.provider_payment_status='AWAITING_FUNDS'
+        AND f.conect_cart_id IS NULL
+        AND f.conect_package_id IS NULL
+        AND f.provider_payment_attempts < 20
+        AND COALESCE(f.provider_payment_updated_at,f.updated_at,f.created_at) < NOW() - INTERVAL '2 minutes'
+      ORDER BY COALESCE(f.provider_payment_updated_at,f.updated_at,f.created_at) ASC
+      LIMIT $1`,
+    [Math.max(1, Math.min(100, Number(limit) || 20))]
+  );
+  return rows;
+}
+
+async function providerPaymentSummary() {
+  const db = requireDb();
+  const { rows } = await db.query(
+    `SELECT
+       COUNT(*) FILTER (WHERE payment_status='PAID' AND provider_payment_status='AWAITING_FUNDS')::int AS awaiting_funds,
+       COUNT(*) FILTER (WHERE payment_status='PAID' AND provider_payment_status='AWAITING_PROVIDER_CONFIRMATION')::int AS awaiting_provider,
+       COUNT(*) FILTER (WHERE payment_status='PAID' AND provider_payment_status='ERROR')::int AS provider_errors,
+       COUNT(*) FILTER (WHERE provider_payment_status='PAID')::int AS provider_paid
+     FROM freight_orders`
+  );
+  return rows[0] || {};
+}
+
 async function saveProviderPendingShipment(id, shipment) {
   const db = requireDb();
   const { rows } = await db.query(
@@ -1295,6 +1326,8 @@ module.exports = {
   markPaid,
   updateStatus,
   updateProviderPayment,
+  listProviderPaymentRetryCandidates,
+  providerPaymentSummary,
   saveProviderPendingShipment,
   saveShipment,
   listCatalogItems,
