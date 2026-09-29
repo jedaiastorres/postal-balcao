@@ -28,6 +28,11 @@ const viewMap = {
   inventory: { el: "#inventoryView", title: "Produtos & Estoque" },
   credit: { el: "#creditView", title: "Crédito no Balcão" },
   master: { el: "#masterView", title: "Painel Master" },
+  clientHome: { el: "#clientHomeView", title: "Minha Postal" },
+  wallet: { el: "#walletView", title: "Saldo" },
+  connections: { el: "#connectionsView", title: "Integrações" },
+  collections: { el: "#collectionsView", title: "Coletas" },
+  referrals: { el: "#referralsView", title: "Indique & Ganhe" },
   receive: { placeholder: ["Receber Pacote", "Aqui o atendente fará a leitura do código e confirmará que a encomenda entrou fisicamente no ponto Postal."] },
   returns: { placeholder: ["Devolução", "Fluxo de logística reversa e devoluções ficará centralizado nesta área."] },
   cash: { placeholder: ["Meu Caixa", "Extrato de comissões, saldo, fechamento diário e solicitação de saque serão exibidos aqui."] },
@@ -85,7 +90,7 @@ function showApp(user) {
   $("#partnerEmail").textContent = user?.storeName || user?.name || user?.email || "parceiro";
   $("#adminNavSection")?.classList.toggle("hidden", user?.role !== "ADMIN");
 
-  const canSell = ["ADMIN","STORE_OWNER","STORE_CLERK"].includes(user?.role);
+  const canSell = ["ADMIN","STORE_OWNER","STORE_CLERK","CLIENT"].includes(user?.role);
   const canManageStock = ["ADMIN","STORE_OWNER","OPS"].includes(user?.role);
   const canUseCredit = ["ADMIN","STORE_OWNER","STORE_CLERK"].includes(user?.role);
   const ownerFinance = ["ADMIN","STORE_OWNER"].includes(user?.role);
@@ -94,6 +99,7 @@ function showApp(user) {
   document.querySelector('[data-view="credit"]')?.classList.toggle("hidden", !canUseCredit);
   document.querySelector('[data-view="inventory"]')?.classList.toggle("hidden", !canManageStock);
   document.querySelector('[data-view="cash"]')?.classList.toggle("hidden", !ownerFinance);
+  window.PostalClient?.onShowApp?.(user);
 
   if (user?.storeCommissionPercent != null) {
     const pct = Number(user.storeCommissionPercent).toFixed(1).replace(".0","");
@@ -168,7 +174,7 @@ function navigate(name) {
     toast("Este perfil não possui acesso ao crédito no balcão.", "error");
     return;
   }
-  if (["quote","shipment"].includes(name) && !["ADMIN","STORE_OWNER","STORE_CLERK"].includes(state.user?.role)) {
+  if (["quote","shipment"].includes(name) && !["ADMIN","STORE_OWNER","STORE_CLERK","CLIENT"].includes(state.user?.role)) {
     toast("Este perfil não possui permissão para vender fretes.", "error");
     return;
   }
@@ -195,6 +201,11 @@ function navigate(name) {
   if (name === "inventory") loadInventory();
   if (name === "credit") loadCredit();
   if (name === "master" && state.user?.role === "ADMIN") loadMaster();
+  if (name === "clientHome") window.PostalClient?.loadClientHome?.();
+  if (name === "wallet") window.PostalClient?.loadWallet?.();
+  if (name === "connections") window.PostalClient?.loadConnections?.();
+  if (name === "collections") window.PostalClient?.loadCollections?.();
+  if (name === "referrals") window.PostalClient?.loadReferrals?.();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
