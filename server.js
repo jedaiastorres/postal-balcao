@@ -746,6 +746,70 @@ app.get("/api/session", requireAuth, (req, res) => {
   });
 });
 
+app.post("/api/client/register", async (req, res) => {
+  try {
+    const body = req.body || {};
+    const email = String(body.email || "").trim().toLowerCase();
+    const name = String(body.name || "").trim();
+    const password = String(body.password || "");
+    const document = cleanDigits(body.document || "");
+    const phone = String(body.phone || "").trim();
+    const companyName = String(body.companyName || "").trim();
+    const referralCode = String(body.referralCode || "").trim();
+
+    if (!email || !/^\S+@\S+\.\S+$/.test(email) || !name || password.length < 6) {
+      return res.status(400).json({ error: "Informe nome, e-mail válido e senha com pelo menos 6 caracteres." });
+    }
+
+    const existing = await db.findUserByEmail(email);
+    if (existing) return res.status(409).json({ error: "Já existe uma conta com este e-mail." });
+
+    let referralStore = null;
+    if (referralCode) {
+      referralStore = await clientDb.findStoreByReferralCode(referralCode);
+      if (!referralStore) return res.status(400).json({ error: "Link de indicação inválido ou ponto inativo." });
+    }
+
+    const user = await db.createUser({
+      storeId: null,
+      email,
+      name,
+      passwordHash: hashPassword(password),
+      role: "CLIENT",
+      active: true
+    });
+
+    await clientDb.createCustomerAccount({
+      userId: user.id,
+      document,
+      phone,
+      companyName,
+      referralStoreId: referralStore?.id || null,
+      defaultSender: body.defaultSender || {}
+    });
+
+    await db.insertAudit({
+      userId: user.id,
+      storeId: referralStore?.id || null,
+      userEmail: email,
+      action: "CLIENT_REGISTER",
+      entityType: "CLIENT",
+      entityId: user.id,
+      metadata: { referred: Boolean(referralStore), referralStoreCode: referralStore?.code || null }
+    });
+
+    res.status(201).json({
+      ok: true,
+      message: referralStore
+        ? "Conta criada e vinculada ao ponto indicador."
+        : "Conta cliente criada com sucesso."
+    });
+  } catch (error) {
+    console.error("client register error:", error.message);
+    res.status(500).json({ error: "Não foi possível criar a conta cliente." });
+  }
+});
+
 // CSRF para mutações autenticadas do painel. Webhooks e API externa usam autenticação própria.
 app.use("/api", (req, res, next) => {
   if (!["POST","PUT","PATCH","DELETE"].includes(req.method)) return next();
