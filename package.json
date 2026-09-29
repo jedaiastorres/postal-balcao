@@ -1,8 +1,8 @@
 {
   "name": "postal-balcao-v1",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "private": true,
-  "description": "Postal Balcao V1.5: multi-ponto, painel master, homologacao de pagamentos, estoque profissional, credito e APIs.",
+  "description": "Postal Balcao V1.6: portal cliente, saldo, ecommerce, coletas, pontos e indicacoes.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
