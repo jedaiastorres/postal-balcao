@@ -68,20 +68,29 @@ async function api(url, options = {}) {
 }
 
 async function loadConfig() {
-  state.config = await api("/api/public-config");
   const badge = $("#apiBadge");
-  if (state.config.providerConfigured) {
-    badge.className = "status-badge connected";
-    badge.innerHTML = '<span class="dot"></span> API ConectEnvios conectada';
-    $("#quoteModeLabel").textContent = "Cotação real pela ConectEnvios";
-  } else {
-    badge.className = "status-badge demo";
-    badge.innerHTML = '<span class="dot"></span> Modo demonstração';
-    $("#quoteModeLabel").textContent = "Dados demonstrativos";
+  badge.className = "status-badge";
+  badge.innerHTML = '<span class="dot"></span> Conectando...';
+  try {
+    state.config = await api("/api/public-config");
+    if (state.config.providerConfigured) {
+      badge.className = "status-badge connected";
+      badge.innerHTML = '<span class="dot"></span> ConectEnvios conectada';
+      $("#quoteModeLabel").textContent = "Cotação real pela ConectEnvios";
+    } else {
+      badge.className = "status-badge demo";
+      badge.innerHTML = '<span class="dot"></span> Modo demonstração';
+      $("#quoteModeLabel").textContent = "Dados demonstrativos";
+    }
+    $("#demoLoginHint").style.display = state.config.demoAuth ? "block" : "none";
+    $("#commissionCaption").textContent = `${state.config.commissionPercent}% sobre o preço final`;
+    $("#commissionBig").textContent = `${state.config.commissionPercent}%`;
+    return state.config;
+  } catch (error) {
+    badge.className = "status-badge error";
+    badge.innerHTML = '<span class="dot"></span> Falha de conexão';
+    throw error;
   }
-  $("#demoLoginHint").style.display = state.config.demoAuth ? "block" : "none";
-  $("#commissionCaption").textContent = `${state.config.commissionPercent}% sobre o preço final`;
-  $("#commissionBig").textContent = `${state.config.commissionPercent}%`;
 }
 
 function showApp(user) {
@@ -127,7 +136,14 @@ function showLogin() {
 }
 
 async function checkSession() {
-  await loadConfig();
+  try {
+    await loadConfig();
+  } catch (error) {
+    console.error("Falha ao carregar configuração:", error);
+    showLogin();
+    toast("Não foi possível conectar ao servidor. Atualize a página.", "error");
+    return;
+  }
   try {
     const session = await api("/api/session");
     state.csrfToken = session.csrfToken || "";
@@ -1621,5 +1637,18 @@ $("#printReceiptBtn")?.addEventListener("click", () => {
   openReceipt(receiptPayload(false), true);
 });
 $("#printLabelBtn")?.addEventListener("click", () => openProviderDocument(state.shipmentResult?.labelA6Url || state.shipmentResult?.labelA4Url));
+
+window.addEventListener("error", event => {
+  console.error("Erro de interface:", event.error || event.message);
+  const badge = $("#apiBadge");
+  if (badge && badge.textContent.includes("Verificando")) {
+    badge.className = "status-badge error";
+    badge.innerHTML = '<span class="dot"></span> Erro na interface';
+  }
+});
+
+window.addEventListener("unhandledrejection", event => {
+  console.error("Falha assíncrona:", event.reason);
+});
 
 checkSession();
