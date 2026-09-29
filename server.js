@@ -665,14 +665,14 @@ async function processPendingAsaasEvents() {
 app.get("/health", (_req, res) => {
   res.json({
     ok: true,
-    provider: "ConectEnvios API V1",
+    provider: "Postal Shipping Gateway",
     providerConfigured: Boolean(TOKEN)
   });
 });
 
 app.get("/api/public-config", (_req, res) => {
   res.json({
-    provider: "ConectEnvios",
+    provider: "Postal Serviços",
     providerConfigured: Boolean(TOKEN),
     demoAuth: DEMO_AUTH,
     commissionPercent: round2(PARTNER_COMMISSION * 100),
@@ -977,7 +977,7 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
     if(!["PICKUP","DROPOFF"].includes(firstMileType)){
       return res.status(400).json({error:"Escolha coleta no endereço ou postagem em um ponto Postal."});
     }
-    const packageCount=Math.max(1,Math.min(100,Math.round(Number(body.packageCount||1))));
+    const packageCount=1; // uma cotação/etiqueta representa um pacote; a taxa de primeira milha é por etiqueta/pacote.
     const firstMileFee=round2(CLIENT_PICKUP_FEE_PER_PACKAGE*packageCount);
     const account=await clientDb.getCustomerAccount(req.user.userId);
     if(!account) return res.status(400).json({error:"Conta cliente não encontrada."});
@@ -1095,7 +1095,8 @@ app.get("/api/client/connections", requireAuth, requireRole("CLIENT"), async (re
         {code:"NUVEMSHOP",name:"Nuvemshop"},
         {code:"WOOCOMMERCE",name:"WooCommerce"},
         {code:"LOJA_INTEGRADA",name:"Loja Integrada"},
-        {code:"SHOPIFY",name:"Shopify"}
+        {code:"SHOPIFY",name:"Shopify"},
+        {code:"TRAY",name:"Tray"}
       ],
       connections:connections.map(x=>({
         id:x.id,platform:x.platform,displayName:x.display_name||"",status:x.status,
@@ -1109,7 +1110,7 @@ app.get("/api/client/connections", requireAuth, requireRole("CLIENT"), async (re
 app.post("/api/client/connections", requireAuth, requireRole("CLIENT"), async (req,res)=>{
   try{
     const platform=String(req.body.platform||"").toUpperCase();
-    const allowed=new Set(["NUVEMSHOP","WOOCOMMERCE","LOJA_INTEGRADA","SHOPIFY"]);
+    const allowed=new Set(["NUVEMSHOP","WOOCOMMERCE","LOJA_INTEGRADA","SHOPIFY","TRAY"]);
     if(!allowed.has(platform)) return res.status(400).json({error:"Plataforma ainda não suportada."});
     const connection=await clientDb.createConnection({
       userId:req.user.userId,platform,displayName:String(req.body.displayName||"").trim()
@@ -1615,7 +1616,7 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
 
     res.json({
       demo,
-      provider: "ConectEnvios",
+      provider: req.user.role === "CLIENT" ? "Postal Serviços" : "ConectEnvios",
       commissionPercent: round2(partnerCommissionRate * 100),
       options
     });
