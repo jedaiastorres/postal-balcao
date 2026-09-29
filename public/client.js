@@ -97,6 +97,7 @@
     const d=await api("/api/client/wallet");
     client.walletBalance=Number(d.balance||0);
     $("#walletBalanceHero").textContent=money(d.balance);
+    await previewTopup();
     $("#walletModeNote").textContent=state.config?.paymentsConfigured
       ?"Recargas são confirmadas automaticamente pelo gateway de pagamento."
       :"Homologação ativa: a recarga adiciona saldo de teste, sem dinheiro real.";
@@ -107,6 +108,26 @@
         <div><span>Valor</span><strong class="${Number(t.amount)>=0?"positive-money":"negative-money"}">${money(t.amount)}</strong></div>
         <div><span>Status</span><strong>${escapeHtml(t.status)}</strong></div>
       </div>`).join(""):'<div class="empty-state">Nenhuma movimentação ainda.</div>';
+  }
+
+  async function previewTopup(){
+    if(!isClient())return;
+    const amount=Number($("#walletTopupAmount")?.value||0);
+    const method=$("#walletTopupMethod")?.value||"PIX";
+    if(!(amount>=10)){
+      $("#walletPreviewCredit").textContent=money(amount||0);
+      $("#walletPreviewFee").textContent="—";
+      $("#walletPreviewTotal").textContent="—";
+      return;
+    }
+    try{
+      const p=await api("/api/client/wallet/topup-preview",{method:"POST",body:JSON.stringify({amount,paymentMethod:method})});
+      $("#walletPreviewCredit").textContent=money(p.credit);
+      $("#walletPreviewFee").textContent=money(p.fee);
+      $("#walletPreviewTotal").textContent=money(p.total);
+    }catch{
+      $("#walletPreviewFee").textContent="—";$("#walletPreviewTotal").textContent="—";
+    }
   }
 
   async function topup(e){
@@ -269,6 +290,8 @@
   function bind(){
     initRegistration();
     $("#walletTopupForm")?.addEventListener("submit",topup);
+    $("#walletTopupAmount")?.addEventListener("input",previewTopup);
+    $("#walletTopupMethod")?.addEventListener("change",previewTopup);
     $("#refreshCollectionsBtn")?.addEventListener("click",loadCollections);
     $("#pickupSettingsForm")?.addEventListener("submit",async e=>{
       e.preventDefault();
