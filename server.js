@@ -1181,6 +1181,180 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
   }
 });
 
+app.get("/api/client/operations", requireAuth, requireRole("CLIENT"), async (req,res)=>{
+  try{
+    const [wallet,data]=await Promise.all([
+      clientDb.getWallet(req.user.userId),
+      clientDb.listClientOperations(req.user.userId,Number(req.query.limit||250))
+    ]);
+
+    const imported=(data.imports||[]).map(row=>({
+      kind:"IMPORTED",
+      id:row.id,
+      externalOrderId:row.external_order_id,
+      sourcePlatform:row.platform,
+      sourceConnection:row.connection_name||"",
+      customerName:row.customer_name||"",
+      sourceStatus:row.external_status||row.import_status||"IMPORTED",
+      status:"IMPORTED",
+      payload:row.payload||{},
+      createdAt:row.created_at
+    }));
+
+    const shipments=(data.shipments||[]).map(row=>({
+      kind:"SHIPMENT",
+      id:row.id,
+      sourceOrderId:row.source_order_id||"",
+      sourcePlatform:row.source_platform||"POSTAL",
+      sourceConnection:row.source_connection_name||"",
+      customerName:row.recipient?.name||"",
+      destination:row.recipient?.city||row.recipient?.cep||"",
+      status:clientOpsStatus(row),
+      internalStatus:row.status,
+      paymentStatus:row.payment_status,
+      carrier:row.carrier||"",
+      serviceName:row.service_name||"",
+      total:Number(row.payment_amount||row.customer_subtotal||row.sale_price||0),
+      trackingCode:row.tracking_code||"",
+      labelReady:Boolean(row.tracking_code)&&["LABEL_AVAILABLE","LABEL_AVAILABLE_SIMULATED"].includes(row.status),
+      isSimulation:Boolean(row.is_simulation),
+      collectionId:row.collection_id||null,
+      collectionStatus:row.collection_status||"",
+      collectionServiceType:row.collection_service_type||"",
+      collectionStoreName:row.collection_store_name||"",
+      sender:row.sender||{},
+      recipient:row.recipient||{},
+      createdAt:row.created_at
+    }));
+
+    const all=[...imported,...shipments].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+    const counts={
+      imported:all.filter(x=>x.status==="IMPORTED").length,
+      awaitingPayment:all.filter(x=>x.status==="AWAITING_PAYMENT").length,
+      readyToShip:all.filter(x=>x.status==="READY_TO_SHIP").length,
+      sent:all.filter(x=>x.status==="SENT").length
+    };
+
+    res.json({balance:Number(wallet?.balance||0),counts,items:all});
+  }catch(error){
+    console.error("client operations error:",error.message);
+    res.status(500).json({error:"Não foi possível carregar o painel de pedidos."});
+  }
+});
+
+app.get("/api/client/imported-orders/:id", requireAuth, requireRole("CLIENT"), async (req,res)=>{
+  try{
+    const order=await clientDb.getImportedOrder(req.params.id,req.user.userId);
+    if(!order) return res.status(404).json({error:"Pedido importado não encontrado."});
+    res.json({order:{
+      id:order.id,externalOrderId:order.external_order_id,platform:order.platform,
+      connectionName:order.connection_name||"",customerName:order.customer_name||"",
+      status:order.external_status||order.import_status,payload:order.payload||{}
+    }});
+  }catch(error){res.status(500).json({error:"Não foi possível carregar o pedido importado."});}
+});
+
+app.post("/api/client/orders/bulk-issue", requireAuth, requireRole("CLIENT"), async (req,res)=>{
+  try{
+    const ids=[...new Set((req.body.orderIds||[]).map(String).filter(Boolean))].slice(0,100);
+    if(!ids.length) return res.status(400).json({error:"Selecione ao menos um envio."});
+    const results=[];
+    for(const orderId of ids){
+      const order=await clientDb.getClientOrder(orderId,req.user.userId);
+      if(!order){results.push({id:orderId,ok:false,error:"Envio não encontrado."});continue;}
+      if(String(order.payment_status)!=="PAID"){results.push({id:orderId,ok:false,error:"Pagamento pendente."});continue;}
+      if(["LABEL_AVAILABLE","LABEL_AVAILABLE_SIMULATED"].includes(order.status)){
+        results.push({id:orderId,ok:true,alreadyReady:true});continue;
+      }
+      try{
+        if(ENABLE_SHIPMENT_CREATION){
+          await createShipmentFromOrder(order);
+          await db.addOrderEvent(order.id,"SHIPMENT_CREATED","Etiqueta gerada em lote","Postagem criada pela emissão em massa.");
+        }else if(asaas.isSandbox()){
+          const tracking="CLI"+order.id.replace(/-/g,"").slice(0,10).toUpperCase();
+          await db.saveSimulatedShipment(order.id,tracking);
+          await db.addOrderEvent(order.id,"LABEL_AVAILABLE_SIMULATED","Etiqueta de homologação em lote","Documento sem validade logística.");
+        }else{
+          results.push({id:orderId,ok:false,error:"Emissão real ainda não liberada."});continue;
+        }
+        results.push({id:orderId,ok:true});
+      }catch(error){
+        results.push({id:orderId,ok:false,error:error.message||"Falha na emissão."});
+      }
+    }
+    await audit(req,"BULK_ISSUE_LABELS","FREIGHT_ORDER","batch",{count:ids.length});
+    res.json({results,issued:results.filter(x=>x.ok).length,failed:results.filter(x=>!x.ok).length});
+  }catch(error){res.status(500).json({error:error.message||"Não foi possível emitir as etiquetas."});}
+});
+
+app.post("/api/client/orders/bulk-labels", requireAuth, requireRole("CLIENT"), async (req,res)=>{
+  try{
+    const ids=[...new Set((req.body.orderIds||[]).map(String).filter(Boolean))].slice(0,100);
+    if(!ids.length) return res.status(400).json({error:"Selecione etiquetas para imprimir."});
+    const orders=[];
+    for(const orderId of ids){
+      const order=await clientDb.getClientOrder(orderId,req.user.userId);
+      if(!order) continue;
+      if(!["LABEL_AVAILABLE","LABEL_AVAILABLE_SIMULATED"].includes(order.status)) continue;
+      orders.push(order);
+    }
+    if(!orders.length) return res.status(400).json({error:"Nenhuma etiqueta disponível entre os pedidos selecionados."});
+    const pdf=await mergedLabelPdf(orders);
+    await audit(req,"BULK_PRINT_LABELS","FREIGHT_ORDER","batch",{count:orders.length});
+    res.setHeader("Content-Type","application/pdf");
+    res.setHeader("Content-Disposition",'inline; filename="etiquetas-postal.pdf"');
+    res.send(pdf);
+  }catch(error){
+    console.error("bulk labels error:",error.message);
+    res.status(500).json({error:"Não foi possível montar o arquivo de etiquetas."});
+  }
+});
+
+app.post("/api/client/collections/bulk", requireAuth, requireRole("CLIENT"), async (req,res)=>{
+  try{
+    const ids=[...new Set((req.body.orderIds||[]).map(String).filter(Boolean))].slice(0,100);
+    if(!ids.length) return res.status(400).json({error:"Selecione ao menos um envio pronto."});
+
+    const first=await clientDb.getClientOrder(ids[0],req.user.userId);
+    if(!first) return res.status(404).json({error:"Envio não encontrado."});
+    const address=req.body.address&&Object.keys(req.body.address).length?req.body.address:(first.sender||{});
+    const latitude=req.body.latitude==null?null:Number(req.body.latitude);
+    const longitude=req.body.longitude==null?null:Number(req.body.longitude);
+    const choice=await clientDb.choosePickupStore({address,latitude,longitude});
+    const assignedStore=choice?.store||null;
+
+    const result=await clientDb.createBulkCollectionsAndDebit({
+      userId:req.user.userId,orderIds:ids,address,latitude,longitude,
+      scheduledFor:req.body.scheduledFor||null,notes:String(req.body.notes||""),
+      feePerPackage:CLIENT_PICKUP_FEE_PER_PACKAGE,
+      pointRate:POINT_PICKUP_EARNING_PER_PACKAGE,
+      assignedStoreId:assignedStore?.id||null
+    });
+
+    for(const collection of result.collections){
+      if(collection.freight_order_id){
+        await db.addOrderEvent(
+          collection.freight_order_id,
+          "FIRST_MILE_REQUESTED",
+          "Coleta solicitada em lote",
+          assignedStore?("Direcionada para "+assignedStore.name):"Aguardando direcionamento pela Postal."
+        );
+      }
+    }
+    await audit(req,"BULK_REQUEST_COLLECTION","COLLECTION","batch",{
+      orders:ids.length,packages:result.totalPackages,totalFee:result.totalFee,assignedStoreId:assignedStore?.id||null
+    });
+    res.status(201).json({
+      collections:result.collections,balance:result.balance,
+      totalPackages:result.totalPackages,totalFee:result.totalFee,
+      assignedStore:assignedStore?{id:assignedStore.id,name:assignedStore.name}:null
+    });
+  }catch(error){
+    const status=error.message?.includes("Saldo insuficiente")?402:400;
+    res.status(status).json({error:error.message||"Não foi possível solicitar as coletas."});
+  }
+});
+
 app.get("/api/client/collections", requireAuth, requireRole("CLIENT"), async (req,res)=>{
   try{
     const rows=await clientDb.listCollections({clientUserId:req.user.userId},100);
