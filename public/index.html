@@ -353,6 +353,11 @@
             <form id="walletTopupForm" class="inventory-form">
               <label>Valor que deseja creditar<div class="money-field"><span>R$</span><input id="walletTopupAmount" type="number" min="10" step="0.01" value="100" required /></div></label>
               <label>Pagamento<select id="walletTopupMethod"><option value="PIX">PIX</option><option value="CARTAO">Cartão</option></select></label>
+              <div class="payment-breakdown">
+                <div><span>Crédito na conta</span><strong id="walletPreviewCredit">R$ 100,00</strong></div>
+                <div><span>Taxa de pagamento</span><strong id="walletPreviewFee">—</strong></div>
+                <div class="payment-total"><span>Total a pagar</span><strong id="walletPreviewTotal">—</strong></div>
+              </div>
               <button class="primary" type="submit">Adicionar saldo</button>
               <small id="walletModeNote"></small>
             </form>
