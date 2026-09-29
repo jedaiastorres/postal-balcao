@@ -958,6 +958,9 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
   let createdOrderId=null;
   try{
     const body=req.body||{};
+    if (asaas.configured() && !ENABLE_SHIPMENT_CREATION) {
+      return res.status(503).json({error:"A emissão real ainda está em homologação. Seu saldo não será debitado até a geração real de etiquetas ser liberada."});
+    }
     const selection=verifySelectionToken(body.selectionToken);
     if(!selection||!Number.isFinite(Number(selection.providerCost))){
       return res.status(400).json({error:"A cotação expirou. Calcule novamente."});
@@ -1036,24 +1039,28 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
       assignedStore?("Ponto: "+assignedStore.name):"Aguardando direcionamento pela Postal.");
 
     const simulation=PAYMENT_SIMULATOR_ENABLED&&!asaas.configured()&&!ENABLE_SHIPMENT_CREATION;
-    if(account.referral_store_id){
-      await clientDb.createPointEarning({
-        storeId:account.referral_store_id,clientUserId:req.user.userId,earningType:"REFERRAL",
-        amount:referralCommission,referenceType:"FREIGHT_ORDER",referenceId:orderId,
-        status:simulation?"SIMULATED":"EARNED",metadata:{clientEmail:req.user.email}
-      });
-    }
+    let shipmentIssued=false;
 
     if(ENABLE_SHIPMENT_CREATION){
       const orderForProvider=await db.getOrder(orderId);
       await createShipmentFromOrder(orderForProvider);
       await db.addOrderEvent(orderId,"SHIPMENT_CREATED","Etiqueta gerada","Postagem criada na malha logística.");
+      shipmentIssued=true;
     }else if(simulation){
       const tracking="CLI"+orderId.replace(/-/g,"").slice(0,10).toUpperCase();
       await db.saveSimulatedShipment(orderId,tracking);
       await db.addOrderEvent(orderId,"LABEL_AVAILABLE_SIMULATED","Etiqueta de homologação liberada","Documento sem validade logística.");
+      shipmentIssued=true;
     }else{
       await db.updateStatus(orderId,"PAID_WAITING_SHIPMENT","PAID");
+    }
+
+    if(shipmentIssued&&account.referral_store_id){
+      await clientDb.createPointEarning({
+        storeId:account.referral_store_id,clientUserId:req.user.userId,earningType:"REFERRAL",
+        amount:referralCommission,referenceType:"FREIGHT_ORDER",referenceId:orderId,
+        status:simulation?"SIMULATED":"EARNED",metadata:{clientEmail:req.user.email}
+      });
     }
 
     await audit(req,"CREATE_CLIENT_SHIPMENT","FREIGHT_ORDER",orderId,{
