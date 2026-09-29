@@ -461,3 +461,23 @@ nav{display:grid;gap:5px;margin-bottom:18px}
   .admin-row,.admin-user-row,.movement-row{grid-template-columns:1fr}
   .admin-row>div:first-child,.movement-row>div:first-child{grid-column:auto}
 }
+
+.client-register-box{margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.client-hero{background:linear-gradient(135deg,#fff,#f8f8fa)}
+.wallet-hero-value{font-size:32px;letter-spacing:-1px;color:var(--postal)}
+.platform-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:20px}
+.platform-card{display:grid;grid-template-columns:52px 1fr auto;gap:14px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:18px;padding:18px}
+.platform-logo{width:48px;height:48px;border-radius:14px;background:#f3f3f5;display:grid;place-items:center;font-weight:900;color:var(--postal)}
+.platform-card p{margin:4px 0 0;color:var(--muted);font-size:11px;line-height:1.45}
+.referral-link-row{display:flex;gap:10px}
+.referral-link-row input{flex:1;height:44px;border:1px solid var(--line);border-radius:12px;padding:0 12px;background:#fafafb}
+.client-firstmile-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+.choice-card{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:15px;padding:14px;background:#fbfbfc;cursor:pointer}
+.choice-card input{margin-top:3px}
+.choice-card span{display:grid;gap:4px}
+.choice-card strong{font-size:13px}.choice-card small{font-size:10px;color:var(--muted);line-height:1.4}
+.compact-select{height:38px;border:1px solid var(--line);border-radius:10px;padding:0 8px;background:#fff}
+.positive-money{color:#148653}.negative-money{color:#b50d38}
+.checkline{display:flex!important;grid-template-columns:auto 1fr!important;align-items:center!important}
+#pickupSettingsCard{margin-bottom:18px}
+@media(max-width:800px){.platform-grid,.client-firstmile-grid{grid-template-columns:1fr}.platform-card{grid-template-columns:48px 1fr}.platform-card button{grid-column:1/-1}.referral-link-row{display:grid}}
