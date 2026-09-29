@@ -58,6 +58,7 @@
   async function onShowApp(user){
     const clientMode=user?.role==="CLIENT";
     $("#clientNavSection")?.classList.toggle("hidden",!clientMode);
+    $("#clientTopBalance")?.classList.toggle("hidden",!clientMode);
     document.querySelector('[data-view="inventory"]')?.classList.toggle("hidden",clientMode||!["ADMIN","STORE_OWNER","OPS"].includes(user?.role));
     document.querySelector('[data-view="orders"]')?.classList.toggle("hidden",clientMode);
     document.querySelector('[data-view="credit"]')?.classList.toggle("hidden",clientMode||!["ADMIN","STORE_OWNER","STORE_CLERK"].includes(user?.role));
