@@ -524,6 +524,35 @@ async function updateProviderPayment(id, {status, ref=null, error=null, incremen
   return rows[0] || null;
 }
 
+async function saveProviderPendingShipment(id, shipment) {
+  const db = requireDb();
+  const { rows } = await db.query(
+    `UPDATE freight_orders SET
+       status='PROVIDER_PAYMENT_PENDING',
+       conect_cart_id=COALESCE($2,conect_cart_id),
+       conect_package_id=COALESCE($3,conect_package_id),
+       tracking_code=COALESCE(NULLIF($4,''),tracking_code),
+       label_a4_url=COALESCE(NULLIF($5,''),label_a4_url),
+       label_a6_url=COALESCE(NULLIF($6,''),label_a6_url),
+       declaration_url=COALESCE(NULLIF($7,''),declaration_url),
+       public_tracking_url=COALESCE(NULLIF($8,''),public_tracking_url),
+       updated_at=NOW()
+     WHERE id=$1
+     RETURNING *`,
+    [
+      id,
+      shipment.cartId || null,
+      shipment.packageId || null,
+      shipment.trackingCode || "",
+      shipment.labelA4Url || "",
+      shipment.labelA6Url || "",
+      shipment.declarationUrl || "",
+      shipment.publicTrackingUrl || ""
+    ]
+  );
+  return rows[0] || null;
+}
+
 async function saveShipment(id, shipment) {
   const db = requireDb();
   const { rows } = await db.query(
@@ -1266,6 +1295,7 @@ module.exports = {
   markPaid,
   updateStatus,
   updateProviderPayment,
+  saveProviderPendingShipment,
   saveShipment,
   listCatalogItems,
   getCatalogItemByCode,
