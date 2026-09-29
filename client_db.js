@@ -631,7 +631,7 @@ async function getCollection(collectionId){
 
 async function updateCollection(collectionId,patch){
   const db=database(); const current=await getCollection(collectionId); if(!current)return null;
-  const nextPostal=Number(patch.postalCompensation??current.postal_compensation||0);
+  const nextPostal=Number((patch.postalCompensation ?? current.postal_compensation) || 0);
   const previousPostal=Number(current.postal_compensation||0);
   const {rows}=await db.query(
     `UPDATE collection_requests SET
