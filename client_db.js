@@ -577,10 +577,12 @@ async function choosePickupStore({address={},latitude=null,longitude=null}){
     if(dist!=null) score=dist;
     else if(cep&&storeCep&&cep.slice(0,5)===storeCep.slice(0,5)) score=1;
     else if(city&&storeCity&&city===storeCity&&(!state||!storeState||state===storeState)) score=10;
-    else if(state&&storeState&&state===storeState) score=100;
     return {store,score,dist};
   }).sort((a,b)=>a.score-b.score);
-  return scored[0]||null;
+  const best=scored[0]||null;
+  if(!best||best.score>=100000) return null;
+  if(best.dist!=null&&best.dist>Number(best.store.pickup_radius_km||10)) return null;
+  return best;
 }
 
 async function createCollectionRequest(request){
