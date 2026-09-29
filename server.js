@@ -1048,7 +1048,7 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
     }
 
     await audit(req,"CREATE_CLIENT_SHIPMENT","FREIGHT_ORDER",orderId,{
-      firstMileType,packageCount,collectionId:collection.id,referral:.Boolean(account.referral_store_id)
+      firstMileType,packageCount,collectionId:collection.id,referral:Boolean(account.referral_store_id)
     });
     const complete=await clientDb.getClientOrder(orderId,req.user.userId);
     res.status(201).json({order:publicOrder(complete),collection,balance:created.balance});
