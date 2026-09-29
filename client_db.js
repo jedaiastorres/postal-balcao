@@ -408,6 +408,15 @@ async function markTopupPaid(topupId){
   }catch(error){await db.query("ROLLBACK");throw error;}
 }
 
+async function updateTopupStatus(topupId,status){
+  const db=database();
+  const {rows}=await db.query(
+    "UPDATE wallet_topups SET status=$2 WHERE id=$1 RETURNING *",
+    [topupId,status]
+  );
+  return rows[0]||null;
+}
+
 async function insertClientOrder(order){
   const db=database();
   const {rows}=await db.query(
@@ -662,7 +671,7 @@ async function listClientsByStore(storeId,limit=100){
 module.exports={
   initClientDb,createCustomerAccount,getCustomerAccount,findStoreByReferralCode,
   listPublicStores,listPickupStores,getWallet,listWalletTransactions,creditWallet,debitWallet,
-  createTopup,setTopupCheckout,getTopupByCheckoutId,getTopup,listTopups,markTopupPaid,
+  createTopup,setTopupCheckout,getTopupByCheckoutId,getTopup,listTopups,markTopupPaid,updateTopupStatus,
   insertClientOrder,listClientOrders,getClientOrder,choosePickupStore,createCollectionRequest,
   listCollections,getCollection,updateCollection,createPointEarning,listPointEarnings,referralStats,
   createConnection,listConnections,updateConnection,importEcommerceOrder,listEcommerceOrders,
