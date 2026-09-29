@@ -1,5 +1,11 @@
-const ASAAS_API_URL = (process.env.ASAAS_API_URL || "https://api-sandbox.asaas.com/v3").replace(/\/$/, "");
 const ASAAS_API_KEY = String(process.env.ASAAS_API_KEY || "").trim();
+const CONFIGURED_API_URL = String(process.env.ASAAS_API_URL || "").trim().replace(/\/$/, "");
+function resolveApiUrl() {
+  if (/^\$aact_hmlg_/i.test(ASAAS_API_KEY)) return "https://api-sandbox.asaas.com/v3";
+  if (/^\$aact_prod_/i.test(ASAAS_API_KEY)) return "https://api.asaas.com/v3";
+  return CONFIGURED_API_URL || "https://api-sandbox.asaas.com/v3";
+}
+const ASAAS_API_URL = resolveApiUrl();
 const ASAAS_WEBHOOK_TOKEN = String(process.env.ASAAS_WEBHOOK_TOKEN || "").trim();
 const APP_PUBLIC_URL = String(
   process.env.APP_PUBLIC_URL ||
@@ -28,6 +34,33 @@ function isSandbox() {
 
 function webhookConfigured() {
   return Boolean(ASAAS_WEBHOOK_TOKEN);
+}
+
+function environmentInfo() {
+  const keyEnvironment = /^\$aact_prod_/i.test(ASAAS_API_KEY)
+    ? "production"
+    : (/^\$aact_hmlg_/i.test(ASAAS_API_KEY) ? "sandbox" : "unknown");
+  const urlEnvironment = /api-sandbox/i.test(ASAAS_API_URL) ? "sandbox" : "production";
+  return {
+    keyEnvironment,
+    urlEnvironment,
+    baseUrl: ASAAS_API_URL,
+    corrected: Boolean(CONFIGURED_API_URL && CONFIGURED_API_URL !== ASAAS_API_URL)
+  };
+}
+
+function providerErrorMessage(body, fallback = "O Asaas não conseguiu concluir a operação.") {
+  if (body && Array.isArray(body.errors) && body.errors.length) {
+    const descriptions = body.errors
+      .map(item => String(item?.description || item?.message || item?.code || "").trim())
+      .filter(Boolean);
+    if (descriptions.length) return descriptions.join(" | ");
+  }
+  if (body && typeof body === "object") {
+    const msg = body.message || body.error_description || body.description || body.error;
+    if (msg) return String(msg);
+  }
+  return fallback;
 }
 
 function grossUp(baseAmount, method) {
@@ -91,7 +124,7 @@ async function asaasFetch(pathname, options = {}) {
   const body = type.includes("application/json") ? await response.json() : await response.text();
 
   if (!response.ok) {
-    const error = new Error("O Asaas não conseguiu concluir a operação.");
+    const error = new Error(providerErrorMessage(body));
     error.status = response.status;
     error.providerData = body;
     throw error;
@@ -175,6 +208,31 @@ async function createCheckout({
   };
 }
 
+async function cancelCheckout(checkoutId) {
+  if (!checkoutId) return null;
+  return asaasFetch("/checkouts/" + encodeURIComponent(checkoutId) + "/cancel", {
+    method: "POST",
+    body: "{}"
+  });
+}
+
+async function selfTestCheckout() {
+  const result = await createCheckout({
+    orderId: "SELFTEST-" + Date.now(),
+    billingType: "PIX",
+    amount: 10,
+    itemName: "Teste técnico Postal",
+    itemDescription: "Checkout temporário de validação da integração",
+    partnerWalletId: null,
+    reserveWalletId: null,
+    partnerCommission: 0,
+    providerCost: 0,
+    customerData: null
+  });
+  try { await cancelCheckout(result.id); } catch {}
+  return { ok: true, id: result.id, status: result.status };
+}
+
 function safeCompareToken(received) {
   if (!ASAAS_WEBHOOK_TOKEN || !received) return false;
   const a = Buffer.from(String(received));
@@ -190,7 +248,11 @@ module.exports = {
   safeCompareToken,
   grossUp,
   createCheckout,
+  cancelCheckout,
+  selfTestCheckout,
   asaasFetch,
+  environmentInfo,
+  providerErrorMessage,
   ASAAS_API_URL,
   APP_PUBLIC_URL
 };
