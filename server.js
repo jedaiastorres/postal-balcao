@@ -705,6 +705,7 @@ function clientOpsStatus(order) {
   const collectionStatus=String(order?.collection_status||"").toUpperCase();
   if(["COLLECTED","RECEIVED_AT_POINT","COMPLETED"].includes(collectionStatus)) return "SENT";
   if(String(order?.payment_status||"").toUpperCase()!=="PAID") return "AWAITING_PAYMENT";
+  if(String(order?.status||"").toUpperCase()==="PROVIDER_PAYMENT_PENDING") return "PROVIDER_PENDING";
   return "READY_TO_SHIP";
 }
 
@@ -854,7 +855,7 @@ app.get("/api/public-config", (_req, res) => {
     paymentsProvider: "ASAAS",
     paymentsConfigured: asaas.configured(),
     databaseConfigured: Boolean(process.env.DATABASE_URL),
-    version: "1.7.6",
+    version: "1.7.7",
     paymentSimulatorEnabled: PAYMENT_SIMULATOR_ENABLED && !asaas.configured(),
     clientPickupFeePerPackage: CLIENT_PICKUP_FEE_PER_PACKAGE,
     pointPickupEarningPerPackage: POINT_PICKUP_EARNING_PER_PACKAGE,
@@ -2961,7 +2962,7 @@ async function start() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Postal Balcao V1.7.6 disponivel na porta ${PORT}`);
+    console.log(`Postal Balcao V1.7.7 disponivel na porta ${PORT}`);
     console.log(`ConectEnvios: ${TOKEN ? "configurada" : "modo demonstracao"}`);
     console.log(`Asaas: ${asaas.configured() ? "configurado" : "aguardando chave"}`);
     console.log(`Banco: ${process.env.DATABASE_URL ? "PostgreSQL configurado" : "nao configurado"}`);
