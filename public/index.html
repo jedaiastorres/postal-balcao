@@ -716,6 +716,7 @@
               <label>Pacotes neste envio<input id="clientPackageCount" type="number" min="1" max="1" value="1" readonly /><small>Cada etiqueta corresponde a 1 pacote e recebe uma taxa de primeira milha de R$ 5,00.</small></label>
               <label id="clientDropoffField" class="hidden">Ponto Postal<select id="clientDropoffStore"></select></label>
               <label>Agendar para<input id="clientScheduledFor" type="datetime-local" /></label>
+              <div class="span-2 geo-assist"><button id="clientGeoBtn" class="ghost" type="button">Usar localização para achar o ponto mais próximo</button><small id="clientGeoStatus">Opcional. Ajuda a Postal a direcionar a coleta com maior precisão.</small></div>
               <label class="span-2">Observação<input id="clientCollectionNotes" placeholder="Ex.: coleta na recepção, horário comercial" /></label>
             </div>
             <div class="payment-method-note">Coleta: o ponto executor recebe R$ 3,00 por pacote. Postagem no ponto: o ponto recebe R$ 2,00 por pacote. O restante do valor de R$ 5,00 fica com a Postal.</div>
