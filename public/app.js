@@ -197,7 +197,7 @@ function navigate(name) {
     return;
   }
 
-  $(".view").forEach(v => v.classList.add("hidden"));
+  $$(".view").forEach(v => v.classList.add("hidden"));
   $$(".nav-item").forEach(v => v.classList.toggle("active", v.dataset.view === name));
 
   const spec = viewMap[name] || viewMap.dashboard;
@@ -874,7 +874,7 @@ $("#continueShipmentBtn")?.addEventListener("click", async () => {
 $("#backToQuoteBtn")?.addEventListener("click", () => navigate("quote"));
 $("#addContentItemBtn")?.addEventListener("click", () => addContentItem({ quantity: 1, value: 0 }));
 
-$(`input[name="documentType"]`).forEach(radio => radio.addEventListener("change", () => {
+$$(`input[name="documentType"]`).forEach(radio => radio.addEventListener("change", () => {
   const invoice = document.querySelector('input[name="documentType"]:checked')?.value === "invoice";
   $("#invoiceField").classList.toggle("hidden", !invoice);
   $("#invoiceNumber").required = invoice;
