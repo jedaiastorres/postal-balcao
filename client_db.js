@@ -230,7 +230,7 @@ async function getCustomerAccount(userId) {
 async function findStoreByReferralCode(code) {
   const db = database();
   const { rows } = await db.query(
-    "SELECT * FROM stores WHERE active=TRUE AND UPPER(referral_code)=UPPER($1) LIMIT 1",
+    "SELECT * FROM stores WHERE active=TRUE AND (UPPER(referral_code)=UPPER($1) OR UPPER(code)=UPPER($1)) LIMIT 1",
     [String(code||"").trim()]
   );
   return rows[0] || null;
