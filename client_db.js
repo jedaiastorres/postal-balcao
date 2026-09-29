@@ -631,6 +631,8 @@ async function getCollection(collectionId){
 
 async function updateCollection(collectionId,patch){
   const db=database(); const current=await getCollection(collectionId); if(!current)return null;
+  const nextPostal=Number(patch.postalCompensation??current.postal_compensation||0);
+  const previousPostal=Number(current.postal_compensation||0);
   const {rows}=await db.query(
     `UPDATE collection_requests SET
       status=$2,assigned_store_id=$3,point_rate=$4,point_compensation=$5,postal_compensation=$6,
@@ -641,10 +643,19 @@ async function updateCollection(collectionId,patch){
     [
       collectionId,patch.status??current.status,patch.assignedStoreId??current.assigned_store_id,
       patch.pointRate??Number(current.point_rate),patch.pointCompensation??Number(current.point_compensation),
-      patch.postalCompensation??Number(current.postal_compensation),patch.scheduledFor??current.scheduled_for,
+      nextPostal,patch.scheduledFor??current.scheduled_for,
       patch.notes??current.notes
     ]
-  ); return rows[0]||null;
+  );
+  if(rows[0]?.freight_order_id && Math.abs(nextPostal-previousPostal)>0.0001){
+    await db.query(
+      `UPDATE freight_orders
+          SET postal_revenue_total=postal_revenue_total+$2,updated_at=NOW()
+        WHERE id=$1`,
+      [rows[0].freight_order_id,round2(nextPostal-previousPostal)]
+    );
+  }
+  return rows[0]||null;
 }
 
 async function createPointEarning({storeId,clientUserId=null,earningType,amount,referenceType,referenceId,status="EARNED",metadata={}}){
