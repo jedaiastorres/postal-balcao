@@ -110,6 +110,7 @@ function showApp(user) {
   document.querySelector('[data-view="inventory"]')?.classList.toggle("hidden", !canManageStock);
   document.querySelector('[data-view="cash"]')?.classList.toggle("hidden", !ownerFinance);
   window.PostalClient?.onShowApp?.(user);
+  $("#inventorySalePrice")?.toggleAttribute("disabled", user?.role !== "ADMIN");
 
   if (user?.storeCommissionPercent != null) {
     const pct = Number(user.storeCommissionPercent).toFixed(1).replace(".0","");
@@ -651,8 +652,6 @@ async function loadInventory() {
           const currentQty = Number(item.stockQuantity || 0);
           const qtyText = window.prompt("Estoque físico atual:", String(currentQty));
           if (qtyText == null) return;
-          const priceText = window.prompt("Preço de venda unitário:", Number(item.unitPrice || 0).toFixed(2));
-          if (priceText == null) return;
           const minText = window.prompt("Estoque mínimo para alerta:", String(Number(item.minQuantity || 0)));
           if (minText == null) return;
           try {
@@ -1503,7 +1502,7 @@ $("#inventoryReceiveForm")?.addEventListener("submit", async event => {
       body: JSON.stringify({
         code: $("#inventoryProduct").value,
         quantity: Number($("#inventoryQuantity").value || 0),
-        salePrice: Number($("#inventorySalePrice").value || 0),
+        salePrice: state.user?.role === "ADMIN" ? Number($("#inventorySalePrice").value || 0) : undefined,
         unitCost: Number($("#inventoryUnitCost").value || 0),
         lotCode: $("#inventoryLotCode").value.trim(),
         note: $("#inventoryNote").value.trim()
