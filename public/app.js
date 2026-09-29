@@ -29,6 +29,7 @@ const viewMap = {
   credit: { el: "#creditView", title: "Crédito no Balcão" },
   master: { el: "#masterView", title: "Painel Master" },
   clientHome: { el: "#clientHomeView", title: "Minha Postal" },
+  clientOrders: { el: "#clientOrdersView", title: "Pedidos" },
   wallet: { el: "#walletView", title: "Saldo" },
   connections: { el: "#connectionsView", title: "Integrações" },
   collections: { el: "#collectionsView", title: "Coletas" },
@@ -183,7 +184,7 @@ function navigate(name) {
     toast("Este perfil não possui permissão para gerenciar estoque.", "error");
     return;
   }
-  if (["clientHome","wallet","connections"].includes(name) && state.user?.role !== "CLIENT") {
+  if (["clientHome","clientOrders","wallet","connections"].includes(name) && state.user?.role !== "CLIENT") {
     toast("Área exclusiva para clientes Postal.", "error");
     return;
   }
@@ -215,6 +216,7 @@ function navigate(name) {
   if (name === "credit") loadCredit();
   if (name === "master" && state.user?.role === "ADMIN") loadMaster();
   if (name === "clientHome") window.PostalClient?.loadClientHome?.();
+  if (name === "clientOrders") window.PostalClient?.loadOperations?.();
   if (name === "wallet") window.PostalClient?.loadWallet?.();
   if (name === "connections") window.PostalClient?.loadConnections?.();
   if (name === "collections") window.PostalClient?.loadCollections?.();
@@ -862,9 +864,10 @@ async function openProviderDocument(url) {
   } catch (err) { target.close(); toast(err.message, "error"); }
 }
 
-$("#continueShipmentBtn")?.addEventListener("click", () => {
+$("#continueShipmentBtn")?.addEventListener("click", async () => {
   if (!state.selectedOption) { toast("Selecione uma opção de frete primeiro.", "error"); return; }
   prepareShipmentView();
+  if (state.user?.role === "CLIENT") await window.PostalClient?.prepareShipment?.();
   navigate("shipment");
 });
 
