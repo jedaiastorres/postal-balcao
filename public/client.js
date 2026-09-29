@@ -106,6 +106,7 @@
       IMPORTED:["Importado","muted"],
       AWAITING_PAYMENT:["Aguardando pagamento","warning"],
       READY_TO_SHIP:["Pronto para envio","success"],
+      PROVIDER_PENDING:["Processando etiqueta","warning"],
       SENT:["Enviado","info"]
     })[status]||[status||"—","muted"];
   }
