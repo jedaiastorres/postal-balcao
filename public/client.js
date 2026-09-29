@@ -4,7 +4,8 @@
     points: [],
     collections: [],
     connections: [],
-    adminStores: []
+    adminStores: [],
+    pickupCoords: null
   };
 
   function isClient(){ return state.user?.role === "CLIENT"; }
@@ -194,6 +195,8 @@
       invoiceNumber:currentInvoiceNumber(),firstMileType,
       packageCount:Number($("#clientPackageCount").value||1),
       dropoffStoreId:firstMileType==="DROPOFF"?$("#clientDropoffStore").value:null,
+      latitude:firstMileType==="PICKUP"?client.pickupCoords?.latitude:null,
+      longitude:firstMileType==="PICKUP"?client.pickupCoords?.longitude:null,
       scheduledFor:$("#clientScheduledFor").value||null,collectionNotes:$("#clientCollectionNotes").value.trim()
     };
     const r=await api("/api/client/orders",{method:"POST",body:JSON.stringify(payload)});
@@ -279,6 +282,19 @@
       $("#clientDropoffField").classList.toggle("hidden",type!=="DROPOFF");refreshFirstMileTotal();
     }));
     $("#clientPackageCount")?.addEventListener("input",refreshFirstMileTotal);
+    $("#clientGeoBtn")?.addEventListener("click",()=>{
+      const status=$("#clientGeoStatus");
+      if(!navigator.geolocation){status.textContent="Localização não disponível neste navegador.";return;}
+      status.textContent="Obtendo localização...";
+      navigator.geolocation.getCurrentPosition(pos=>{
+        client.pickupCoords={latitude:pos.coords.latitude,longitude:pos.coords.longitude};
+        status.textContent="Localização confirmada para roteamento da coleta.";
+        toast("Localização vinculada à solicitação de coleta.");
+      },()=>{
+        client.pickupCoords=null;
+        status.textContent="Não foi possível obter a localização. Usaremos CEP e cidade para direcionar.";
+      },{enableHighAccuracy:true,timeout:10000,maximumAge:60000});
+    });
     $("#copyReferralLinkBtn")?.addEventListener("click",async()=>{await navigator.clipboard.writeText($("#referralLink").value);toast("Link copiado.");});
     $("#referredClientForm")?.addEventListener("submit",async e=>{
       e.preventDefault();
