@@ -182,8 +182,20 @@ function navigate(name) {
     toast("Este perfil não possui permissão para gerenciar estoque.", "error");
     return;
   }
+  if (["clientHome","wallet","connections"].includes(name) && state.user?.role !== "CLIENT") {
+    toast("Área exclusiva para clientes Postal.", "error");
+    return;
+  }
+  if (name === "referrals" && !["STORE_OWNER","STORE_CLERK"].includes(state.user?.role)) {
+    toast("Área disponível para pontos parceiros.", "error");
+    return;
+  }
+  if (name === "collections" && !["ADMIN","STORE_OWNER","STORE_CLERK","OPS","CLIENT"].includes(state.user?.role)) {
+    toast("Perfil sem acesso ao painel de coletas.", "error");
+    return;
+  }
 
-  $$(".view").forEach(v => v.classList.add("hidden"));
+  $(".view").forEach(v => v.classList.add("hidden"));
   $$(".nav-item").forEach(v => v.classList.toggle("active", v.dataset.view === name));
 
   const spec = viewMap[name] || viewMap.dashboard;
