@@ -35,7 +35,21 @@
           <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Sua senha" required />
         </label>
         <button class="primary full" type="submit">Entrar no painel</button>
+        <button id="clientRegisterToggle" class="ghost full" type="button">Criar conta de cliente</button>
         <div id="demoLoginHint" class="demo-hint">Acesso demonstrativo: parceiro@postalservicos.com.br / postal123</div>
+      </form>
+      <form id="clientRegisterForm" class="stack client-register-box hidden">
+        <div class="eyebrow">CONTA POSTAL</div>
+        <strong>Crie sua conta para enviar como no e-commerce.</strong>
+        <label>Nome / Razão social<input id="clientRegisterName" required /></label>
+        <label>E-mail<input id="clientRegisterEmail" type="email" required /></label>
+        <label>CPF/CNPJ<input id="clientRegisterDocument" inputmode="numeric" /></label>
+        <label>Telefone<input id="clientRegisterPhone" inputmode="tel" /></label>
+        <label>Senha<input id="clientRegisterPassword" type="password" minlength="6" required /></label>
+        <input id="clientReferralCode" type="hidden" />
+        <div id="clientReferralNotice" class="demo-hint hidden"></div>
+        <button class="primary full" type="submit">Criar minha conta</button>
+        <button id="backToLoginBtn" class="ghost full" type="button">Voltar ao login</button>
       </form>
     </div>
   </section>
@@ -62,6 +76,7 @@
         <button class="nav-item" data-view="orders"><span>□</span> Meus Fretes</button>
         <button class="nav-item" data-view="receive"><span>⇩</span> Receber Pacote</button>
         <button class="nav-item" data-view="returns"><span>↻</span> Devolução</button>
+        <button class="nav-item" data-view="collections"><span>⌖</span> Coletas</button>
       </nav>
 
       <div class="nav-section">FINANCEIRO</div>
@@ -70,7 +85,17 @@
         <button class="nav-item" data-view="inventory"><span>▤</span> Produtos & Estoque</button>
         <button class="nav-item" data-view="credit"><span>₿</span> Crédito no Balcão</button>
         <button class="nav-item" data-view="clients"><span>♙</span> Clientes</button>
+        <button class="nav-item" data-view="referrals"><span>↗</span> Indique & Ganhe</button>
       </nav>
+
+      <div id="clientNavSection" class="client-only hidden">
+        <div class="nav-section">MINHA CONTA POSTAL</div>
+        <nav>
+          <button class="nav-item" data-view="clientHome"><span>⌂</span> Início</button>
+          <button class="nav-item" data-view="wallet"><span>R$</span> Saldo</button>
+          <button class="nav-item" data-view="connections"><span>⇄</span> Integrações</button>
+        </nav>
+      </div>
 
       <div id="adminNavSection" class="admin-only hidden">
         <div class="nav-section">ADMINISTRAÇÃO POSTAL</div>
