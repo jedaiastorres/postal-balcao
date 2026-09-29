@@ -1374,6 +1374,13 @@ $("#adminStoreForm")?.addEventListener("submit",async event=>{
       name:$("#adminStoreName").value.trim(),
       cnpj:$("#adminStoreCnpj").value.trim(),
       email:$("#adminStoreEmail").value.trim(),
+      address:{
+        cep:onlyDigits($("#adminStoreCep").value),
+        city:$("#adminStoreCity").value.trim(),
+        state:$("#adminStoreUf").value.trim().toUpperCase(),
+        address:$("#adminStoreAddress").value.trim(),
+        number:$("#adminStoreNumber").value.trim()
+      },
       commissionPercent:Number($("#adminStoreCommission").value||20),
       asaasWalletId:$("#adminStoreWallet").value.trim()
     })});
