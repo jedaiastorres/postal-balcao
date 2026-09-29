@@ -175,3 +175,25 @@ Endpoints da ponte:
 - tokens dos provedores continuam somente no servidor;
 - exportação operacional ADMIN inclui clientes, carteira, recargas, conexões de e-commerce, coletas e ganhos dos pontos;
 - backups diários do volume PostgreSQL devem permanecer ativos na infraestrutura.
+
+## V1.7 — central profissional de pedidos e operação em lote
+
+A V1.7 aproxima o portal cliente de uma central de e-commerce:
+
+- saldo Postal fixo no topo para clientes;
+- nova tela **Pedidos** combinando pedidos importados e envios Postal;
+- filtros por **Importado**, **Aguardando pagamento**, **Pronto para envio** e **Enviado**;
+- filtro por origem/plataforma e busca por pedido, cliente ou rastreio;
+- seleção múltipla;
+- emissão em massa de etiquetas elegíveis;
+- impressão em lote em um único PDF;
+- pedidos importados podem ser preparados para cotação e vinculados ao envio Postal;
+- clientes podem gerar a etiqueta e escolher **Solicitar coleta depois**;
+- coletas podem ser solicitadas em lote, com débito atômico de R$ 5,00 por pacote no Saldo Postal;
+- o roteamento da coleta continua tentando o ponto habilitado mais próximo;
+- em Sandbox Asaas, a emissão logística permanece simulada quando a ConectEnvios real está bloqueada;
+- ENABLE_SHIPMENT_CREATION=false continua impedindo postagem logística real durante a homologação.
+
+Para pedidos importados, a ponte de e-commerce pode enviar no campo payload dados normalizados de remetente, destinatário, pacote e itens. O portal também aceita aliases comuns e abre o pedido para conferência antes da cotação.
+
+A impressão em lote usa PDFs A6 das etiquetas reais quando disponíveis. Em homologação, o sistema gera uma etiqueta A6 claramente marcada como SEM VALIDADE LOGÍSTICA para testar seleção, impressão e expedição sem consumir uma postagem real.
