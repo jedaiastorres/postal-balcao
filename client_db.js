@@ -711,6 +711,28 @@ async function listConnections(userId){
   );return rows;
 }
 
+async function listBridgeConnections(status=null,limit=100){
+  const db=database();
+  const safe=Math.max(1,Math.min(250,Number(limit)||100));
+  const params=[];
+  let where="";
+  if(status){ params.push(status); where="WHERE c.status=$1"; }
+  params.push(safe);
+  const limitPos=params.length;
+  const {rows}=await db.query(
+    `SELECT c.id,c.user_id,c.platform,c.display_name,c.external_store_id,c.status,
+            c.authorization_url,c.config,c.last_sync_at,c.created_at,c.updated_at,
+            u.email AS client_email,u.name AS client_name
+       FROM ecommerce_connections c
+       JOIN app_users u ON u.id=c.user_id
+       ${where}
+       ORDER BY c.updated_at ASC
+       LIMIT ${limitPos}`,
+    params
+  );
+  return rows;
+}
+
 async function getConnectionById(connectionId){
   const db=database();
   const {rows}=await db.query(
@@ -733,6 +755,15 @@ async function updateConnection(connectionId,userId,patch){
     [connectionId,userId,patch.displayName??null,patch.externalStoreId??null,patch.status??null,
      patch.authorizationUrl??null,patch.config?JSON.stringify(patch.config):null,Boolean(patch.markSynced)]
   );return rows[0]||null;
+}
+
+async function deleteConnection(connectionId,userId){
+  const db=database();
+  const {rows}=await db.query(
+    "DELETE FROM ecommerce_connections WHERE id=$1 AND user_id=$2 RETURNING *",
+    [connectionId,userId]
+  );
+  return rows[0]||null;
 }
 
 async function importEcommerceOrder({connectionId,externalOrderId,customerName="",externalStatus="",payload={}}){
@@ -948,7 +979,7 @@ module.exports={
   createTopup,setTopupCheckout,getTopupByCheckoutId,getTopup,listTopups,markTopupPaid,updateTopupStatus,
   insertClientOrder,createClientOrderAndDebit,listClientOrders,getClientOrder,choosePickupStore,createCollectionRequest,
   listCollections,getCollection,updateCollection,createPointEarning,listPointEarnings,referralStats,
-  createConnection,listConnections,getConnectionById,updateConnection,importEcommerceOrder,listEcommerceOrders,
+  createConnection,listConnections,listBridgeConnections,getConnectionById,updateConnection,deleteConnection,importEcommerceOrder,listEcommerceOrders,
   getImportedOrder,linkImportedOrder,listClientOperations,createBulkCollectionsAndDebit,
   listClientsByStore
 };
