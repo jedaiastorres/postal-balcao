@@ -1376,15 +1376,19 @@ app.get("/api/client/connections", requireAuth, requireRole("CLIENT"), async (re
     const orders=await clientDb.listEcommerceOrders(req.user.userId,100);
     res.json({
       supported:[
-        {code:"NUVEMSHOP",name:"Nuvemshop"},
-        {code:"WOOCOMMERCE",name:"WooCommerce"},
-        {code:"LOJA_INTEGRADA",name:"Loja Integrada"},
-        {code:"SHOPIFY",name:"Shopify"},
-        {code:"TRAY",name:"Tray"}
+        {code:"NUVEMSHOP",name:"Nuvemshop",mode:"OAUTH"},
+        {code:"WOOCOMMERCE",name:"WooCommerce",mode:"STORE_AUTH"},
+        {code:"LOJA_INTEGRADA",name:"Loja Integrada",mode:"STORE_AUTH"},
+        {code:"SHOPIFY",name:"Shopify",mode:"OAUTH"},
+        {code:"TRAY",name:"Tray",mode:"OAUTH"}
       ],
       connections:connections.map(x=>({
         id:x.id,platform:x.platform,displayName:x.display_name||"",status:x.status,
-        importedOrders:Number(x.imported_orders||0),lastSyncAt:x.last_sync_at
+        importedOrders:Number(x.imported_orders||0),lastSyncAt:x.last_sync_at,
+        authorizationUrl:x.authorization_url||"",
+        externalStoreId:x.external_store_id||"",
+        storeUrl:x.config?.storeUrl||"",
+        lastError:x.config?.lastError||""
       })),
       orders
     });
@@ -1396,18 +1400,57 @@ app.post("/api/client/connections", requireAuth, requireRole("CLIENT"), async (r
     const platform=String(req.body.platform||"").toUpperCase();
     const allowed=new Set(["NUVEMSHOP","WOOCOMMERCE","LOJA_INTEGRADA","SHOPIFY","TRAY"]);
     if(!allowed.has(platform)) return res.status(400).json({error:"Plataforma ainda não suportada."});
+    const displayName=String(req.body.displayName||"").trim();
+    const storeUrl=String(req.body.storeUrl||"").trim();
     const connection=await clientDb.createConnection({
-      userId:req.user.userId,platform,displayName:String(req.body.displayName||"").trim()
+      userId:req.user.userId,platform,displayName
     });
+    if(storeUrl){
+      await clientDb.updateConnection(connection.id,req.user.userId,{
+        config:{whiteLabel:"POSTAL_SERVICOS",bridge:"CONECTENVIOS",storeUrl}
+      });
+    }
     await audit(req,"CREATE_ECOMMERCE_CONNECTION","ECOMMERCE_CONNECTION",connection.id,{platform});
     res.status(201).json({
       connection:{
         id:connection.id,platform:connection.platform,status:connection.status,
         displayName:connection.display_name||""
       },
-      message:"Conexão Postal criada. A autorização técnica será concluída pela ponte logística sem expor o provedor ao cliente."
+      message:"Integração criada. Agora conclua a autorização quando o botão Autorizar estiver disponível."
     });
   }catch(error){res.status(500).json({error:"Não foi possível preparar a integração."});}
+});
+
+app.post("/api/client/connections/:id/sync", requireAuth, requireRole("CLIENT"), async (req,res)=>{
+  try{
+    const connection=await clientDb.getConnectionById(req.params.id);
+    if(!connection || String(connection.user_id)!==String(req.user.userId)) {
+      return res.status(404).json({error:"Integração não encontrada."});
+    }
+    if(connection.status!=="CONNECTED"){
+      return res.status(409).json({error:"Conclua a autorização da loja antes de sincronizar."});
+    }
+    const currentConfig=connection.config||{};
+    const updated=await clientDb.updateConnection(connection.id,req.user.userId,{
+      status:"SYNC_REQUESTED",
+      config:{...currentConfig,syncRequestedAt:new Date().toISOString(),lastError:""}
+    });
+    await audit(req,"REQUEST_ECOMMERCE_SYNC","ECOMMERCE_CONNECTION",connection.id,{platform:connection.platform});
+    res.json({ok:true,connection:{id:updated.id,status:updated.status},message:"Sincronização solicitada."});
+  }catch(error){res.status(500).json({error:"Não foi possível solicitar a sincronização."});}
+});
+
+app.delete("/api/client/connections/:id", requireAuth, requireRole("CLIENT"), async (req,res)=>{
+  try{
+    const connection=await clientDb.getConnectionById(req.params.id);
+    if(!connection || String(connection.user_id)!==String(req.user.userId)) {
+      return res.status(404).json({error:"Integração não encontrada."});
+    }
+    const removed=await clientDb.deleteConnection(connection.id,req.user.userId);
+    if(!removed) return res.status(404).json({error:"Integração não encontrada."});
+    await audit(req,"DELETE_ECOMMERCE_CONNECTION","ECOMMERCE_CONNECTION",connection.id,{platform:connection.platform});
+    res.json({ok:true});
+  }catch(error){res.status(500).json({error:"Não foi possível desconectar a loja."});}
 });
 
 app.get("/api/store/pickup-settings", requireAuth, requireRole("STORE_OWNER","STORE_CLERK","OPS"), async (req,res)=>{
@@ -1537,6 +1580,14 @@ app.patch("/api/collections/:id", requireAuth, requireRole("ADMIN","STORE_OWNER"
 app.get("/api/admin/collections", requireAuth, requireRole("ADMIN"), async (_req,res)=>{
   try{res.json({collections:await clientDb.listCollections({all:true},250)});}
   catch(error){res.status(500).json({error:"Não foi possível carregar o painel de coletas."});}
+});
+
+app.get("/api/integrations/v1/ecommerce/connections", requireIntegrationAuth, async (req,res)=>{
+  try{
+    const status=String(req.query.status||"").trim();
+    const rows=await clientDb.listBridgeConnections(status||null,Math.min(250,Number(req.query.limit||100)));
+    res.json({ok:true,version:"v1",connections:rows});
+  }catch(error){res.status(500).json({error:"Falha ao listar conexões de e-commerce."});}
 });
 
 app.patch("/api/integrations/v1/ecommerce/connections/:id", requireIntegrationAuth, async (req,res)=>{
@@ -2045,7 +2096,11 @@ app.post("/api/inventory/receive", requireAuth, requireRole("ADMIN","STORE_OWNER
   try {
     const code = String(req.body.code || "").trim();
     const quantity = Number(req.body.quantity || 0);
-    const salePrice = req.body.salePrice === "" || req.body.salePrice == null ? null : Number(req.body.salePrice);
+    const requestedSalePrice = req.body.salePrice === "" || req.body.salePrice == null ? null : Number(req.body.salePrice);
+    if (req.user.role !== "ADMIN" && requestedSalePrice != null) {
+      return res.status(403).json({ error: "Preço e margem são definidos exclusivamente pelo Painel Master." });
+    }
+    const salePrice = req.user.role === "ADMIN" ? requestedSalePrice : null;
     const unitCost = Math.max(0, Number(req.body.unitCost || 0));
     const lotCode = String(req.body.lotCode || "").trim();
     if (!code || !Number.isFinite(quantity) || quantity <= 0) {
@@ -2081,7 +2136,11 @@ app.post("/api/inventory/adjust", requireAuth, requireRole("ADMIN","STORE_OWNER"
     const code = String(req.body.code || "").trim();
     const quantity = Number(req.body.quantity || 0);
     const minQuantity = Math.max(0, Number(req.body.minQuantity || 0));
-    const salePrice = req.body.salePrice === "" || req.body.salePrice == null ? null : Number(req.body.salePrice);
+    const requestedSalePrice = req.body.salePrice === "" || req.body.salePrice == null ? null : Number(req.body.salePrice);
+    if (req.user.role !== "ADMIN" && requestedSalePrice != null) {
+      return res.status(403).json({ error: "Preço e margem são definidos exclusivamente pelo Painel Master." });
+    }
+    const salePrice = req.user.role === "ADMIN" ? requestedSalePrice : null;
     if (!code || !Number.isFinite(quantity) || quantity < 0) {
       return res.status(400).json({ error: "Informe produto e estoque atual válido." });
     }
