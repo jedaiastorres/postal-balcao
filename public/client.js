@@ -572,9 +572,9 @@
     $("#clientOpsRefreshBtn")?.addEventListener("click",loadOperations);
     $("#clientOpsSearch")?.addEventListener("input",renderOperations);
     $("#clientOpsSourceFilter")?.addEventListener("change",renderOperations);
-    $(".client-status-tab").forEach(btn=>btn.addEventListener("click",()=>{
+    $$(".client-status-tab").forEach(btn=>btn.addEventListener("click",()=>{
       client.opsStatus=btn.dataset.opsStatus||"";
-      $(".client-status-tab").forEach(x=>x.classList.toggle("active",x===btn));
+      $$(".client-status-tab").forEach(x=>x.classList.toggle("active",x===btn));
       renderOperations();
     }));
     $("#clientOpsSelectAll")?.addEventListener("change",e=>{
