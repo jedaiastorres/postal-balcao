@@ -841,6 +841,437 @@ app.use("/api", (req, res, next) => {
   next();
 });
 
+app.get("/api/client/dashboard", requireAuth, requireRole("CLIENT"), async (req,res)=>{
+  try{
+    const wallet=await clientDb.getWallet(req.user.userId);
+    const orders=await clientDb.listClientOrders(req.user.userId,20);
+    const collections=await clientDb.listCollections({clientUserId:req.user.userId},20);
+    const connections=await clientDb.listConnections(req.user.userId);
+    res.json({
+      balance:Number(wallet?.balance||0),
+      referralStore:wallet?.account?.referral_store_name||"",
+      totalShipments:orders.length,
+      pendingCollections:collections.filter(x=>!["COLLECTED","RECEIVED_AT_POINT","COMPLETED","CANCELED"].includes(x.status)).length,
+      connections:connections.length
+    });
+  }catch(error){
+    console.error("client dashboard error:",error.message);
+    res.status(500).json({error:"Não foi possível carregar sua conta."});
+  }
+});
+
+app.get("/api/client/wallet", requireAuth, requireRole("CLIENT"), async (req,res)=>{
+  try{
+    const wallet=await clientDb.getWallet(req.user.userId);
+    const transactions=await clientDb.listWalletTransactions(req.user.userId,100);
+    const topups=await clientDb.listTopups(req.user.userId,50);
+    res.json({
+      balance:Number(wallet?.balance||0),
+      transactions:transactions.map(t=>({
+        id:t.id,type:t.transaction_type,amount:Number(t.amount||0),status:t.status,
+        description:t.description||"",createdAt:t.created_at
+      })),
+      topups:topups.map(t=>({
+        id:t.id,amount:Number(t.amount||0),fee:Number(t.fee||0),totalAmount:Number(t.total_amount||0),
+        paymentMethod:t.payment_method,status:t.status,checkoutUrl:t.checkout_url||"",
+        isSimulation:Boolean(t.is_simulation),createdAt:t.created_at,paidAt:t.paid_at
+      }))
+    });
+  }catch(error){res.status(500).json({error:"Não foi possível carregar o saldo."});}
+});
+
+app.post("/api/client/wallet/topups", requireAuth, requireRole("CLIENT"), async (req,res)=>{
+  try{
+    const amount=round2(Number(req.body.amount||0));
+    const paymentMethod=String(req.body.paymentMethod||"PIX").toUpperCase();
+    if(!Number.isFinite(amount)||amount<10||amount>50000) return res.status(400).json({error:"A recarga deve ficar entre R$ 10 e R$ 50.000."});
+    if(!["PIX","CARTAO"].includes(paymentMethod)) return res.status(400).json({error:"Escolha PIX ou cartão."});
+
+    const preview=asaas.grossUp(amount,paymentMethod);
+    const simulation=PAYMENT_SIMULATOR_ENABLED&&!asaas.configured();
+    const topup=await clientDb.createTopup({
+      userId:req.user.userId,amount,fee:preview.surcharge,totalAmount:preview.grossAmount,
+      paymentMethod,provider:simulation?"SIMULATOR":"ASAAS",isSimulation:simulation
+    });
+
+    if(simulation){
+      const paid=await clientDb.markTopupPaid(topup.id);
+      await audit(req,"SIMULATE_WALLET_TOPUP","WALLET_TOPUP",topup.id,{amount});
+      return res.status(201).json({
+        topup:{...topup,status:"PAID",isSimulation:true},
+        balance:Number(paid.balance||0),
+        message:"Saldo de homologação adicionado. Nenhum dinheiro real foi movimentado."
+      });
+    }
+
+    if(!asaas.configured()){
+      return res.status(503).json({error:"A recarga real será liberada assim que a conta Asaas estiver ativa."});
+    }
+
+    const checkout=await asaas.createCheckout({
+      orderId:"TOPUP-"+topup.id,
+      billingType:paymentMethod,
+      amount,
+      itemName:"Adicionar saldo Postal",
+      itemDescription:"Crédito pré-pago para uso exclusivo em serviços Postal Serviços",
+      partnerWalletId:null,reserveWalletId:null,partnerCommission:0,providerCost:0,
+      customerData:null
+    });
+    const updated=await clientDb.setTopupCheckout(topup.id,{
+      checkoutId:checkout.id,checkoutUrl:checkout.url,fee:checkout.surcharge,totalAmount:checkout.grossAmount
+    });
+    await audit(req,"CREATE_WALLET_TOPUP","WALLET_TOPUP",topup.id,{amount,paymentMethod});
+    res.status(201).json({topup:updated,checkoutUrl:checkout.url});
+  }catch(error){
+    console.error("wallet topup error:",error.message);
+    res.status(500).json({error:error.message||"Não foi possível gerar a recarga."});
+  }
+});
+
+app.get("/api/client/points", requireAuth, requireRole("CLIENT"), async (_req,res)=>{
+  try{
+    const stores=await clientDb.listPublicStores();
+    res.json({points:stores.map(s=>({
+      id:s.id,code:s.code,name:s.name,address:s.address||{},
+      pickupEnabled:Boolean(s.pickup_enabled),referralCode:s.referral_code||""
+    }))});
+  }catch(error){res.status(500).json({error:"Não foi possível carregar os pontos Postal."});}
+});
+
+app.get("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,res)=>{
+  try{
+    const orders=await clientDb.listClientOrders(req.user.userId,Number(req.query.limit||100));
+    res.json({orders:orders.map(publicOrder)});
+  }catch(error){res.status(500).json({error:"Não foi possível carregar seus envios."});}
+});
+
+app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,res)=>{
+  let createdOrderId=null;
+  try{
+    const body=req.body||{};
+    const selection=verifySelectionToken(body.selectionToken);
+    if(!selection||!Number.isFinite(Number(selection.providerCost))){
+      return res.status(400).json({error:"A cotação expirou. Calcule novamente."});
+    }
+    if(Number(selection.partnerCommission||0)!==0){
+      return res.status(400).json({error:"Esta cotação não pertence ao portal cliente. Calcule novamente."});
+    }
+
+    const sender=body.sender||{},recipient=body.recipient||{};
+    const items=Array.isArray(body.items)?body.items:[];
+    validateFreightParties(sender,recipient,items);
+    if(cleanDigits(sender.cep)!==selection.package.cepFrom||cleanDigits(recipient.cep)!==selection.package.cepTo){
+      return res.status(400).json({error:"Os CEPs mudaram após a cotação."});
+    }
+
+    const firstMileType=String(body.firstMileType||"").toUpperCase();
+    if(!["PICKUP","DROPOFF"].includes(firstMileType)){
+      return res.status(400).json({error:"Escolha coleta no endereço ou postagem em um ponto Postal."});
+    }
+    const packageCount=Math.max(1,Math.min(100,Math.round(Number(body.packageCount||1))));
+    const firstMileFee=round2(CLIENT_PICKUP_FEE_PER_PACKAGE*packageCount);
+    const account=await clientDb.getCustomerAccount(req.user.userId);
+    if(!account) return res.status(400).json({error:"Conta cliente não encontrada."});
+
+    let assignedStore=null;
+    let pointRate=0;
+    if(firstMileType==="PICKUP"){
+      const address={
+        ...sender,
+        state:sender.state||String(sender.city||"").split("/")[1]||"",
+        city:String(sender.city||"").split("/")[0]||sender.city||""
+      };
+      const choice=await clientDb.choosePickupStore({address,latitude:body.latitude,longitude:body.longitude});
+      assignedStore=choice?.store||null;
+      pointRate=assignedStore?POINT_PICKUP_EARNING_PER_PACKAGE:0;
+    }else{
+      const stores=await clientDb.listPublicStores();
+      assignedStore=stores.find(s=>s.id===String(body.dropoffStoreId||""))||null;
+      if(!assignedStore) return res.status(400).json({error:"Selecione o ponto Postal onde os pacotes serão deixados."});
+      pointRate=POINT_DROPOFF_EARNING_PER_PACKAGE;
+    }
+
+    const pointCompensation=round2(pointRate*packageCount);
+    const postalFirstMile=round2(firstMileFee-pointCompensation);
+    const freightPrice=round2(Number(selection.salePrice));
+    const providerCost=round2(Number(selection.providerCost));
+    const postalMargin=round2(Number(selection.postalMargin||Math.max(0,freightPrice-providerCost)));
+    const referralCommission=account.referral_store_id?round2(REFERRAL_EARNING_PER_SHIPMENT):0;
+    const totalAmount=round2(freightPrice+firstMileFee);
+    const postalRevenueTotal=round2(postalMargin+postalFirstMile-referralCommission);
+    const orderId=crypto.randomUUID();
+    createdOrderId=orderId;
+
+    const created=await clientDb.createClientOrderAndDebit({
+      id:orderId,clientUserId:req.user.userId,referralStoreId:account.referral_store_id||null,
+      referralCommission,partnerEmail:req.user.email,status:"PAYMENT_CONFIRMED",
+      totalAmount,freightPrice,customerSubtotal:totalAmount,postalRevenueTotal,providerCost,postalMargin,
+      firstMileType,firstMileFee,packageCount,postalCompanyId:selection.postalCompanyId,
+      carrier:String(body.carrier||""),serviceName:String(selection.service||""),deadline:Number(selection.deadline||0),
+      quoteToken:body.selectionToken,sender,recipient,items,invoiceNumber:String(body.invoiceNumber||"").trim(),
+      packageData:selection.package
+    });
+
+    const collection=await clientDb.createCollectionRequest({
+      clientUserId:req.user.userId,freightOrderId:orderId,serviceType:firstMileType,
+      status:firstMileType==="DROPOFF"?"WAITING_DROPOFF":(assignedStore?"ASSIGNED":"REQUESTED"),
+      packageCount,feePerPackage:CLIENT_PICKUP_FEE_PER_PACKAGE,totalFee:firstMileFee,
+      assignedStoreId:assignedStore?.id||null,pointRate,pointCompensation,
+      postalCompensation:postalFirstMile,address:sender,latitude:body.latitude||null,longitude:body.longitude||null,
+      scheduledFor:body.scheduledFor||null,notes:String(body.collectionNotes||"")
+    });
+
+    await db.addOrderEvent(orderId,"WALLET_PAYMENT","Pagamento com saldo Postal","Valor debitado da carteira pré-paga.");
+    await db.addOrderEvent(orderId,"FIRST_MILE_REQUESTED",
+      firstMileType==="PICKUP"?"Coleta solicitada":"Postagem no ponto selecionada",
+      assignedStore?("Ponto: "+assignedStore.name):"Aguardando direcionamento pela Postal.");
+
+    const simulation=PAYMENT_SIMULATOR_ENABLED&&!asaas.configured()&&!ENABLE_SHIPMENT_CREATION;
+    if(account.referral_store_id){
+      await clientDb.createPointEarning({
+        storeId:account.referral_store_id,clientUserId:req.user.userId,earningType:"REFERRAL",
+        amount:referralCommission,referenceType:"FREIGHT_ORDER",referenceId:orderId,
+        status:simulation?"SIMULATED":"EARNED",metadata:{clientEmail:req.user.email}
+      });
+    }
+
+    if(ENABLE_SHIPMENT_CREATION){
+      const orderForProvider=await db.getOrder(orderId);
+      await createShipmentFromOrder(orderForProvider);
+      await db.addOrderEvent(orderId,"SHIPMENT_CREATED","Etiqueta gerada","Postagem criada na malha logística.");
+    }else if(simulation){
+      const tracking="CLI"+orderId.replace(/-/g,"").slice(0,10).toUpperCase();
+      await db.saveSimulatedShipment(orderId,tracking);
+      await db.addOrderEvent(orderId,"LABEL_AVAILABLE_SIMULATED","Etiqueta de homologação liberada","Documento sem validade logística.");
+    }else{
+      await db.updateStatus(orderId,"PAID_WAITING_SHIPMENT","PAID");
+    }
+
+    await audit(req,"CREATE_CLIENT_SHIPMENT","FREIGHT_ORDER",orderId,{
+      firstMileType,packageCount,collectionId:collection.id,referral:.Boolean(account.referral_store_id)
+    });
+    const complete=await clientDb.getClientOrder(orderId,req.user.userId);
+    res.status(201).json({order:publicOrder(complete),collection,balance:created.balance});
+  }catch(error){
+    console.error("client shipment error:",error.message);
+    if(createdOrderId){
+      try{
+        const existing=await clientDb.getClientOrder(createdOrderId,req.user.userId);
+        if(existing&&existing.status==="PAYMENT_CONFIRMED"){
+          await clientDb.creditWallet(req.user.userId,Number(existing.payment_amount||0),{
+            type:"REFUND",description:"Estorno automático por falha na criação do envio",
+            orderId:createdOrderId,idempotencyKey:"client-order-refund:"+createdOrderId
+          });
+          await db.updateStatus(createdOrderId,"CLIENT_ORDER_ERROR","REFUNDED");
+        }
+      }catch(refundError){console.error("client shipment refund error:",refundError.message);}
+    }
+    res.status(error.message==="Saldo insuficiente."?402:500).json({error:error.message||"Não foi possível criar o envio."});
+  }
+});
+
+app.get("/api/client/collections", requireAuth, requireRole("CLIENT"), async (req,res)=>{
+  try{
+    const rows=await clientDb.listCollections({clientUserId:req.user.userId},100);
+    res.json({collections:rows});
+  }catch(error){res.status(500).json({error:"Não foi possível carregar as coletas."});}
+});
+
+app.get("/api/client/connections", requireAuth, requireRole("CLIENT"), async (req,res)=>{
+  try{
+    const connections=await clientDb.listConnections(req.user.userId);
+    const orders=await clientDb.listEcommerceOrders(req.user.userId,100);
+    res.json({
+      supported:[
+        {code:"NUVEMSHOP",name:"Nuvemshop"},
+        {code:"WOOCOMMERCE",name:"WooCommerce"},
+        {code:"LOJA_INTEGRADA",name:"Loja Integrada"},
+        {code:"SHOPIFY",name:"Shopify"}
+      ],
+      connections:connections.map(x=>({
+        id:x.id,platform:x.platform,displayName:x.display_name||"",status:x.status,
+        importedOrders:Number(x.imported_orders||0),lastSyncAt:x.last_sync_at
+      })),
+      orders
+    });
+  }catch(error){res.status(500).json({error:"Não foi possível carregar as integrações."});}
+});
+
+app.post("/api/client/connections", requireAuth, requireRole("CLIENT"), async (req,res)=>{
+  try{
+    const platform=String(req.body.platform||"").toUpperCase();
+    const allowed=new Set(["NUVEMSHOP","WOOCOMMERCE","LOJA_INTEGRADA","SHOPIFY"]);
+    if(!allowed.has(platform)) return res.status(400).json({error:"Plataforma ainda não suportada."});
+    const connection=await clientDb.createConnection({
+      userId:req.user.userId,platform,displayName:String(req.body.displayName||"").trim()
+    });
+    await audit(req,"CREATE_ECOMMERCE_CONNECTION","ECOMMERCE_CONNECTION",connection.id,{platform});
+    res.status(201).json({
+      connection:{
+        id:connection.id,platform:connection.platform,status:connection.status,
+        displayName:connection.display_name||""
+      },
+      message:"Conexão Postal criada. A autorização técnica será concluída pela ponte logística sem expor o provedor ao cliente."
+    });
+  }catch(error){res.status(500).json({error:"Não foi possível preparar a integração."});}
+});
+
+app.get("/api/store/pickup-settings", requireAuth, requireRole("STORE_OWNER","STORE_CLERK","OPS"), async (req,res)=>{
+  try{
+    if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
+    const store=await db.getStore(req.user.storeId);
+    res.json({
+      enabled:Boolean(store?.pickup_enabled),radiusKm:Number(store?.pickup_radius_km||10),
+      latitude:store?.latitude==null?null:Number(store.latitude),
+      longitude:store?.longitude==null?null:Number(store.longitude),
+      pickupRate:POINT_PICKUP_EARNING_PER_PACKAGE,dropoffRate:POINT_DROPOFF_EARNING_PER_PACKAGE,
+      referralCode:store?.referral_code||store?.code||""
+    });
+  }catch(error){res.status(500).json({error:"Não foi possível carregar a configuração de coletas."});}
+});
+
+app.patch("/api/store/pickup-settings", requireAuth, requireRole("STORE_OWNER"), async (req,res)=>{
+  try{
+    if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
+    const store=await clientDb.updateStorePickupSettings(req.user.storeId,{
+      enabled:req.body.enabled,radiusKm:req.body.radiusKm,latitude:req.body.latitude,longitude:req.body.longitude
+    });
+    await audit(req,"UPDATE_PICKUP_SETTINGS","STORE",req.user.storeId,{enabled:Boolean(req.body.enabled)});
+    res.json({ok:true,settings:{
+      enabled:Boolean(store.pickup_enabled),radiusKm:Number(store.pickup_radius_km||10),
+      latitude:store.latitude==null?null:Number(store.latitude),longitude:store.longitude==null?null:Number(store.longitude)
+    }});
+  }catch(error){res.status(500).json({error:"Não foi possível atualizar a opção de coletas."});}
+});
+
+app.get("/api/store/referral", requireAuth, requireRole("STORE_OWNER","STORE_CLERK"), async (req,res)=>{
+  try{
+    if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
+    const store=await db.getStore(req.user.storeId);
+    const stats=await clientDb.referralStats(req.user.storeId);
+    const clients=await clientDb.listClientsByStore(req.user.storeId,100);
+    const base=String(process.env.APP_PUBLIC_URL||"").replace(/\/$/,"");
+    res.json({
+      code:store.referral_code||store.code,
+      link:base+"/cliente?ref="+encodeURIComponent(store.referral_code||store.code),
+      earningPerShipment:REFERRAL_EARNING_PER_SHIPMENT,
+      stats:{
+        referredClients:Number(stats.referred_clients||0),referredShipments:Number(stats.referred_shipments||0),
+        referralEarnings:Number(stats.referral_earnings||0),pickupEarnings:Number(stats.pickup_earnings||0),
+        dropoffEarnings:Number(stats.dropoff_earnings||0)
+      },
+      clients
+    });
+  }catch(error){res.status(500).json({error:"Não foi possível carregar suas indicações."});}
+});
+
+app.post("/api/store/clients", requireAuth, requireRole("STORE_OWNER","STORE_CLERK"), async (req,res)=>{
+  try{
+    if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
+    const email=String(req.body.email||"").trim().toLowerCase();
+    const name=String(req.body.name||"").trim();
+    if(!email||!name) return res.status(400).json({error:"Nome e e-mail são obrigatórios."});
+    if(await db.findUserByEmail(email)) return res.status(409).json({error:"Já existe uma conta com este e-mail."});
+    const generated=!req.body.password;
+    const password=String(req.body.password||crypto.randomBytes(6).toString("base64url").slice(0,8));
+    const user=await db.createUser({
+      storeId:null,email,name,passwordHash:hashPassword(password),role:"CLIENT",active:true
+    });
+    await clientDb.createCustomerAccount({
+      userId:user.id,document:cleanDigits(req.body.document||""),phone:String(req.body.phone||""),
+      companyName:String(req.body.companyName||""),referralStoreId:req.user.storeId,defaultSender:req.body.defaultSender||{}
+    });
+    await audit(req,"REGISTER_REFERRED_CLIENT","CLIENT",user.id,{email});
+    res.status(201).json({
+      ok:true,client:{id:user.id,email,name},
+      temporaryPassword:generated?password:undefined,
+      message:"Cliente cadastrado e vinculado ao ponto. O ponto receberá R$ 0,50 por envio desse cliente."
+    });
+  }catch(error){res.status(500).json({error:"Não foi possível cadastrar o cliente."});}
+});
+
+app.get("/api/store/collections", requireAuth, requireRole("STORE_OWNER","STORE_CLERK","OPS"), async (req,res)=>{
+  try{
+    if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
+    const collections=await clientDb.listCollections({storeId:req.user.storeId},100);
+    const earnings=await clientDb.listPointEarnings(req.user.storeId,100);
+    res.json({collections,earnings});
+  }catch(error){res.status(500).json({error:"Não foi possível carregar as coletas."});}
+});
+
+app.patch("/api/collections/:id", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK","OPS"), async (req,res)=>{
+  try{
+    const current=await clientDb.getCollection(req.params.id);
+    if(!current) return res.status(404).json({error:"Coleta não encontrada."});
+    if(req.user.role!=="ADMIN"&&current.assigned_store_id!==req.user.storeId){
+      return res.status(403).json({error:"Esta coleta não está atribuída ao seu ponto."});
+    }
+    const status=String(req.body.status||current.status).toUpperCase();
+    const allowed=new Set(["REQUESTED","ASSIGNED","ACCEPTED","EN_ROUTE","COLLECTED","WAITING_DROPOFF","RECEIVED_AT_POINT","COMPLETED","DECLINED","CANCELED"]);
+    if(!allowed.has(status)) return res.status(400).json({error:"Status de coleta inválido."});
+    const assignedStoreId=req.user.role==="ADMIN"&&req.body.assignedStoreId!==undefined
+      ?(req.body.assignedStoreId||null):current.assigned_store_id;
+
+    let pointRate=Number(current.point_rate||0),pointComp=Number(current.point_compensation||0),postalComp=Number(current.postal_compensation||0);
+    if(req.user.role==="ADMIN"&&assignedStoreId&&assignedStoreId!==current.assigned_store_id){
+      pointRate=current.service_type==="PICKUP"?POINT_PICKUP_EARNING_PER_PACKAGE:POINT_DROPOFF_EARNING_PER_PACKAGE;
+      pointComp=round2(pointRate*Number(current.package_count||1));
+      postalComp=round2(Number(current.total_fee||0)-pointComp);
+    }
+
+    const updated=await clientDb.updateCollection(current.id,{
+      status,assignedStoreId,pointRate,pointCompensation:pointComp,postalCompensation:postalComp,
+      scheduledFor:req.body.scheduledFor,notes:req.body.notes
+    });
+
+    const earnsPickup=current.service_type==="PICKUP"&&["COLLECTED","COMPLETED"].includes(status);
+    const earnsDropoff=current.service_type==="DROPOFF"&&["RECEIVED_AT_POINT","COMPLETED"].includes(status);
+    if((earnsPickup||earnsDropoff)&&updated.assigned_store_id){
+      const order=updated.freight_order_id?await db.getOrder(updated.freight_order_id):null;
+      await clientDb.createPointEarning({
+        storeId:updated.assigned_store_id,clientUserId:updated.client_user_id,
+        earningType:earnsPickup?"PICKUP":"DROPOFF",amount:Number(updated.point_compensation||0),
+        referenceType:"COLLECTION",referenceId:updated.id,status:order?.is_simulation?"SIMULATED":"EARNED",
+        metadata:{packages:Number(updated.package_count||1),serviceType:updated.service_type}
+      });
+    }
+    await audit(req,"UPDATE_COLLECTION","COLLECTION",updated.id,{status,assignedStoreId:updated.assigned_store_id});
+    res.json({collection:updated});
+  }catch(error){res.status(500).json({error:"Não foi possível atualizar a coleta."});}
+});
+
+app.get("/api/admin/collections", requireAuth, requireRole("ADMIN"), async (_req,res)=>{
+  try{res.json({collections:await clientDb.listCollections({all:true},250)});}
+  catch(error){res.status(500).json({error:"Não foi possível carregar o painel de coletas."});}
+});
+
+app.patch("/api/integrations/v1/ecommerce/connections/:id", requireIntegrationAuth, async (req,res)=>{
+  try{
+    const connection=await clientDb.getConnectionById(req.params.id);
+    if(!connection) return res.status(404).json({error:"Conexão não encontrada."});
+    const updated=await clientDb.updateConnection(connection.id,connection.user_id,{
+      externalStoreId:req.body.externalStoreId,status:req.body.status||"CONNECTED",
+      authorizationUrl:req.body.authorizationUrl,config:req.body.config||undefined,markSynced:Boolean(req.body.markSynced)
+    });
+    res.json({ok:true,version:"v1",connection:updated});
+  }catch(error){res.status(500).json({error:"Falha ao atualizar a conexão de e-commerce."});}
+});
+
+app.post("/api/integrations/v1/ecommerce/connections/:id/orders", requireIntegrationAuth, async (req,res)=>{
+  try{
+    const connection=await clientDb.getConnectionById(req.params.id);
+    if(!connection) return res.status(404).json({error:"Conexão não encontrada."});
+    const body=req.body||{};
+    if(!body.externalOrderId) return res.status(400).json({error:"externalOrderId é obrigatório."});
+    const imported=await clientDb.importEcommerceOrder({
+      connectionId:connection.id,externalOrderId:body.externalOrderId,
+      customerName:body.customerName||"",externalStatus:body.status||"",payload:body.payload||body
+    });
+    await clientDb.updateConnection(connection.id,connection.user_id,{status:"CONNECTED",markSynced:true});
+    res.status(201).json({ok:true,version:"v1",order:imported});
+  }catch(error){res.status(500).json({error:"Falha ao importar pedido da plataforma."});}
+});
+
 app.get("/api/admin/overview", requireAuth, requireRole("ADMIN"), async (_req, res) => {
   try {
     const overview = await db.adminOverview();
