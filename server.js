@@ -1806,6 +1806,7 @@ app.get("/api/admin/system-health", requireAuth, requireRole("ADMIN"), async (_r
       await asaas.asaasFetch("/checkouts?limit=1",{method:"GET"});
       const pix=await asaas.ensurePixKey({waitForActiveMs:0});
       health.asaas.pixReady=Boolean(pix.ok && String(pix.status||"").toUpperCase()==="ACTIVE");
+      health.asaas.preferredPixKeyMatched=Boolean(pix.preferredMatched);
       health.asaas.ok=health.asaas.pixReady;
     }
   }catch(error){
@@ -3027,6 +3028,7 @@ async function start() {
       const pixKey=await asaas.ensurePixKey({waitForActiveMs:60000});
       asaasPixReady=Boolean(pixKey.ok && String(pixKey.status||"").toUpperCase()==="ACTIVE");
       console.log("ASAAS_PIX_KEY_READY", asaasPixReady ? "ACTIVE" : (pixKey.status || "PENDING"));
+      console.log("ASAAS_PIX_KEY_SOURCE", pixKey.preferredMatched ? "PREFERRED_MATCHED" : "ACTIVE_ACCOUNT_KEY");
     } catch (error) {
       asaasPixReady=false;
       console.error("ASAAS_PIX_KEY_FAIL", error.status || "", asaas.providerErrorMessage(error.providerData,error.message));
