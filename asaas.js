@@ -7,6 +7,7 @@ function resolveApiUrl() {
 }
 const ASAAS_API_URL = resolveApiUrl();
 const ASAAS_WEBHOOK_TOKEN = String(process.env.ASAAS_WEBHOOK_TOKEN || "").trim();
+const ASAAS_PREFERRED_PIX_KEY = String(process.env.ASAAS_PREFERRED_PIX_KEY || "").trim();
 const APP_PUBLIC_URL = String(
   process.env.APP_PUBLIC_URL ||
   (process.env.RAILWAY_PUBLIC_DOMAIN ? "https://" + process.env.RAILWAY_PUBLIC_DOMAIN : "http://localhost:3000")
@@ -45,7 +46,8 @@ function environmentInfo() {
     keyEnvironment,
     urlEnvironment,
     baseUrl: ASAAS_API_URL,
-    corrected: Boolean(CONFIGURED_API_URL && CONFIGURED_API_URL !== ASAAS_API_URL)
+    corrected: Boolean(CONFIGURED_API_URL && CONFIGURED_API_URL !== ASAAS_API_URL),
+    preferredPixKeyConfigured: Boolean(ASAAS_PREFERRED_PIX_KEY)
   };
 }
 
@@ -217,8 +219,13 @@ async function ensurePixKey({ waitForActiveMs = 60000 } = {}) {
   };
 
   let rows = await listKeys();
+  const keyValue = item => String(item?.key || item?.value || item?.addressKey || item?.pixAddressKey || "").trim();
+  let preferred = ASAAS_PREFERRED_PIX_KEY
+    ? rows.find(item => keyValue(item) === ASAAS_PREFERRED_PIX_KEY && String(item?.status || "").toUpperCase() === "ACTIVE")
+    : null;
+  if (preferred) return { ok: true, created: false, id: preferred.id || null, status: "ACTIVE", preferredMatched: true };
   let active = rows.find(item => String(item?.status || "").toUpperCase() === "ACTIVE");
-  if (active) return { ok: true, created: false, id: active.id || null, status: "ACTIVE" };
+  if (active) return { ok: true, created: false, id: active.id || null, status: "ACTIVE", preferredMatched: !ASAAS_PREFERRED_PIX_KEY };
 
   let pending = rows.find(item => String(item?.status || "").toUpperCase() === "AWAITING_ACTIVATION");
   let created = false;
