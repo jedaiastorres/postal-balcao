@@ -220,8 +220,9 @@ async function ensurePixKey({ waitForActiveMs = 60000 } = {}) {
 
   let rows = await listKeys();
   const keyValue = item => String(item?.key || item?.value || item?.addressKey || item?.pixAddressKey || "").trim();
+  const matchesPreferred = item => keyValue(item) === ASAAS_PREFERRED_PIX_KEY || String(item?.id || "").trim() === ASAAS_PREFERRED_PIX_KEY;
   let preferred = ASAAS_PREFERRED_PIX_KEY
-    ? rows.find(item => keyValue(item) === ASAAS_PREFERRED_PIX_KEY && String(item?.status || "").toUpperCase() === "ACTIVE")
+    ? rows.find(item => matchesPreferred(item) && String(item?.status || "").toUpperCase() === "ACTIVE")
     : null;
   if (preferred) return { ok: true, created: false, id: preferred.id || null, status: "ACTIVE", preferredMatched: true };
   let active = rows.find(item => String(item?.status || "").toUpperCase() === "ACTIVE");
