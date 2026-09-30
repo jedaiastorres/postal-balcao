@@ -348,6 +348,28 @@ function normalizeQuote(payload, partnerCommissionRate = PARTNER_COMMISSION) {
   }).filter(Boolean).sort((a, b) => a.precoVenda - b.precoVenda);
 }
 
+async function resolveOperationalQuoteOrigin(user, actualCepFrom) {
+  let store = null;
+  if (user?.storeId) {
+    store = await db.getStore(user.storeId);
+  } else if (user?.role === "CLIENT" && user?.userId) {
+    try {
+      const account = await clientDb.getCustomerAccount(user.userId);
+      if (account?.referral_store_id) store = await db.getStore(account.referral_store_id);
+    } catch {}
+    if (!store) {
+      try { store = await db.findStoreForQuoteOrigin(actualCepFrom); } catch {}
+    }
+  }
+  const configured = cleanDigits(store?.quote_origin_cep || "");
+  return {
+    actualCepFrom,
+    providerCepFrom: configured.length === 8 ? configured : actualCepFrom,
+    storeId: store?.id || null,
+    overridden: configured.length === 8 && configured !== actualCepFrom
+  };
+}
+
 function toPositiveInteger(value, label) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) throw new Error(`${label} deve ser maior que zero.`);
@@ -405,7 +427,7 @@ async function createShipmentFromOrder(order) {
     addr_from_document: cleanDigits(sender.document),
     addr_from_phone: cleanDigits(sender.phone),
     addr_from_name: String(sender.name || "").trim(),
-    addr_from_cep: cleanDigits(sender.cep),
+    addr_from_cep: cleanDigits(packageData.providerCepFrom || sender.cep),
     addr_from_number: String(sender.number || "").trim(),
     addr_from_address: String(sender.address || "").trim(),
     addr_from_neighborhood: String(sender.neighborhood || "").trim(),
@@ -529,6 +551,8 @@ async function createShipmentFromOrder(order) {
 
 function publicOrder(order) {
   if (!order) return null;
+  const rawPackageData = order.package_data && typeof order.package_data === "object" ? order.package_data : {};
+  const { providerCepFrom: _internalProviderCep, ...safePackageData } = rawPackageData;
   return {
     id: order.id,
     storeId: order.store_id || null,
@@ -565,7 +589,7 @@ function publicOrder(order) {
     recipient: order.recipient || {},
     items: order.items || [],
     invoiceNumber: order.invoice_number || "",
-    packageData: order.package_data || {},
+    packageData: safePackageData,
     trackingCode: order.tracking_code || "",
     labelA4Url: order.label_a4_url || "",
     labelA6Url: order.label_a6_url || "",
@@ -1827,6 +1851,7 @@ app.get("/api/admin/stores", requireAuth, requireRole("ADMIN"), async (_req, res
       id: store.id, code: store.code, name: store.name, legalName: store.legal_name || "",
       cnpj: store.cnpj || "", phone: store.phone || "", email: store.email || "",
       asaasWalletId: store.asaas_wallet_id || "",
+      quoteOriginCep: store.quote_origin_cep || "",
       address: store.address || {}, commissionPercent: Number(store.commission_percent || 0),
       active: Boolean(store.active), activeUsers: Number(store.active_users || 0),
       totalOrders: Number(store.total_orders || 0), grossSales: Number(store.gross_sales || 0)
@@ -1842,13 +1867,15 @@ app.post("/api/admin/stores", requireAuth, requireRole("ADMIN"), async (req, res
     const code = String(body.code || "").trim().toUpperCase().replace(/[^A-Z0-9_-]/g,"");
     const name = String(body.name || "").trim();
     const commissionPercent = Number(body.commissionPercent ?? 20);
+    const quoteOriginCep = cleanDigits(body.quoteOriginCep || "");
     if (!code || !name) return res.status(400).json({ error: "Código e nome do ponto são obrigatórios." });
+    if (quoteOriginCep && quoteOriginCep.length !== 8) return res.status(400).json({ error: "O CEP operacional deve ter 8 dígitos." });
     if (!Number.isFinite(commissionPercent) || commissionPercent < 0 || commissionPercent > 50) {
       return res.status(400).json({ error: "A comissão do ponto deve estar entre 0% e 50%." });
     }
     const store = await db.createStore({
       code,name,legalName:body.legalName,cnpj:cleanDigits(body.cnpj),phone:body.phone,email:body.email,
-      asaasWalletId:body.asaasWalletId||null,address:body.address||{},commissionPercent,active:body.active!==false
+      asaasWalletId:body.asaasWalletId||null,quoteOriginCep:quoteOriginCep||null,address:body.address||{},commissionPercent,active:body.active!==false
     });
     await audit(req,"CREATE_STORE","STORE",store.id,{code:store.code});
     res.status(201).json({ store });
@@ -1861,10 +1888,14 @@ app.post("/api/admin/stores", requireAuth, requireRole("ADMIN"), async (req, res
 app.patch("/api/admin/stores/:id", requireAuth, requireRole("ADMIN"), async (req, res) => {
   try {
     const commissionPercent = req.body.commissionPercent == null ? undefined : Number(req.body.commissionPercent);
+    const quoteOriginCep = req.body.quoteOriginCep === undefined ? undefined : cleanDigits(req.body.quoteOriginCep || "");
+    if (quoteOriginCep !== undefined && quoteOriginCep && quoteOriginCep.length !== 8) {
+      return res.status(400).json({ error: "O CEP operacional deve ter 8 dígitos." });
+    }
     if (commissionPercent != null && (!Number.isFinite(commissionPercent) || commissionPercent < 0 || commissionPercent > 50)) {
       return res.status(400).json({ error: "Comissão inválida." });
     }
-    const store = await db.updateStore(req.params.id,{...req.body,commissionPercent});
+    const store = await db.updateStore(req.params.id,{...req.body,commissionPercent,quoteOriginCep});
     if(!store) return res.status(404).json({error:"Ponto não encontrado."});
     await audit(req,"UPDATE_STORE","STORE",store.id,{active:store.active,commissionPercent:Number(store.commission_percent)});
     res.json({store});
@@ -2060,6 +2091,9 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
       return res.status(400).json({ error: "CEP de origem e destino devem ter 8 dígitos." });
     }
 
+    const quoteOrigin = await resolveOperationalQuoteOrigin(req.user, cepFrom);
+    const providerCepFrom = quoteOrigin.providerCepFrom;
+
     // A interface trabalha em kg; a ConectEnvios espera gramas.
     const weightGrams = toPositiveInteger(Number(body.peso) * 1000, "Peso");
     const width = toPositiveInteger(body.largura, "Largura");
@@ -2081,9 +2115,9 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
           width,
           height,
           length,
-          cep_from: cepFrom,
+          cep_from: providerCepFrom,
           cep_to: cepTo,
-          addr_from_cep: cepFrom,
+          addr_from_cep: providerCepFrom,
           addr_to_cep: cepTo
         }),
         timeout: 25000
@@ -2115,6 +2149,7 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
         postalMargin: option.postalMargin,
         package: {
           weightGrams, width, height, length, cepFrom, cepTo,
+          providerCepFrom,
           declaredValue: Number(body.vlDeclarado || 0)
         }
       });
