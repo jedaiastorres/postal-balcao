@@ -1274,6 +1274,7 @@ async function loadMaster() {
           <div><span>Usuários</span><strong>${Number(s.activeUsers||0)}</strong></div>
           <div><span>Fretes</span><strong>${Number(s.totalOrders||0)}</strong></div>
           <div><span>Venda</span><strong>${money(s.grossSales)}</strong></div>
+          <div><span>Origem cotação</span><strong>${escapeHtml(s.quoteOriginCep ? maskCep(s.quoteOriginCep) : "CEP real")}</strong></div>
           <div><span>Financeiro</span><strong>${s.asaasWalletId ? "Wallet vinculada" : "Pendente"}</strong></div>
           <button class="ghost" type="button" data-edit-store="${escapeHtml(s.id)}">Editar</button>
         </div>`).join("") : '<div class="empty-state">Nenhum ponto cadastrado.</div>';
@@ -1285,9 +1286,13 @@ async function loadMaster() {
         if(commission==null) return;
         const wallet=window.prompt("Wallet Asaas (pode ficar vazia):",store.asaasWalletId||"");
         if(wallet==null) return;
+        const quoteCep=window.prompt("CEP operacional para cotação/postagem (vazio = usar CEP real):",store.quoteOriginCep||"");
+        if(quoteCep==null) return;
+        const cleanQuoteCep=onlyDigits(quoteCep);
+        if(cleanQuoteCep && cleanQuoteCep.length!==8) return toast("CEP operacional inválido.","error");
         const active=window.confirm("OK = ponto ativo. Cancelar = desativar o ponto.");
         try{
-          await api(`/api/admin/stores/${store.id}`,{method:"PATCH",body:JSON.stringify({commissionPercent:Number(String(commission).replace(",",".")),asaasWalletId:wallet.trim(),active})});
+          await api(`/api/admin/stores/${store.id}`,{method:"PATCH",body:JSON.stringify({commissionPercent:Number(String(commission).replace(",",".")),asaasWalletId:wallet.trim(),quoteOriginCep:cleanQuoteCep,active})});
           toast("Ponto atualizado."); await loadMaster();
         }catch(err){toast(err.message,"error");}
       }));
@@ -1403,6 +1408,7 @@ $("#adminStoreForm")?.addEventListener("submit",async event=>{
         number:$("#adminStoreNumber").value.trim()
       },
       commissionPercent:Number($("#adminStoreCommission").value||20),
+      quoteOriginCep:onlyDigits($("#adminStoreQuoteCep").value),
       asaasWalletId:$("#adminStoreWallet").value.trim()
     })});
     event.currentTarget.reset(); $("#adminStoreCommission").value="20"; toast("Ponto cadastrado."); await loadMaster();
