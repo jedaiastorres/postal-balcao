@@ -500,7 +500,11 @@
               <label>Nome do ponto*<input id="adminStoreName" required /></label>
               <label>CNPJ<input id="adminStoreCnpj" /></label>
               <label>E-mail<input id="adminStoreEmail" type="email" /></label>
-              <label>CEP<input id="adminStoreCep" inputmode="numeric" /></label>
+              <label>CEP real do ponto<input id="adminStoreCep" inputmode="numeric" /></label>
+              <label>CEP operacional para cotação/postagem
+                <input id="adminStoreQuoteCep" inputmode="numeric" maxlength="9" placeholder="Opcional" />
+                <small>Somente o sistema e a transportadora usam este CEP. Tela e comprovante continuam mostrando o CEP real do ponto.</small>
+              </label>
               <label>Cidade<input id="adminStoreCity" /></label>
               <label>UF<input id="adminStoreUf" maxlength="2" /></label>
               <label>Endereço<input id="adminStoreAddress" /></label>
