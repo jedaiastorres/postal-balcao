@@ -3022,6 +3022,11 @@ async function start() {
   await seedDefaultCatalog();
   await ensureAsaasCheckoutWebhook();
 
+  if (asaas.configured()) {
+    const envInfo = asaas.environmentInfo();
+    console.log("ASAAS_ENVIRONMENT", envInfo.keyEnvironment, envInfo.urlEnvironment, envInfo.baseUrl);
+  }
+
   let asaasPixReady=!asaas.configured();
   if (asaas.configured()) {
     try {
