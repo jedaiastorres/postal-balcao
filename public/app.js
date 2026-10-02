@@ -261,6 +261,84 @@ function formatCepInput(el) {
 $("#cepOrigem").addEventListener("input", e => formatCepInput(e.target));
 $("#cepDestino").addEventListener("input", e => formatCepInput(e.target));
 
+
+function invalidateQuoteSelection() {
+  state.selectedOption = null;
+  state.shipmentResult = null;
+  $("#resultsWrap")?.classList.add("hidden");
+  $("#selectionSummary")?.classList.add("hidden");
+}
+
+function quoteVolumePayloads() {
+  const volumes = [{
+    peso: Number($("#peso").value || 0),
+    comprimento: Number($("#comprimento").value || 0),
+    largura: Number($("#largura").value || 0),
+    altura: Number($("#altura").value || 0),
+    vlDeclarado: Number($("#vlDeclarado").value || 0)
+  }];
+
+  $("#extraQuoteVolumes .extra-volume-card").forEach(card => {
+    volumes.push({
+      peso: Number(card.querySelector('[data-field="peso"]').value || 0),
+      comprimento: Number(card.querySelector('[data-field="comprimento"]').value || 0),
+      largura: Number(card.querySelector('[data-field="largura"]').value || 0),
+      altura: Number(card.querySelector('[data-field="altura"]').value || 0),
+      vlDeclarado: Number(card.querySelector('[data-field="vlDeclarado"]').value || 0)
+    });
+  });
+  return volumes;
+}
+
+function updateQuoteVolumeUi() {
+  const cards = $("#extraQuoteVolumes .extra-volume-card");
+  cards.forEach((card,index) => {
+    const number=index + 2;
+    card.dataset.volumeNumber=String(number);
+    card.querySelector("[data-volume-title]").textContent="VOLUME "+number;
+  });
+  const count=1 + cards.length;
+  $("#quoteVolumeCount").textContent=count+" volume"+(count===1?"":"s");
+  if($("#clientPackageCount")) $("#clientPackageCount").value=String(count);
+}
+
+function addQuoteVolume(data = {}) {
+  const current=1 + $("#extraQuoteVolumes .extra-volume-card").length;
+  if(current>=50){
+    toast("O limite é de 50 volumes por envio.","error");
+    return;
+  }
+  const number=current + 1;
+  const card=document.createElement("section");
+  card.className="extra-volume-card";
+  card.innerHTML=`
+    <div class="extra-volume-head">
+      <div><span data-volume-title>VOLUME ${number}</span><strong>Caixa</strong></div>
+      <button class="ghost compact remove-volume-btn" type="button">Remover volume</button>
+    </div>
+    <div class="extra-volume-grid">
+      <label><span>PESO*</span><div class="inline-input"><input data-field="peso" type="number" min="0.01" step="0.01" value="${Number(data.peso ?? 1)}" required /><em>kg</em></div></label>
+      <label><span>ALTURA*</span><div class="inline-input"><input data-field="altura" type="number" min="1" step="0.1" value="${Number(data.altura ?? 10)}" required /><em>cm</em></div></label>
+      <label><span>LARGURA*</span><div class="inline-input"><input data-field="largura" type="number" min="1" step="0.1" value="${Number(data.largura ?? 15)}" required /><em>cm</em></div></label>
+      <label><span>COMPRIMENTO*</span><div class="inline-input"><input data-field="comprimento" type="number" min="1" step="0.1" value="${Number(data.comprimento ?? 20)}" required /><em>cm</em></div></label>
+      <label><span>VALOR DECLARADO*</span><div class="inline-input"><em>R$</em><input data-field="vlDeclarado" type="number" min="0" step="0.01" value="${Number(data.vlDeclarado ?? 0)}" required /></div></label>
+    </div>`;
+  card.querySelector(".remove-volume-btn").addEventListener("click",()=>{
+    card.remove();
+    updateQuoteVolumeUi();
+    invalidateQuoteSelection();
+  });
+  card.querySelectorAll("input").forEach(input=>input.addEventListener("input",invalidateQuoteSelection));
+  $("#extraQuoteVolumes").appendChild(card);
+  updateQuoteVolumeUi();
+  invalidateQuoteSelection();
+}
+
+$("#addQuoteVolumeBtn")?.addEventListener("click",()=>addQuoteVolume());
+["peso","altura","largura","comprimento","vlDeclarado"].forEach(id=>{
+  $("#"+id)?.addEventListener("input",invalidateQuoteSelection);
+});
+
 $("#quoteForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const btn = $("#quoteBtn");
@@ -268,6 +346,7 @@ $("#quoteForm").addEventListener("submit", async (event) => {
   btn.textContent = "Consultando...";
   $("#resultsWrap").classList.add("hidden");
 
+  const volumes = quoteVolumePayloads();
   const payload = {
     cepOrigem: onlyDigits($("#cepOrigem").value),
     cepDestino: onlyDigits($("#cepDestino").value),
@@ -275,13 +354,18 @@ $("#quoteForm").addEventListener("submit", async (event) => {
     comprimento: String($("#comprimento").value),
     largura: String($("#largura").value),
     altura: String($("#altura").value),
-    vlDeclarado: String($("#vlDeclarado").value)
+    vlDeclarado: String($("#vlDeclarado").value),
+    volumes
   };
 
   try {
     if (payload.cepOrigem.length !== 8 || payload.cepDestino.length !== 8) {
       throw new Error("Informe CEPs com 8 dígitos.");
     }
+    const invalidVolume = volumes.findIndex(v =>
+      !(Number(v.peso)>0) || !(Number(v.comprimento)>0) || !(Number(v.largura)>0) || !(Number(v.altura)>0) || Number(v.vlDeclarado)<0
+    );
+    if (invalidVolume >= 0) throw new Error("Revise peso e dimensões do volume "+(invalidVolume+1)+".");
     const result = await api("/api/cotacao", {
       method: "POST",
       body: JSON.stringify(payload)
@@ -308,7 +392,7 @@ $("#quoteForm").addEventListener("submit", async (event) => {
 });
 
 function renderResults(result, payload) {
-  $("#resultsInfo").textContent = `${result.options.length} opção(ões) • ordenadas por menor preço`;
+  $("#resultsInfo").textContent = `${result.options.length} opção(ões) • ${result.volumeCount || payload.volumes?.length || 1} volume(s) • ordenadas por menor preço`;
   const list = $("#resultsList");
   list.innerHTML = "";
   $("#selectionSummary")?.classList.add("hidden");
@@ -400,7 +484,8 @@ function saveRecent(result, payload) {
     transportadora: best.transportadora,
     produto: best.produto,
     price: best.precoVenda,
-    commission: best.comissaoParceiro
+    commission: best.comissaoParceiro,
+    volumeCount: payload.volumes?.length || 1
   });
   state.recent = state.recent.slice(0, 8);
   localStorage.setItem("postal_recent_quotes", JSON.stringify(state.recent));
