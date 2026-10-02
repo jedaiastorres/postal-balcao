@@ -194,30 +194,36 @@
         </div>
 
         <form id="quoteForm" class="quote-panel">
-          <div class="package-type">
-            <span>Tipo de embalagem</span>
-            <strong>Caixa</strong>
+          <div class="package-type quote-volume-header">
+            <div>
+              <span>VOLUME 1 · TIPO DE EMBALAGEM</span>
+              <strong>Caixa</strong>
+            </div>
+            <div class="quote-volume-actions">
+              <span id="quoteVolumeCount" class="soft-pill">1 volume</span>
+              <button id="addQuoteVolumeBtn" class="ghost compact" type="button">+ Adicionar volume</button>
+            </div>
           </div>
 
           <div class="dimension-grid">
             <label class="field-card">
               <span>ALTURA*</span>
               <div class="number-line"><input id="altura" name="altura" type="number" min="1" step="0.1" value="10" required /><em>cm</em></div>
-              <small>Informe a altura do pacote.</small>
+              <small>Informe a altura do volume 1.</small>
             </label>
             <label class="field-card">
               <span>LARGURA*</span>
               <div class="number-line"><input id="largura" name="largura" type="number" min="1" step="0.1" value="15" required /><em>cm</em></div>
-              <small>Informe a largura do pacote.</small>
+              <small>Informe a largura do volume 1.</small>
             </label>
             <label class="field-card">
               <span>COMPRIMENTO*</span>
               <div class="number-line"><input id="comprimento" name="comprimento" type="number" min="1" step="0.1" value="20" required /><em>cm</em></div>
-              <small>Informe o comprimento do pacote.</small>
+              <small>Informe o comprimento do volume 1.</small>
             </label>
             <div class="box-preview">
               <div>
-                <span>DIMENSÕES TOTAIS</span>
+                <span>DIMENSÕES VOLUME 1</span>
                 <strong id="dimensionTotal">45 cm</strong>
               </div>
               <div class="cube">
@@ -228,6 +234,17 @@
               </div>
             </div>
           </div>
+
+          <div class="bottom-fields quote-volume-primary-fields">
+            <label><span>PESO VOLUME 1*</span><div class="inline-input"><input id="peso" name="peso" type="number" min="0.01" step="0.01" value="1" required /><em>kg</em></div></label>
+            <label><span>VALOR DECLARADO VOLUME 1*</span><div class="inline-input"><em>R$</em><input id="vlDeclarado" name="vlDeclarado" type="number" min="0" step="0.01" value="100" required /></div></label>
+            <div class="volume-help">
+              <strong>Envio com múltiplos volumes</strong>
+              <small>Cada caixa pode ter peso e medidas diferentes. O sistema consolida apenas serviços disponíveis para todos os volumes.</small>
+            </div>
+          </div>
+
+          <div id="extraQuoteVolumes" class="extra-quote-volumes"></div>
 
           <div class="route-grid">
             <label class="route-card">
@@ -243,13 +260,9 @@
             </label>
           </div>
 
-          <div class="bottom-fields">
-            <label><span>Peso*</span><div class="inline-input"><input id="peso" name="peso" type="number" min="0.01" step="0.01" value="1" required /><em>kg</em></div></label>
-            <label><span>Valor declarado*</span><div class="inline-input"><em>R$</em><input id="vlDeclarado" name="vlDeclarado" type="number" min="0" step="0.01" value="100" required /></div></label>
-            <div class="quote-action">
-              <span id="quoteModeLabel">Pronto para cotar</span>
-              <button id="quoteBtn" class="primary xl" type="submit">Calcular frete</button>
-            </div>
+          <div class="quote-submit-row">
+            <span id="quoteModeLabel">Pronto para cotar</span>
+            <button id="quoteBtn" class="primary xl" type="submit">Calcular frete</button>
           </div>
         </form>
 
@@ -779,7 +792,7 @@
               <label class="choice-card"><input type="radio" name="firstMileType" value="LATER" checked /><span><strong>Solicitar depois</strong><small>Gere a etiqueta agora e selecione vários pedidos para uma coleta em lote.</small></span></label>
             </div>
             <div class="form-grid">
-              <label>Pacotes neste envio<input id="clientPackageCount" type="number" min="1" max="1" value="1" readonly /><small>Cada etiqueta corresponde a 1 pacote e recebe uma taxa de primeira milha de R$ 5,00.</small></label>
+              <label>Volumes neste envio<input id="clientPackageCount" type="number" min="1" max="50" value="1" readonly /><small>Quantidade definida automaticamente pela cotação. Cada volume recebe sua própria etiqueta.</small></label>
               <label id="clientDropoffField" class="hidden">Ponto Postal<select id="clientDropoffStore"></select></label>
               <label>Agendar para<input id="clientScheduledFor" type="datetime-local" /></label>
               <div class="span-2 geo-assist"><button id="clientGeoBtn" class="ghost" type="button">Usar localização para achar o ponto mais próximo</button><small id="clientGeoStatus">Opcional. Ajuda a Postal a direcionar a coleta com maior precisão.</small></div>
