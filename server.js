@@ -16,6 +16,7 @@ const API_URL = (process.env.CONECTENVIOS_API_URL || "https://app.conectenvios.c
 const TOKEN = (process.env.CONECTENVIOS_TOKEN || "").trim();
 const CONECTENVIOS_PAYMENT_MODE = String(process.env.CONECTENVIOS_PAYMENT_MODE || "WALLET").trim().toUpperCase();
 const ASAAS_SELF_TEST_ON_BOOT = String(process.env.ASAAS_SELF_TEST_ON_BOOT || "false").toLowerCase() === "true";
+const CONECTENVIO_MULTI_QUOTE_PROBE = String(process.env.CONECTENVIO_MULTI_QUOTE_PROBE || "false").toLowerCase() === "true";
 
 const APP_USER = process.env.APP_USER || "parceiro@postalservicos.com.br";
 const APP_PASSWORD = process.env.APP_PASSWORD || "postal123";
@@ -374,6 +375,40 @@ function toPositiveInteger(value, label) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) throw new Error(`${label} deve ser maior que zero.`);
   return Math.max(1, Math.round(n));
+}
+
+
+async function probeConectEnviosMultiVolumeQuote() {
+  if (!TOKEN) return;
+  const common = {
+    cep_from: "68515000",
+    cep_to: "01310100",
+    addr_from_cep: "68515000",
+    addr_to_cep: "01310100"
+  };
+  const volumes = [
+    { type:"box", weight:1000, width:20, height:10, length:25 },
+    { type:"box", weight:1500, width:25, height:15, length:30 }
+  ];
+  const attempts = [
+    { name:"package_array", payload:{ ...common, package:volumes } },
+    { name:"packages_array", payload:{ ...common, packages:volumes } },
+    { name:"volumes_array", payload:{ ...common, volumes } }
+  ];
+  for (const attempt of attempts) {
+    try {
+      const result = await providerFetch("/package/shipping", {
+        method:"POST",
+        body:JSON.stringify(attempt.payload),
+        timeout:25000
+      });
+      const body = result?.data;
+      const items = extractShippingItems(body);
+      console.log("CONECTENVIO_MULTI_QUOTE_PROBE", attempt.name, "HTTP_OK", "services=" + items.length, "providerError=" + Boolean(body?.error));
+    } catch (error) {
+      console.log("CONECTENVIO_MULTI_QUOTE_PROBE", attempt.name, "FAILED", "status=" + (error.status || ""), String(error.message || "").slice(0,180));
+    }
+  }
 }
 
 async function createShipmentFromOrder(order) {
@@ -3021,6 +3056,9 @@ async function start() {
   await ensureBootstrapAdmin();
   await seedDefaultCatalog();
   await ensureAsaasCheckoutWebhook();
+  if (CONECTENVIO_MULTI_QUOTE_PROBE) {
+    await probeConectEnviosMultiVolumeQuote();
+  }
 
   if (asaas.configured()) {
     const envInfo = asaas.environmentInfo();
