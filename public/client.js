@@ -494,13 +494,16 @@
     $("#createShipmentBtn").textContent="Pagar com saldo e gerar envio";
     $("#shipmentLockNote").textContent="Saldo disponível: "+money(client.walletBalance);
     fillImportedShipment();
+    const quotedVolumes=Math.max(1,Number(state.selectedOption?.volumeCount || state.currentQuote?.volumes?.length || 1));
+    if($("#clientPackageCount")) $("#clientPackageCount").value=String(quotedVolumes);
     refreshFirstMileTotal();
     return true;
   }
 
   function refreshFirstMileTotal(){
     if(!isClient()||!state.selectedOption)return;
-    const count=Math.max(1,Number($("#clientPackageCount")?.value||1));
+    const count=Math.max(1,Number(state.selectedOption?.volumeCount || state.currentQuote?.volumes?.length || $("#clientPackageCount")?.value || 1));
+    if($("#clientPackageCount")) $("#clientPackageCount").value=String(count);
     const type=document.querySelector('input[name="firstMileType"]:checked')?.value||"LATER";
     const fee=type==="LATER"?0:Number(state.config?.clientPickupFeePerPackage||5)*count;
     $("#paymentFreight").textContent=money(state.selectedOption.precoVenda);
@@ -518,7 +521,7 @@
       carrier:state.selectedOption.transportadora,
       sender:partyData("sender"),recipient:partyData("recipient"),items:contentData(),
       invoiceNumber:currentInvoiceNumber(),firstMileType,
-      packageCount:Number($("#clientPackageCount").value||1),
+      packageCount:Math.max(1,Number(state.selectedOption?.volumeCount || state.currentQuote?.volumes?.length || 1)),
       dropoffStoreId:firstMileType==="DROPOFF"?$("#clientDropoffStore").value:null,
       latitude:firstMileType==="PICKUP"?client.pickupCoords?.latitude:null,
       longitude:firstMileType==="PICKUP"?client.pickupCoords?.longitude:null,
