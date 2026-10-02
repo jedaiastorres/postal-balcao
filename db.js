@@ -125,6 +125,7 @@ async function initDb() {
       label_a6_url TEXT,
       declaration_url TEXT,
       public_tracking_url TEXT,
+      shipment_volumes JSONB NOT NULL DEFAULT '[]'::jsonb,
       is_simulation BOOLEAN NOT NULL DEFAULT FALSE,
 
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -300,6 +301,7 @@ async function initDb() {
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS provider_payment_attempts INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS provider_payment_last_error TEXT;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS provider_payment_updated_at TIMESTAMPTZ;
+    ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS shipment_volumes JSONB NOT NULL DEFAULT '[]'::jsonb;
     ALTER TABLE partner_inventory ADD COLUMN IF NOT EXISTS sale_price NUMERIC(12,2);
     ALTER TABLE partner_inventory ADD COLUMN IF NOT EXISTS average_cost NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS lot_code TEXT;
@@ -569,6 +571,7 @@ async function saveProviderPendingShipment(id, shipment) {
        label_a6_url=COALESCE(NULLIF($6,''),label_a6_url),
        declaration_url=COALESCE(NULLIF($7,''),declaration_url),
        public_tracking_url=COALESCE(NULLIF($8,''),public_tracking_url),
+       shipment_volumes=CASE WHEN $9::jsonb='[]'::jsonb THEN shipment_volumes ELSE $9::jsonb END,
        updated_at=NOW()
      WHERE id=$1
      RETURNING *`,
@@ -580,7 +583,8 @@ async function saveProviderPendingShipment(id, shipment) {
       shipment.labelA4Url || "",
       shipment.labelA6Url || "",
       shipment.declarationUrl || "",
-      shipment.publicTrackingUrl || ""
+      shipment.publicTrackingUrl || "",
+      JSON.stringify(shipment.volumes || [])
     ]
   );
   return rows[0] || null;
@@ -598,6 +602,7 @@ async function saveShipment(id, shipment) {
        label_a6_url=$6,
        declaration_url=$7,
        public_tracking_url=$8,
+       shipment_volumes=$9::jsonb,
        provider_payment_status='PAID',
        provider_payment_ref=COALESCE(provider_payment_ref,$2,$3),
        provider_payment_last_error=NULL,
@@ -614,10 +619,27 @@ async function saveShipment(id, shipment) {
       shipment.labelA4Url || "",
       shipment.labelA6Url || "",
       shipment.declarationUrl || "",
-      shipment.publicTrackingUrl || ""
+      shipment.publicTrackingUrl || "",
+      JSON.stringify(shipment.volumes || [])
     ]
   );
   return rows[0] || null;
+}
+
+async function listProviderConfirmationCandidates(limit = 20) {
+  const db = requireDb();
+  const { rows } = await db.query(
+    `SELECT f.*
+       FROM freight_orders f
+      WHERE f.payment_status='PAID'
+        AND f.provider_payment_status='AWAITING_PROVIDER_CONFIRMATION'
+        AND f.conect_cart_id IS NOT NULL
+        AND COALESCE(f.provider_payment_updated_at,f.updated_at,f.created_at) < NOW() - INTERVAL '1 minute'
+      ORDER BY COALESCE(f.provider_payment_updated_at,f.updated_at,f.created_at) ASC
+      LIMIT $1`,
+    [Math.max(1, Math.min(100, Number(limit) || 20))]
+  );
+  return rows;
 }
 
 async function listCatalogItems({ itemType = null, activeOnly = true } = {}) {
@@ -1351,6 +1373,7 @@ module.exports = {
   updateStatus,
   updateProviderPayment,
   listProviderPaymentRetryCandidates,
+  listProviderConfirmationCandidates,
   providerPaymentSummary,
   saveProviderPendingShipment,
   saveShipment,
