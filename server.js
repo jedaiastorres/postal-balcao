@@ -516,28 +516,31 @@ async function probeConectEnviosMultiVolumeQuote() {
     addr_to_cep: "01310100"
   };
   const volumes = [
-    { type:"box", weight:1000, width:20, height:10, length:25 },
-    { type:"box", weight:1500, width:25, height:15, length:30 }
+    { index:1, weightGrams:1000, width:20, height:10, length:25, declaredValue:50 },
+    { index:2, weightGrams:1500, width:25, height:15, length:30, declaredValue:50 }
   ];
-  const attempts = [
-    { name:"package_array", payload:{ ...common, package:volumes } },
-    { name:"packages_array", payload:{ ...common, packages:volumes } },
-    { name:"volumes_array", payload:{ ...common, volumes } }
-  ];
-  for (const attempt of attempts) {
-    try {
-      const result = await providerFetch("/package/shipping", {
+
+  const sets=[];
+  for(const volume of volumes){
+    try{
+      const result=await providerFetch("/package/shipping",{
         method:"POST",
-        body:JSON.stringify(attempt.payload),
+        body:JSON.stringify({
+          type:"box",weight:volume.weightGrams,width:volume.width,height:volume.height,length:volume.length,
+          ...common
+        }),
         timeout:25000
       });
-      const body = result?.data;
-      const items = extractShippingItems(body);
-      console.log("CONECTENVIO_MULTI_QUOTE_PROBE", attempt.name, "HTTP_OK", "services=" + items.length, "providerError=" + Boolean(body?.error));
-    } catch (error) {
-      console.log("CONECTENVIO_MULTI_QUOTE_PROBE", attempt.name, "FAILED", "status=" + (error.status || ""), String(error.message || "").slice(0,180));
+      const normalized=normalizeQuote(result.data,0);
+      sets.push(normalized);
+      console.log("CONECTENVIO_MULTI_QUOTE_PROBE","volume_"+volume.index,"HTTP_OK","services="+normalized.length);
+    }catch(error){
+      console.log("CONECTENVIO_MULTI_QUOTE_PROBE","volume_"+volume.index,"FAILED","status="+(error.status||""),providerFailureText(error).slice(0,180));
+      return;
     }
   }
+  const commonOptions=aggregateVolumeQuoteSets(sets);
+  console.log("CONECTENVIO_MULTI_QUOTE_PROBE","aggregate","OK","commonServices="+commonOptions.length);
 }
 
 async function createShipmentFromOrder(order) {
