@@ -893,7 +893,13 @@ function buildReceiptHtml(data) {
     `<div class="item"><span>${escapeHtml(item.name)} x${Number(item.quantity || 1)}</span><b>${money(Number(item.totalPrice || 0))}</b></div>`
   ).join("");
   const preview = data.preview ? '<div class="preview">PRÉVIA — SEM VALIDADE</div>' : "";
+  const trackingCodes = Array.isArray(data.trackingCodes) && data.trackingCodes.length
+    ? data.trackingCodes.filter(Boolean)
+    : [data.trackingCode].filter(Boolean);
   const trackingUrl = data.publicTrackingUrl ? `<div class="tiny">${escapeHtml(data.publicTrackingUrl)}</div>` : "";
+  const trackingBlock = trackingCodes.length > 1
+    ? `<div class="label">${trackingCodes.length} códigos de rastreio</div>${trackingCodes.map((code,index)=>`<div class="row"><span>Volume ${index+1}</span><b class="tiny">${escapeHtml(code)}</b></div>`).join("")}`
+    : `<div class="label">Código de rastreio</div><div class="tracking">${escapeHtml(trackingCodes[0] || "AGUARDANDO")}</div>${trackingUrl}`;
   const invoice = data.invoiceNumber ?
     `<div class="row"><span>Nota fiscal</span><b>${escapeHtml(data.invoiceNumber)}</b></div>` :
     '<div class="row"><span>Documento</span><b>Declaração de conteúdo</b></div>';
@@ -910,10 +916,10 @@ function buildReceiptHtml(data) {
   </style></head><body><div class="receipt">
   <div class="center"><div class="brand">POSTAL</div><div class="brand-sub">SERVIÇOS</div><h1>COMPROVANTE DE POSTAGEM</h1><div class="small">${escapeHtml(created)}</div></div>
   ${preview}<div class="dash"></div>
-  <div class="center"><div class="label">Código de rastreio</div><div class="tracking">${escapeHtml(data.trackingCode || "AGUARDANDO")}</div>${trackingUrl}</div>
+  <div class="center">${trackingBlock}</div>
   <div class="dash"></div><div class="section">REMETENTE</div><div class="person">${escapeHtml(sender.name)}</div><div>Doc.: ${escapeHtml(sender.document)}</div><div>Tel.: ${escapeHtml(sender.phone)}</div>${sender.email ? `<div>E-mail: ${escapeHtml(sender.email)}</div>` : ""}<div class="small">${escapeHtml(addressText(sender))}</div>
   <div class="dash"></div><div class="section">DESTINATÁRIO</div><div class="person">${escapeHtml(recipient.name)}</div><div>Doc.: ${escapeHtml(recipient.document)}</div><div>Tel.: ${escapeHtml(recipient.phone)}</div>${recipient.email ? `<div>E-mail: ${escapeHtml(recipient.email)}</div>` : ""}<div class="small">${escapeHtml(addressText(recipient))}</div>
-  <div class="dash"></div><div class="section">ENVIO</div><div class="row"><span>Transportadora</span><b>${escapeHtml(data.carrier)}</b></div><div class="row"><span>Serviço</span><b>${escapeHtml(data.service)}</b></div><div class="row"><span>Prazo estimado</span><b>${escapeHtml(data.deadline ? data.deadline + " dias úteis" : "-")}</b></div><div class="row"><span>Peso</span><b>${escapeHtml(data.weightKg + " kg")}</b></div><div class="row"><span>Dimensões</span><b>${escapeHtml(data.dimensions)}</b></div><div class="row"><span>Valor declarado</span><b>${money(data.declaredValue)}</b></div>${invoice}
+  <div class="dash"></div><div class="section">ENVIO</div><div class="row"><span>Transportadora</span><b>${escapeHtml(data.carrier)}</b></div><div class="row"><span>Serviço</span><b>${escapeHtml(data.service)}</b></div><div class="row"><span>Prazo estimado</span><b>${escapeHtml(data.deadline ? data.deadline + " dias úteis" : "-")}</b></div>${Number(data.volumeCount||1)>1?`<div class="row"><span>Volumes</span><b>${Number(data.volumeCount)} caixas</b></div>`:""}<div class="row"><span>Peso total</span><b>${escapeHtml(data.weightKg + " kg")}</b></div><div class="row"><span>Dimensões</span><b class="tiny">${escapeHtml(data.dimensions)}</b></div><div class="row"><span>Valor declarado</span><b>${money(data.declaredValue)}</b></div>${invoice}
   <div class="dash"></div><div class="section">CONTEÚDO</div>${items || '<div class="small">Conteúdo não informado</div>'}
   ${extras ? `<div class="dash"></div><div class="section">PRODUTOS / SERVIÇOS</div>${extras}` : ""}
   <div class="dash"></div>
@@ -962,6 +968,26 @@ async function openProviderDocument(url) {
     const blob = await response.blob();
     target.location.href = URL.createObjectURL(blob);
   } catch (err) { target.close(); toast(err.message, "error"); }
+}
+
+async function openOrderLabels(order) {
+  const volumes=Array.isArray(order?.shipmentVolumes)?order.shipmentVolumes:[];
+  if(volumes.length<=1){
+    return openProviderDocument(order?.labelA6Url||order?.labelA4Url||volumes[0]?.labelA6Url||volumes[0]?.labelA4Url);
+  }
+  const target=window.open("","_blank");
+  if(!target){toast("Permita pop-ups para imprimir as etiquetas.","error");return;}
+  target.document.write("<p style=\"font-family:Arial\">Montando etiquetas dos volumes...</p>");
+  try{
+    const response=await fetch("/api/orders/"+encodeURIComponent(order.id)+"/labels",{credentials:"same-origin"});
+    if(!response.ok){
+      let message="Não foi possível montar as etiquetas.";
+      try{message=(await response.json()).error||message;}catch{}
+      throw new Error(message);
+    }
+    const blob=await response.blob();
+    target.location.href=URL.createObjectURL(blob);
+  }catch(err){target.close();toast(err.message,"error");}
 }
 
 $("#continueShipmentBtn")?.addEventListener("click", async () => {
@@ -1040,10 +1066,20 @@ function paymentMethodLabel(method) {
 
 function receiptPayloadFromOrder(order) {
   const p = order.packageData || {};
+  const volumes = Array.isArray(p.volumes) && p.volumes.length ? p.volumes : [];
+  const shipmentVolumes = Array.isArray(order.shipmentVolumes) ? order.shipmentVolumes : [];
+  const trackingCodes = shipmentVolumes.map(v=>v.trackingCode).filter(Boolean);
+  const totalWeightKg = volumes.length
+    ? volumes.reduce((sum,v)=>sum+Number(v.weightGrams||0),0)/1000
+    : Number(p.weightGrams || 0)/1000;
+  const dimensions = volumes.length > 1
+    ? volumes.map((v,index)=>`V${index+1}: ${v.length||"-"} x ${v.width||"-"} x ${v.height||"-"} cm`).join(" · ")
+    : `${p.length || volumes[0]?.length || "-"} x ${p.width || volumes[0]?.width || "-"} x ${p.height || volumes[0]?.height || "-"} cm`;
   return {
     preview: false,
     createdAt: order.shippedAt || order.paidAt || order.createdAt || new Date().toISOString(),
-    trackingCode: order.trackingCode || "",
+    trackingCode: order.trackingCode || trackingCodes[0] || "",
+    trackingCodes,
     publicTrackingUrl: order.publicTrackingUrl || "",
     cartId: "",
     packageId: "",
@@ -1059,9 +1095,10 @@ function receiptPayloadFromOrder(order) {
       quantity: addon.quantity,
       totalPrice: addon.totalPrice
     })),
-    declaredValue: Number(p.declaredValue || 0),
-    weightKg: Number(p.weightGrams || 0) / 1000,
-    dimensions: `${p.length || "-"} x ${p.width || "-"} x ${p.height || "-"} cm`,
+    declaredValue: Number(p.declaredValue || volumes.reduce((sum,v)=>sum+Number(v.declaredValue||0),0) || 0),
+    weightKg: Number(totalWeightKg.toFixed(3)),
+    dimensions,
+    volumeCount: Number(order.packageCount || volumes.length || 1),
     invoiceNumber: order.invoiceNumber || "",
     paymentMethod: paymentMethodLabel(order.paymentMethod),
     sender: order.sender || {},
@@ -1130,7 +1167,7 @@ function orderMatchesFilters(order) {
   if (payment && order.paymentMethod !== payment) return false;
   if (!search) return true;
   const haystack = [
-    order.id, order.trackingCode, order.sender?.name, order.sender?.document,
+    order.id, order.trackingCode, ...(order.shipmentVolumes||[]).map(v=>v.trackingCode), order.sender?.name, order.sender?.document,
     order.recipient?.name, order.recipient?.document, order.sender?.city,
     order.recipient?.city, order.carrier, order.serviceName, order.storeName, order.storeCode
   ].filter(Boolean).join(" ").toLowerCase();
@@ -1151,8 +1188,10 @@ function openOrderDetails(order) {
       <div><span>Receita do ponto</span><strong>${money(order.pointRevenueTotal)}</strong></div>
       <div><span>Pagamento</span><strong>${escapeHtml(paymentMethodLabel(order.paymentMethod))}</strong></div>
       <div><span>Rastreio</span><strong>${escapeHtml(order.trackingCode || "—")}</strong></div>
+      <div><span>Volumes</span><strong>${Number(order.packageCount||1)}</strong></div>
       <div><span>Prazo</span><strong>${Number(order.deadline||0) || "—"} dias</strong></div>
     </div>
+    ${Array.isArray(order.shipmentVolumes)&&order.shipmentVolumes.length>1?`<div class="detail-section"><h4>Rastreios por volume</h4>${order.shipmentVolumes.map((v,index)=>`<div class="detail-line"><span>Volume ${index+1}</span><b>${escapeHtml(v.trackingCode||"Aguardando")}</b></div>`).join("")}</div>`:""}
     <div class="detail-party"><h4>Remetente</h4><b>${escapeHtml(order.sender?.name||"")}</b><span>${escapeHtml(addressText(order.sender||{}))}</span></div>
     <div class="detail-party"><h4>Destinatário</h4><b>${escapeHtml(order.recipient?.name||"")}</b><span>${escapeHtml(addressText(order.recipient||{}))}</span></div>
     ${addons.length ? `<div class="detail-section"><h4>Produtos e serviços</h4>${addons.map(a=>`<div class="detail-line"><span>${escapeHtml(a.itemName)} ×${Number(a.quantity)}</span><b>${money(a.totalPrice)}</b></div>`).join("")}</div>` : ""}
@@ -1205,7 +1244,7 @@ function renderOrders() {
         <div><span>Total cliente</span><strong>${money(order.totalToCustomer || order.salePrice)}</strong></div>
         <div><span>${clientOrdersMode ? "Primeira milha" : "Sua receita"}</span><strong>${clientOrdersMode ? money(order.firstMileFee || 0) : money(order.pointRevenueTotal || order.partnerCommission)}</strong></div>
         <div><span>Pagamento</span><strong>${escapeHtml(paymentMethodLabel(order.paymentMethod))}</strong></div>
-        <div><span>Rastreio</span><strong>${escapeHtml(order.trackingCode || "—")}</strong></div>
+        <div><span>${Number(order.packageCount||1)>1?"Volumes":"Rastreio"}</span><strong>${Number(order.packageCount||1)>1?Number(order.packageCount):escapeHtml(order.trackingCode || "—")}</strong></div>
       </div>
       ${order.addons?.length ? `<div class="order-addons"><strong>Adicionais:</strong> ${order.addons.map(a => `${escapeHtml(a.itemName)} ×${Number(a.quantity)} (${money(a.totalPrice)})`).join(" · ")}</div>` : ""}
       <div class="order-bottom"><span>${escapeHtml(description)}</span><div class="order-actions"></div></div>`;
@@ -1229,16 +1268,19 @@ function renderOrders() {
     }
 
     if (order.status === "LABEL_AVAILABLE") {
-      const labelBtn=document.createElement("button"); labelBtn.className="primary"; labelBtn.type="button"; labelBtn.textContent="Imprimir etiqueta A6";
-      labelBtn.addEventListener("click",()=>openProviderDocument(order.labelA6Url||order.labelA4Url)); actions.appendChild(labelBtn);
+      const labelBtn=document.createElement("button"); labelBtn.className="primary"; labelBtn.type="button"; labelBtn.textContent=Number(order.packageCount||1)>1?`Imprimir ${Number(order.packageCount)} etiquetas`:"Imprimir etiqueta A6";
+      labelBtn.addEventListener("click",()=>openOrderLabels(order)); actions.appendChild(labelBtn);
     }
     if (order.status === "LABEL_AVAILABLE_SIMULATED") {
       const labelBtn=document.createElement("button"); labelBtn.className="primary"; labelBtn.type="button"; labelBtn.textContent="Etiqueta teste";
       labelBtn.addEventListener("click",()=>openSimulatedLabel(order)); actions.appendChild(labelBtn);
     }
     if (["LABEL_AVAILABLE","LABEL_AVAILABLE_SIMULATED"].includes(order.status)) {
-      const receiptBtn=document.createElement("button"); receiptBtn.className="ghost"; receiptBtn.type="button"; receiptBtn.textContent=order.trackingCode ? "Comprovante com rastreio" : "Rastreio pendente";
-      receiptBtn.disabled=!order.trackingCode;
+      const receiptBtn=document.createElement("button"); receiptBtn.className="ghost"; receiptBtn.type="button";
+      const allTracking=(order.shipmentVolumes||[]).filter(v=>v.trackingCode).length || (order.trackingCode?1:0);
+      const expected=Math.max(1,Number(order.packageCount||1));
+      receiptBtn.textContent=allTracking>=expected ? "Comprovante com rastreios" : "Rastreio pendente";
+      receiptBtn.disabled=allTracking<expected;
       receiptBtn.addEventListener("click",()=>openReceipt(receiptPayloadFromOrder(order),true)); actions.appendChild(receiptBtn);
     }
 
