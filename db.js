@@ -358,7 +358,7 @@ async function insertOrder(order) {
       point_revenue_total, postal_revenue_total, provider_revenue_total,
       partner_commission, postal_margin, provider_cost,
       postal_company_id, carrier, service_name, deadline, quote_token,
-      sender, recipient, items, invoice_number, package_data
+      sender, recipient, items, invoice_number, package_data, package_count
     ) VALUES (
       $1,$2,$3,$4,$5,$6,$7,
       $8,$9,$10,
@@ -366,7 +366,7 @@ async function insertOrder(order) {
       $14,$15,$16,
       $17,$18,$19,
       $20,$21,$22,$23,$24,
-      $25::jsonb,$26::jsonb,$27::jsonb,$28,$29::jsonb
+      $25::jsonb,$26::jsonb,$27::jsonb,$28,$29::jsonb,$30
     )
     RETURNING *`,
     [
@@ -379,7 +379,8 @@ async function insertOrder(order) {
       order.partnerCommission, order.postalMargin, order.providerCost,
       order.postalCompanyId || null, order.carrier || "", order.serviceName || "", order.deadline || 0, order.quoteToken,
       JSON.stringify(order.sender || {}), JSON.stringify(order.recipient || {}), JSON.stringify(order.items || []),
-      order.invoiceNumber || "", JSON.stringify(order.packageData || {})
+      order.invoiceNumber || "", JSON.stringify(order.packageData || {}),
+      Math.max(1, Number(order.packageCount || order.packageData?.volumes?.length || 1))
     ]
   );
   return rows[0];
