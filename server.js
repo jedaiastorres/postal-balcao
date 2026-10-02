@@ -378,6 +378,135 @@ function toPositiveInteger(value, label) {
 }
 
 
+function parseQuoteVolumes(body = {}) {
+  const incoming = Array.isArray(body.volumes) && body.volumes.length
+    ? body.volumes
+    : [{
+        peso: body.peso,
+        comprimento: body.comprimento,
+        largura: body.largura,
+        altura: body.altura,
+        vlDeclarado: body.vlDeclarado
+      }];
+
+  if (!incoming.length) throw new Error("Informe ao menos um volume.");
+  if (incoming.length > 50) throw new Error("Este envio aceita no máximo 50 volumes por cotação.");
+
+  return incoming.map((volume, index) => {
+    const weightKg = Number(volume.peso ?? volume.weightKg ?? volume.weight ?? 0);
+    const weightGrams = toPositiveInteger(weightKg * 1000, `Peso do volume ${index + 1}`);
+    const width = toPositiveInteger(volume.largura ?? volume.width, `Largura do volume ${index + 1}`);
+    const height = toPositiveInteger(volume.altura ?? volume.height, `Altura do volume ${index + 1}`);
+    const length = toPositiveInteger(volume.comprimento ?? volume.length, `Comprimento do volume ${index + 1}`);
+    const declaredValue = round2(Math.max(0, Number(volume.vlDeclarado ?? volume.declaredValue ?? 0) || 0));
+    return { index:index + 1, weightGrams, width, height, length, declaredValue };
+  });
+}
+
+function aggregateVolumeQuoteSets(sets) {
+  if (!Array.isArray(sets) || !sets.length) return [];
+  const keyOf = option => [
+    Number(option.postalCompanyId || 0),
+    String(option.codigoServico || "").trim().toLowerCase(),
+    String(option.produto || "").trim().toLowerCase()
+  ].join("|");
+
+  const map = new Map();
+  for (const option of sets[0]) {
+    map.set(keyOf(option), { ...option, volumeCosts:[Number(option.providerCost || 0)] });
+  }
+
+  for (let i = 1; i < sets.length; i++) {
+    const current = new Map(sets[i].map(option => [keyOf(option), option]));
+    for (const [key, aggregate] of [...map.entries()]) {
+      const option = current.get(key);
+      if (!option) {
+        map.delete(key);
+        continue;
+      }
+      aggregate.providerCost = round2(Number(aggregate.providerCost || 0) + Number(option.providerCost || 0));
+      aggregate.precoVenda = round2(Number(aggregate.precoVenda || 0) + Number(option.precoVenda || 0));
+      aggregate.comissaoParceiro = round2(Number(aggregate.comissaoParceiro || 0) + Number(option.comissaoParceiro || 0));
+      aggregate.postalMargin = round2(Number(aggregate.postalMargin || 0) + Number(option.postalMargin || 0));
+      aggregate.prazoEntrega = Math.max(Number(aggregate.prazoEntrega || 0), Number(option.prazoEntrega || 0));
+      aggregate.volumeCosts.push(Number(option.providerCost || 0));
+    }
+  }
+  return [...map.values()].sort((a,b)=>a.precoVenda-b.precoVenda);
+}
+
+function shipmentFromProviderCart(cart, expectedVolumeCount = 1) {
+  const packages = Array.isArray(cart?.packages)
+    ? cart.packages
+    : (Array.isArray(cart?.package) ? cart.package : []);
+
+  const volumes = packages.map((pkg,index)=>({
+    index:index + 1,
+    packageId:pkg.id || pkg.package_id || null,
+    trackingCode:
+      pkg.postal_service_track ||
+      pkg.tracking_code ||
+      pkg.trackingCode ||
+      pkg.tracking ||
+      pkg.track ||
+      "",
+    labelA4Url:pkg.api_print_url || pkg.label_url || "",
+    labelA6Url:pkg.api_print_url_a6 || pkg.label_a6_url || "",
+    declarationUrl:pkg.api_declaration_url || pkg.declaration_url || "",
+    publicTrackingUrl:pkg.public_tracking_url || pkg.tracking_url || ""
+  }));
+
+  const first = volumes[0] || {};
+  const cartTracking = cart?.tracking_code || cart?.trackingCode || "";
+  const shipment = {
+    cartId:cart?.id || cart?.cart_id || packages[0]?.cart_id || null,
+    packageId:first.packageId || null,
+    trackingCode:first.trackingCode || cartTracking || "",
+    labelA4Url:first.labelA4Url || cart?.public_print_url || cart?.label_url || "",
+    labelA6Url:first.labelA6Url || cart?.public_print_url_a6 || "",
+    declarationUrl:first.declarationUrl || cart?.declaration_url || "",
+    publicTrackingUrl:first.publicTrackingUrl || cart?.public_tracking_url || "",
+    volumes
+  };
+
+  const expected = Math.max(1, Number(expectedVolumeCount || 1));
+  const enoughVolumes = expected === 1 ? volumes.length >= 1 : volumes.length >= expected;
+  const readyVolumes = expected === 1
+    ? Boolean(shipment.trackingCode && (shipment.labelA6Url || shipment.labelA4Url))
+    : enoughVolumes && volumes.slice(0,expected).every(v => v.trackingCode && (v.labelA6Url || v.labelA4Url));
+
+  shipment.ready = readyVolumes;
+  shipment.expectedVolumeCount = expected;
+  return shipment;
+}
+
+async function refreshShipmentFromProvider(order) {
+  if (!order?.conect_cart_id) return null;
+  const result = await providerFetch("/cart/" + encodeURIComponent(order.conect_cart_id), {
+    method:"GET",
+    timeout:30000
+  });
+  const payload = result.data || {};
+  const cart = payload.data || payload;
+  const expected = Number(order.package_count || order.package_data?.volumes?.length || 1);
+  const shipment = shipmentFromProviderCart(cart, expected);
+
+  if (shipment.ready) {
+    await db.saveShipment(order.id, shipment);
+    await db.addOrderEvent(order.id, "LABEL_AVAILABLE", "Etiquetas liberadas",
+      expected > 1 ? `${expected} volumes liberados pela ConectEnvios.` : "Etiqueta liberada pela ConectEnvios.");
+  } else {
+    await db.saveProviderPendingShipment(order.id, shipment);
+    await db.updateProviderPayment(order.id,{
+      status:"AWAITING_PROVIDER_CONFIRMATION",
+      ref:shipment.cartId || shipment.packageId || null,
+      error:`Aguardando etiquetas/rastreios dos volumes (${shipment.volumes.length}/${expected}).`
+    });
+  }
+  return shipment;
+}
+
+
 async function probeConectEnviosMultiVolumeQuote() {
   if (!TOKEN) return;
   const common = {
@@ -414,7 +543,10 @@ async function probeConectEnviosMultiVolumeQuote() {
 async function createShipmentFromOrder(order) {
   if (!order) throw new Error("Pedido não encontrado.");
 
-  if (order.tracking_code && (order.label_a6_url || order.label_a4_url)) {
+  const expectedVolumeCount = Math.max(1, Number(order.package_count || order.package_data?.volumes?.length || 1));
+
+  if (order.tracking_code && (order.label_a6_url || order.label_a4_url) &&
+      (expectedVolumeCount === 1 || (Array.isArray(order.shipment_volumes) && order.shipment_volumes.length >= expectedVolumeCount))) {
     return {
       cartId: order.conect_cart_id || null,
       packageId: order.conect_package_id || null,
@@ -422,7 +554,9 @@ async function createShipmentFromOrder(order) {
       labelA4Url: order.label_a4_url || "",
       labelA6Url: order.label_a6_url || "",
       declarationUrl: order.declaration_url || "",
-      publicTrackingUrl: order.public_tracking_url || ""
+      publicTrackingUrl: order.public_tracking_url || "",
+      volumes: Array.isArray(order.shipment_volumes) ? order.shipment_volumes : [],
+      ready:true
     };
   }
 
@@ -432,15 +566,18 @@ async function createShipmentFromOrder(order) {
   }
   if (!TOKEN) throw new Error("CONECTENVIOS_TOKEN não configurado.");
 
-  // Não recria um carrinho que já existe: isso evita cobrança/etiqueta duplicada.
-  if (order.conect_package_id || order.conect_cart_id) {
+  // Carrinho já criado: consulta o mesmo carrinho em vez de gerar cobrança/postagem duplicada.
+  if (order.conect_cart_id) {
+    return refreshShipmentFromProvider(order);
+  }
+  if (order.conect_package_id) {
     await db.updateProviderPayment(order.id,{
       status: order.provider_payment_status || "AWAITING_PROVIDER_CONFIRMATION",
-      ref: order.conect_cart_id || order.conect_package_id || null,
-      error: "Postagem já criada no provedor e aguardando liberação/retorno completo."
+      ref: order.conect_package_id,
+      error: "Postagem já criada no provedor e aguardando retorno completo."
     });
     await db.updateStatus(order.id,"PROVIDER_PAYMENT_PENDING","PAID");
-    throw new Error("A postagem já foi criada na ConectEnvios e ainda aguarda liberação da etiqueta. Não será gerada em duplicidade.");
+    throw new Error("A postagem já foi criada na ConectEnvios e ainda aguarda liberação. Não será gerada em duplicidade.");
   }
 
   const packageData = order.package_data || {};
@@ -449,45 +586,64 @@ async function createShipmentFromOrder(order) {
   const items = Array.isArray(order.items) ? order.items : [];
   const declaredFallback = items.reduce((sum, item) => sum + Number(item.value || 0) * Number(item.quantity || 1), 0);
 
-  const packageItem = {
-    name: String("Envio Postal - " + (sender.name || "") + " para " + (recipient.name || "")).slice(0, 120),
-    type: "box",
-    weight: Number(packageData.weightGrams || 0),
-    width: Number(packageData.width || 0),
-    height: Number(packageData.height || 0),
-    length: Number(packageData.length || 0),
-    extra_notify: true,
-    extra_in_hand: false,
-    extra_declared_value: round2(Number(packageData.declaredValue || declaredFallback)),
-    addr_from_document: cleanDigits(sender.document),
-    addr_from_phone: cleanDigits(sender.phone),
-    addr_from_name: String(sender.name || "").trim(),
-    addr_from_cep: cleanDigits(packageData.providerCepFrom || sender.cep),
-    addr_from_number: String(sender.number || "").trim(),
-    addr_from_address: String(sender.address || "").trim(),
-    addr_from_neighborhood: String(sender.neighborhood || "").trim(),
-    addr_from_complement: String(sender.complement || "").trim(),
-    addr_to_document: cleanDigits(recipient.document),
-    addr_to_phone: cleanDigits(recipient.phone),
-    addr_to_name: String(recipient.name || "").trim(),
-    addr_to_cep: cleanDigits(recipient.cep),
-    addr_to_number: String(recipient.number || "").trim(),
-    addr_to_address: String(recipient.address || "").trim(),
-    addr_to_neighborhood: String(recipient.neighborhood || "").trim(),
-    addr_to_complement: String(recipient.complement || "").trim(),
-    postal_service_name: String(order.service_name || ""),
-    postal_company_id: Number(order.postal_company_id || 0)
-  };
+  const storedVolumes = Array.isArray(packageData.volumes) && packageData.volumes.length
+    ? packageData.volumes
+    : [{
+        weightGrams:Number(packageData.weightGrams || 0),
+        width:Number(packageData.width || 0),
+        height:Number(packageData.height || 0),
+        length:Number(packageData.length || 0),
+        declaredValue:Number(packageData.declaredValue || declaredFallback)
+      }];
 
-  if (order.invoice_number) {
-    packageItem.receipt = String(order.invoice_number);
-  } else {
-    packageItem.declaration = items.map(item => ({
-      description: String(item.description || "").trim(),
-      quantity: Math.max(1, Math.round(Number(item.quantity || 1))),
-      value: round2(Number(item.value || 0))
-    }));
-  }
+  const declaredSum = storedVolumes.reduce((sum,v)=>sum + Math.max(0,Number(v.declaredValue || 0)),0);
+  const packageItems = storedVolumes.map((volume,index)=>{
+    const fallbackDeclared = declaredSum > 0
+      ? 0
+      : round2(Number(declaredFallback || 0) / Math.max(1, storedVolumes.length));
+    const packageItem = {
+      name: String("Envio Postal V" + (index + 1) + "/" + storedVolumes.length + " - " + (sender.name || "") + " para " + (recipient.name || "")).slice(0, 120),
+      type: "box",
+      weight: Number(volume.weightGrams || 0),
+      width: Number(volume.width || 0),
+      height: Number(volume.height || 0),
+      length: Number(volume.length || 0),
+      extra_notify: true,
+      extra_in_hand: false,
+      extra_declared_value: round2(Math.max(0, Number(volume.declaredValue || fallbackDeclared))),
+      addr_from_document: cleanDigits(sender.document),
+      addr_from_phone: cleanDigits(sender.phone),
+      addr_from_name: String(sender.name || "").trim(),
+      addr_from_cep: cleanDigits(packageData.providerCepFrom || sender.cep),
+      addr_from_number: String(sender.number || "").trim(),
+      addr_from_address: String(sender.address || "").trim(),
+      addr_from_neighborhood: String(sender.neighborhood || "").trim(),
+      addr_from_complement: String(sender.complement || "").trim(),
+      addr_to_document: cleanDigits(recipient.document),
+      addr_to_phone: cleanDigits(recipient.phone),
+      addr_to_name: String(recipient.name || "").trim(),
+      addr_to_cep: cleanDigits(recipient.cep),
+      addr_to_number: String(recipient.number || "").trim(),
+      addr_to_address: String(recipient.address || "").trim(),
+      addr_to_neighborhood: String(recipient.neighborhood || "").trim(),
+      addr_to_complement: String(recipient.complement || "").trim(),
+      postal_service_name: String(order.service_name || ""),
+      postal_company_id: Number(order.postal_company_id || 0)
+    };
+
+    if (order.invoice_number) {
+      packageItem.receipt = String(order.invoice_number);
+    } else {
+      // A ConectEnvios exige a documentação do pacote. Mantemos a mesma declaração
+      // vinculada ao conjunto de volumes; o valor declarado de cada volume é individual.
+      packageItem.declaration = items.map(item => ({
+        description: String(item.description || "").trim(),
+        quantity: Math.max(1, Math.round(Number(item.quantity || 1))),
+        value: round2(Number(item.value || 0))
+      }));
+    }
+    return packageItem;
+  });
 
   await db.updateProviderPayment(order.id,{
     status:"PROCESSING",
@@ -499,7 +655,7 @@ async function createShipmentFromOrder(order) {
   try {
     result = await providerFetch("/cart", {
       method: "POST",
-      body: JSON.stringify({ package: [packageItem] }),
+      body: JSON.stringify({ package: packageItems }),
       timeout: 45000
     });
   } catch (error) {
@@ -511,7 +667,7 @@ async function createShipmentFromOrder(order) {
       order.id,
       "PROVIDER_PAYMENT_PENDING",
       failureStatus==="AWAITING_FUNDS" ? "Saldo do provedor precisa de reposição" : "ConectEnvios não liberou a postagem",
-      detail || "Falha ao gerar a etiqueta no provedor."
+      detail || "Falha ao gerar as etiquetas no provedor."
     );
     throw error;
   }
@@ -527,49 +683,28 @@ async function createShipmentFromOrder(order) {
   }
 
   const cart = providerPayload.data || providerPayload;
-  const pkg = Array.isArray(cart.packages) ? cart.packages[0] : null;
-  if (!pkg) {
-    const err=new Error("A ConectEnvios não retornou os dados do pacote.");
+  const shipment = shipmentFromProviderCart(cart, storedVolumes.length);
+  if (!shipment.cartId && !shipment.packageId) {
+    const err=new Error("A ConectEnvios não retornou os dados da postagem.");
     await db.updateProviderPayment(order.id,{status:"ERROR",error:err.message});
     await db.updateStatus(order.id,"PROVIDER_PAYMENT_PENDING","PAID");
     throw err;
   }
 
-  const shipment = {
-    cartId: cart.id || cart.cart_id || pkg.cart_id || null,
-    packageId: pkg.id || pkg.package_id || null,
-    trackingCode:
-      pkg.postal_service_track ||
-      pkg.tracking_code ||
-      pkg.trackingCode ||
-      pkg.tracking ||
-      pkg.track ||
-      cart.tracking_code ||
-      cart.trackingCode ||
-      "",
-    labelA4Url: pkg.api_print_url || pkg.label_url || cart.public_print_url || cart.label_url || "",
-    labelA6Url: pkg.api_print_url_a6 || pkg.label_a6_url || "",
-    declarationUrl: pkg.api_declaration_url || pkg.declaration_url || "",
-    publicTrackingUrl: pkg.public_tracking_url || pkg.tracking_url || cart.public_tracking_url || ""
-  };
-
-  const hasLabel=Boolean(shipment.labelA6Url || shipment.labelA4Url);
-  const hasTracking=Boolean(shipment.trackingCode);
-
-  if (!hasLabel || !hasTracking) {
+  if (!shipment.ready) {
     await db.saveProviderPendingShipment(order.id,shipment);
     await db.updateProviderPayment(order.id,{
       status:"AWAITING_PROVIDER_CONFIRMATION",
       ref:shipment.cartId || shipment.packageId || null,
-      error:!hasLabel && !hasTracking
-        ? "ConectEnvios criou o carrinho, mas ainda não retornou etiqueta nem rastreio."
-        : (!hasLabel ? "ConectEnvios ainda não retornou a etiqueta." : "ConectEnvios ainda não retornou o código de rastreio.")
+      error:`ConectEnvios criou o carrinho; aguardando etiquetas/rastreios dos volumes (${shipment.volumes.length}/${storedVolumes.length}).`
     });
     await db.addOrderEvent(
       order.id,
       "PROVIDER_PAYMENT_PENDING",
       "Aguardando liberação da ConectEnvios",
-      "O pedido foi criado no provedor, mas a etiqueta/rastreio ainda não foram liberados."
+      storedVolumes.length > 1
+        ? `Envio com ${storedVolumes.length} volumes criado no provedor e aguardando todas as etiquetas.`
+        : "O pedido foi criado no provedor, mas a etiqueta/rastreio ainda não foram liberados."
     );
     return shipment;
   }
@@ -580,7 +715,10 @@ async function createShipmentFromOrder(order) {
     ref:shipment.cartId || shipment.packageId || null,
     error:null
   });
-  await db.addOrderEvent(order.id, "LABEL_AVAILABLE", "Etiqueta liberada", "Postagem paga/criada na ConectEnvios e etiqueta disponível.");
+  await db.addOrderEvent(order.id, "LABEL_AVAILABLE", storedVolumes.length > 1 ? "Etiquetas dos volumes liberadas" : "Etiqueta liberada",
+    storedVolumes.length > 1
+      ? `${storedVolumes.length} volumes prontos para impressão e postagem.`
+      : "Postagem paga/criada na ConectEnvios e etiqueta disponível.");
   return shipment;
 }
 
@@ -630,6 +768,15 @@ function publicOrder(order) {
     labelA6Url: order.label_a6_url || "",
     declarationUrl: order.declaration_url || "",
     publicTrackingUrl: order.public_tracking_url || "",
+    shipmentVolumes: Array.isArray(order.shipment_volumes) ? order.shipment_volumes.map(v => ({
+      index:Number(v.index || 0),
+      packageId:v.packageId || null,
+      trackingCode:v.trackingCode || "",
+      labelA4Url:v.labelA4Url || "",
+      labelA6Url:v.labelA6Url || "",
+      declarationUrl:v.declarationUrl || "",
+      publicTrackingUrl:v.publicTrackingUrl || ""
+    })) : [],
     providerPaymentStatus: order.provider_payment_status || "PENDING",
     providerPaymentRef: order.provider_payment_ref || "",
     providerPaymentAttempts: Number(order.provider_payment_attempts || 0),
@@ -637,7 +784,7 @@ function publicOrder(order) {
     clientUserId: order.client_user_id || null,
     firstMileType: order.first_mile_type || "",
     firstMileFee: Number(order.first_mile_fee || 0),
-    packageCount: Number(order.package_count || 1),
+    packageCount: Number(order.package_count || rawPackageData.volumes?.length || 1),
     referralCommission: Number(order.referral_commission || 0),
     isSimulation: Boolean(order.is_simulation),
     events: Array.isArray(order.events) ? order.events.map(event => ({
@@ -798,7 +945,7 @@ async function simulatedLabelPdf(order) {
 async function mergedLabelPdf(orders) {
   const target=await PDFDocument.create();
   for(const order of orders){
-    if(order.is_simulation || !order.label_a6_url && !order.label_a4_url){
+    if(order.is_simulation){
       const simBytes=await simulatedLabelPdf(order);
       const simDoc=await PDFDocument.load(simBytes);
       const pages=await target.copyPages(simDoc,simDoc.getPageIndices());
@@ -806,19 +953,28 @@ async function mergedLabelPdf(orders) {
       continue;
     }
 
-    const rawUrl=String(order.label_a6_url||order.label_a4_url||"");
-    const allowedPrefix=`${API_URL}/package/`;
-    if(!rawUrl.startsWith(allowedPrefix)) throw new Error("Etiqueta inválida para o pedido "+order.id);
-    const response=await fetch(rawUrl,{
-      method:"GET",
-      headers:providerHeaders(),
-      signal:AbortSignal.timeout(30000)
-    });
-    if(!response.ok) throw new Error("Não foi possível carregar uma das etiquetas.");
-    const bytes=Buffer.from(await response.arrayBuffer());
-    const source=await PDFDocument.load(bytes);
-    const pages=await target.copyPages(source,source.getPageIndices());
-    pages.forEach(page=>target.addPage(page));
+    const shipmentVolumes=Array.isArray(order.shipment_volumes)?order.shipment_volumes:[];
+    const urls=shipmentVolumes.length
+      ? shipmentVolumes.map(v=>v.labelA6Url||v.labelA4Url).filter(Boolean)
+      : [order.label_a6_url||order.label_a4_url].filter(Boolean);
+
+    if(!urls.length) throw new Error("Etiqueta indisponível para o pedido "+order.id);
+
+    for(const raw of urls){
+      const rawUrl=String(raw||"");
+      const allowedPrefix=`${API_URL}/package/`;
+      if(!rawUrl.startsWith(allowedPrefix)) throw new Error("Etiqueta inválida para o pedido "+order.id);
+      const response=await fetch(rawUrl,{
+        method:"GET",
+        headers:providerHeaders(),
+        signal:AbortSignal.timeout(30000)
+      });
+      if(!response.ok) throw new Error("Não foi possível carregar uma das etiquetas.");
+      const bytes=Buffer.from(await response.arrayBuffer());
+      const source=await PDFDocument.load(bytes);
+      const pages=await target.copyPages(source,source.getPageIndices());
+      pages.forEach(page=>target.addPage(page));
+    }
   }
   return Buffer.from(await target.save());
 }
@@ -894,6 +1050,20 @@ async function processPendingProviderPayments() {
         }
       }
     }
+
+    const confirmations = await db.listProviderConfirmationCandidates(20);
+    for (const order of confirmations) {
+      try {
+        console.log("CONECTENVIOS_CONFIRMATION_POLL", order.id, order.conect_cart_id);
+        await refreshShipmentFromProvider(order);
+      } catch (error) {
+        await db.updateProviderPayment(order.id,{
+          status:"AWAITING_PROVIDER_CONFIRMATION",
+          ref:order.conect_cart_id || null,
+          error:providerFailureText(error).slice(0,1000)
+        });
+      }
+    }
   } catch (error) {
     console.error("provider payment worker error:", error.message);
   }
@@ -934,7 +1104,7 @@ app.get("/api/public-config", (_req, res) => {
     paymentsProvider: "ASAAS",
     paymentsConfigured: asaas.configured(),
     databaseConfigured: Boolean(process.env.DATABASE_URL),
-    version: "1.7.9",
+    version: "1.8.0",
     paymentSimulatorEnabled: PAYMENT_SIMULATOR_ENABLED && !asaas.configured(),
     clientPickupFeePerPackage: CLIENT_PICKUP_FEE_PER_PACKAGE,
     pointPickupEarningPerPackage: POINT_PICKUP_EARNING_PER_PACKAGE,
@@ -1267,7 +1437,7 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
       return res.status(400).json({error:"Escolha coleta, postagem em um ponto ou solicitar depois."});
     }
 
-    const packageCount=1;
+    const packageCount=Math.max(1,Number(selection.package?.volumes?.length || selection.package?.volumeCount || 1));
     const firstMileFee=firstMileType==="LATER"?0:round2(CLIENT_PICKUP_FEE_PER_PACKAGE*packageCount);
     const account=await clientDb.getCustomerAccount(req.user.userId);
     if(!account) return res.status(400).json({error:"Conta cliente não encontrada."});
@@ -2117,54 +2287,15 @@ app.post("/api/credit/proposals", requireAuth, requireRole("ADMIN","STORE_OWNER"
 app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK","CLIENT"), async (req, res) => {
   try {
     const body = req.body || {};
-    const required = ["cepOrigem", "cepDestino", "peso", "comprimento", "largura", "altura"];
-    const missing = required.filter(k => body[k] == null || String(body[k]).trim() === "");
-    if (missing.length) return res.status(400).json({ error: `Preencha: ${missing.join(", ")}` });
-
-    const cepFrom = String(body.cepOrigem).replace(/\D/g, "");
-    const cepTo = String(body.cepDestino).replace(/\D/g, "");
+    const cepFrom = String(body.cepOrigem || "").replace(/\D/g, "");
+    const cepTo = String(body.cepDestino || "").replace(/\D/g, "");
     if (cepFrom.length !== 8 || cepTo.length !== 8) {
       return res.status(400).json({ error: "CEP de origem e destino devem ter 8 dígitos." });
     }
 
+    const volumes = parseQuoteVolumes(body);
     const quoteOrigin = await resolveOperationalQuoteOrigin(req.user, cepFrom);
     const providerCepFrom = quoteOrigin.providerCepFrom;
-
-    // A interface trabalha em kg; a ConectEnvios espera gramas.
-    const weightGrams = toPositiveInteger(Number(body.peso) * 1000, "Peso");
-    const width = toPositiveInteger(body.largura, "Largura");
-    const height = toPositiveInteger(body.altura, "Altura");
-    const length = toPositiveInteger(body.comprimento, "Comprimento");
-
-    let providerData;
-    let demo = false;
-
-    if (!TOKEN) {
-      providerData = { error: false, data: demoQuote(body) };
-      demo = true;
-    } else {
-      const result = await providerFetch("/package/shipping", {
-        method: "POST",
-        body: JSON.stringify({
-          type: "box",
-          weight: weightGrams,
-          width,
-          height,
-          length,
-          cep_from: providerCepFrom,
-          cep_to: cepTo,
-          addr_from_cep: providerCepFrom,
-          addr_to_cep: cepTo
-        }),
-        timeout: 25000
-      });
-      providerData = result.data;
-
-      if (providerData && providerData.error === true) {
-        console.error("ConectEnvios quote error: provider rejected quote");
-        return res.status(422).json({ error: "A unidade de frete retornou erro ao calcular." });
-      }
-    }
 
     let partnerCommissionRate = req.user.role === "CLIENT" ? 0 : PARTNER_COMMISSION;
     if (req.user.role !== "CLIENT" && req.user.storeId) {
@@ -2173,7 +2304,46 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
         partnerCommissionRate = Math.max(0, Math.min(0.50, Number(store.commission_percent) / 100));
       }
     }
-    const options = normalizeQuote(providerData, partnerCommissionRate).map(option => {
+
+    const quoteSets = [];
+    let demo = false;
+
+    for (const volume of volumes) {
+      let providerData;
+      if (!TOKEN) {
+        providerData = { error:false, data:demoQuote(body) };
+        demo = true;
+      } else {
+        const result = await providerFetch("/package/shipping", {
+          method:"POST",
+          body:JSON.stringify({
+            type:"box",
+            weight:volume.weightGrams,
+            width:volume.width,
+            height:volume.height,
+            length:volume.length,
+            cep_from:providerCepFrom,
+            cep_to:cepTo,
+            addr_from_cep:providerCepFrom,
+            addr_to_cep:cepTo
+          }),
+          timeout:25000
+        });
+        providerData = result.data;
+        if (providerData && providerData.error === true) {
+          console.error("ConectEnvios quote error: provider rejected volume", volume.index);
+          return res.status(422).json({ error:`A ConectEnvios recusou a cotação do volume ${volume.index}.` });
+        }
+      }
+      quoteSets.push(normalizeQuote(providerData, partnerCommissionRate));
+    }
+
+    const aggregated = aggregateVolumeQuoteSets(quoteSets);
+    const totalWeightGrams = volumes.reduce((sum,v)=>sum + Number(v.weightGrams || 0),0);
+    const totalDeclaredValue = round2(volumes.reduce((sum,v)=>sum + Number(v.declaredValue || 0),0));
+
+    const options = aggregated.map(option => {
+      const first = volumes[0];
       const selectionToken = signSelectionToken({
         exp: Date.now() + 2 * 60 * 60 * 1000,
         postalCompanyId: option.postalCompanyId,
@@ -2184,9 +2354,16 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
         providerCost: option.providerCost,
         postalMargin: option.postalMargin,
         package: {
-          weightGrams, width, height, length, cepFrom, cepTo,
+          weightGrams: totalWeightGrams,
+          width:first.width,
+          height:first.height,
+          length:first.length,
+          cepFrom,
+          cepTo,
           providerCepFrom,
-          declaredValue: Number(body.vlDeclarado || 0)
+          declaredValue:totalDeclaredValue,
+          volumeCount:volumes.length,
+          volumes
         }
       });
 
@@ -2198,22 +2375,30 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
         prazoEntrega: option.prazoEntrega,
         precoVenda: option.precoVenda,
         comissaoParceiro: option.comissaoParceiro,
+        volumeCount:volumes.length,
         selectionToken
       };
     });
+
     if (!options.length) {
-      return res.status(422).json({ error: "Nenhuma opção de envio disponível para os dados informados." });
+      return res.status(422).json({
+        error: volumes.length > 1
+          ? "Nenhum serviço atende todos os volumes informados. Revise peso/dimensões ou tente outra composição."
+          : "Nenhuma opção de envio disponível para os dados informados."
+      });
     }
 
     res.json({
       demo,
       provider: req.user.role === "CLIENT" ? "Postal Serviços" : "ConectEnvios",
       commissionPercent: round2(partnerCommissionRate * 100),
+      volumeCount:volumes.length,
+      totalWeightKg:round2(totalWeightGrams / 1000),
       options
     });
   } catch (error) {
     console.error("quote error:", error.status, error.message);
-    res.status(error.status === 401 ? 502 : 502).json({
+    res.status(error.status === 401 ? 502 : (error.status && error.status < 500 ? error.status : 502)).json({
       error: error.status === 401
         ? "Token da ConectEnvios nao autorizado."
         : (error.message || "Falha ao consultar os servicos de frete.")
@@ -2614,7 +2799,8 @@ app.post("/api/orders", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CL
       recipient,
       items,
       invoiceNumber,
-      packageData: selection.package
+      packageData: selection.package,
+      packageCount: Math.max(1, Number(selection.package?.volumes?.length || selection.package?.volumeCount || 1))
     };
 
     if (paymentMethod === "DINHEIRO") {
@@ -3090,7 +3276,7 @@ async function start() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Postal Balcao V1.7.9 disponivel na porta ${PORT}`);
+    console.log(`Postal Balcao V1.8.0 disponivel na porta ${PORT}`);
     console.log(`ConectEnvios: ${TOKEN ? "configurada" : "modo demonstracao"}`);
     console.log(`Asaas: ${asaas.configured() ? "configurado" : "aguardando chave"}`);
     console.log(`Banco: ${process.env.DATABASE_URL ? "PostgreSQL configurado" : "nao configurado"}`);
