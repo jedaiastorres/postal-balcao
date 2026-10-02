@@ -3010,6 +3010,23 @@ app.post("/api/envios", requireAuth, (_req, res) => {
 });
 
 
+app.get("/api/orders/:id/labels", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK"), async (req,res)=>{
+  try{
+    const order=await db.getOrder(req.params.id,scopeForUser(req.user));
+    if(!order) return res.status(404).json({error:"Frete não encontrado."});
+    if(!["LABEL_AVAILABLE","LABEL_AVAILABLE_SIMULATED"].includes(order.status)){
+      return res.status(409).json({error:"As etiquetas deste envio ainda não estão disponíveis."});
+    }
+    const pdf=await mergedLabelPdf([order]);
+    res.setHeader("Content-Type","application/pdf");
+    res.setHeader("Content-Disposition",'inline; filename="etiquetas-'+String(order.id).slice(0,8)+'.pdf"');
+    res.send(pdf);
+  }catch(error){
+    console.error("order labels error:",error.message);
+    res.status(500).json({error:"Não foi possível montar as etiquetas deste envio."});
+  }
+});
+
 // Consulta carrinho.
 app.get("/api/carrinhos/:id", requireAuth, async (req, res) => {
   if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
