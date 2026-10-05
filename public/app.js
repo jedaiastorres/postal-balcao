@@ -278,7 +278,7 @@ function quoteVolumePayloads() {
     vlDeclarado: Number($("#vlDeclarado").value || 0)
   }];
 
-  $("#extraQuoteVolumes .extra-volume-card").forEach(card => {
+  document.querySelectorAll("#extraQuoteVolumes .extra-volume-card").forEach(card => {
     volumes.push({
       peso: Number(card.querySelector('[data-field="peso"]').value || 0),
       comprimento: Number(card.querySelector('[data-field="comprimento"]').value || 0),
@@ -291,7 +291,7 @@ function quoteVolumePayloads() {
 }
 
 function updateQuoteVolumeUi() {
-  const cards = $("#extraQuoteVolumes .extra-volume-card");
+  const cards = [...document.querySelectorAll("#extraQuoteVolumes .extra-volume-card")];
   cards.forEach((card,index) => {
     const number=index + 2;
     card.dataset.volumeNumber=String(number);
@@ -303,7 +303,7 @@ function updateQuoteVolumeUi() {
 }
 
 function addQuoteVolume(data = {}) {
-  const current=1 + $("#extraQuoteVolumes .extra-volume-card").length;
+  const current=1 + document.querySelectorAll("#extraQuoteVolumes .extra-volume-card").length;
   if(current>=50){
     toast("O limite é de 50 volumes por envio.","error");
     return;
