@@ -1,8 +1,8 @@
 {
   "name": "postal-balcao-v1",
-  "version": "1.8.1",
+  "version": "1.9.0",
   "private": true,
-  "description": "Postal Balcao V1.7: operacao ecommerce profissional, selecao em massa, etiquetas em lote e coletas em lote.",
+  "description": "Postal Balcao V1.9: envios reais, multi-volume e integração nativa WooCommerce.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
