@@ -18,8 +18,8 @@
   function initRegistration(){
     const params=new URLSearchParams(location.search);
     const ref=params.get("ref")||"";
-    if(params.get("integration")==="woocommerce"){
-      setTimeout(()=>toast("Retorno do WooCommerce recebido. Abra Integrações para conferir a conexão."),300);
+    if(["woocommerce","nuvemshop"].includes(String(params.get("integration")||"").toLowerCase())){
+      setTimeout(()=>toast("Autorização da loja recebida. Abra Integrações para conferir a sincronização."),300);
     }
     if(ref){
       $("#clientReferralCode").value=ref;
@@ -439,8 +439,8 @@
     $("#platformCards").innerHTML=(d.supported||[]).map(p=>`
       <article class="platform-card">
         <div class="platform-logo">${escapeHtml(p.name.slice(0,2).toUpperCase())}</div>
-        <div><strong>${escapeHtml(p.name)}</strong><p>${p.code==="WOOCOMMERCE"?"Conexão nativa pronta: autorize a loja e importe pedidos pagos automaticamente.":"Importe pedidos e centralize fretes, etiquetas, coletas e rastreamento na Postal."}</p></div>
-        <button class="primary" type="button" data-platform="${escapeHtml(p.code)}" ${connectedPlatforms.has(p.code)?"disabled":""}>${connectedPlatforms.has(p.code)?"Já adicionada":"Adicionar loja"}</button>
+        <div><strong>${escapeHtml(p.name)}</strong><p>${p.code==="WOOCOMMERCE"?"Conexão nativa pronta: autorize a loja e importe pedidos pagos automaticamente.":p.code==="LOJA_INTEGRADA"?"Conexão nativa por personal token, armazenado de forma criptografada.":p.code==="NUVEMSHOP"&&p.ready?"OAuth nativo pronto para autorização da loja.":p.ready===false?"Integração preparada, aguardando credenciais/aprovação do aplicativo.":"Importe pedidos e centralize fretes, etiquetas, coletas e rastreamento na Postal."}</p></div>
+        <button class="primary" type="button" data-platform="${escapeHtml(p.code)}" ${connectedPlatforms.has(p.code)||p.ready===false?"disabled":""}>${connectedPlatforms.has(p.code)?"Já adicionada":p.ready===false?"Aguardando configuração":"Adicionar loja"}</button>
       </article>`).join("");
     $("#platformCards [data-platform]").forEach(btn=>btn.addEventListener("click",async()=>{
       const name=prompt("Nome desta loja na Postal (opcional):","Minha loja")||"";
