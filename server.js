@@ -3312,7 +3312,10 @@ async function start() {
        FROM stores`
     );
     const ecommerce=await db.pool.query(
-      `SELECT status,COUNT(*)::int AS total FROM ecommerce_connections GROUP BY status ORDER BY status`
+      `SELECT platform,status,COUNT(*)::int AS total
+         FROM ecommerce_connections
+        GROUP BY platform,status
+        ORDER BY platform,status`
     );
     const sw=storeWallets.rows[0]||{};
     console.log("GO_LIVE_STORE_WALLETS","active="+Number(sw.active_stores||0),"missing="+Number(sw.active_stores_without_asaas_wallet||0));
