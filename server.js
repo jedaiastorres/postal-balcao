@@ -31,6 +31,8 @@ const RECEIPT_WIDTH_MM = [58, 80].includes(Number(process.env.THERMAL_RECEIPT_WI
 const ASAAS_RESERVE_WALLET_ID = String(process.env.ASAAS_CONNECTENVIOS_RESERVE_WALLET_ID || "").trim();
 const ASAAS_DEFAULT_PARTNER_WALLET_ID = String(process.env.ASAAS_DEFAULT_PARTNER_WALLET_ID || "").trim();
 const INTEGRATION_API_KEY = String(process.env.INTEGRATION_API_KEY || "").trim();
+const NUVEMSHOP_APP_ID = String(process.env.NUVEMSHOP_APP_ID || "").trim();
+const NUVEMSHOP_CLIENT_SECRET = String(process.env.NUVEMSHOP_CLIENT_SECRET || "").trim();
 const PAYMENT_SIMULATOR_ENABLED = String(process.env.PAYMENT_SIMULATOR_ENABLED || "true").toLowerCase() === "true";
 const ADMIN_PASSWORD_RESET_HASH = String(process.env.ADMIN_PASSWORD_RESET_HASH || "").trim();
 const CLIENT_PICKUP_FEE_PER_PACKAGE = Math.max(0, Number(process.env.CLIENT_PICKUP_FEE_PER_PACKAGE || 5));
@@ -198,6 +200,43 @@ async function syncWooCommerceConnection(connection) {
 }
 
 
+
+async function syncNuvemshopConnection(connection) {
+  const config=connection?.config||{};
+  if(!config.credentialBlob) throw new Error("Autorização Nuvemshop ainda não concluída.");
+  const credentials=ecommerce.decryptCredentials(config.credentialBlob,SESSION_SECRET);
+  const account=await clientDb.getCustomerAccount(connection.user_id);
+  const sender=account?.default_sender||{};
+  const orders=await ecommerce.fetchNuvemshopOrders({
+    storeId:credentials.storeId,
+    accessToken:credentials.accessToken,
+    appId:NUVEMSHOP_APP_ID,
+    perPage:100
+  });
+
+  let imported=0;
+  for(const order of orders){
+    const payload=ecommerce.normalizeNuvemshopOrder(order,sender);
+    const externalId=String(payload.source?.orderId||order.id||"");
+    if(!externalId) continue;
+    await clientDb.importEcommerceOrder({
+      connectionId:connection.id,
+      externalOrderId:externalId,
+      customerName:payload.recipient?.name||"",
+      externalStatus:payload.source?.status||"",
+      payload
+    });
+    imported++;
+  }
+  await clientDb.updateConnection(connection.id,connection.user_id,{
+    status:"CONNECTED",
+    externalStoreId:String(credentials.storeId||connection.external_store_id||""),
+    config:{...config,lastError:"",lastImportedCount:imported},
+    markSynced:true
+  });
+  return {imported};
+}
+
 async function syncLojaIntegradaConnection(connection) {
   const config=connection?.config||{};
   if(!config.credentialBlob) throw new Error("Personal token da Loja Integrada ainda não configurado.");
@@ -239,6 +278,7 @@ async function syncEcommerceConnection(connection) {
   const platform=String(connection.platform).toUpperCase();
   if(platform==="WOOCOMMERCE") return syncWooCommerceConnection(connection);
   if(platform==="LOJA_INTEGRADA") return syncLojaIntegradaConnection(connection);
+  if(platform==="NUVEMSHOP") return syncNuvemshopConnection(connection);
   throw new Error("Sincronização nativa desta plataforma ainda não está disponível.");
 }
 
@@ -247,7 +287,7 @@ async function processEcommerceSyncQueue() {
     const connections=await clientDb.listBridgeConnections(null,250);
     for(const connection of connections){
       const platform=String(connection.platform).toUpperCase();
-      if(!["WOOCOMMERCE","LOJA_INTEGRADA"].includes(platform)) continue;
+      if(!["WOOCOMMERCE","LOJA_INTEGRADA","NUVEMSHOP"].includes(platform)) continue;
       if(!["CONNECTED","SYNC_REQUESTED"].includes(String(connection.status||""))) continue;
       try{
         if(connection.status==="SYNC_REQUESTED"){
@@ -1949,11 +1989,11 @@ app.get("/api/client/connections", requireAuth, requireRole("CLIENT"), async (re
     const orders=await clientDb.listEcommerceOrders(req.user.userId,100);
     res.json({
       supported:[
-        {code:"NUVEMSHOP",name:"Nuvemshop",mode:"OAUTH"},
-        {code:"WOOCOMMERCE",name:"WooCommerce",mode:"STORE_AUTH"},
-        {code:"LOJA_INTEGRADA",name:"Loja Integrada",mode:"STORE_AUTH"},
-        {code:"SHOPIFY",name:"Shopify",mode:"OAUTH"},
-        {code:"TRAY",name:"Tray",mode:"OAUTH"}
+        {code:"NUVEMSHOP",name:"Nuvemshop",mode:"OAUTH",ready:Boolean(NUVEMSHOP_APP_ID&&NUVEMSHOP_CLIENT_SECRET)},
+        {code:"WOOCOMMERCE",name:"WooCommerce",mode:"STORE_AUTH",ready:true},
+        {code:"LOJA_INTEGRADA",name:"Loja Integrada",mode:"PERSONAL_TOKEN",ready:true},
+        {code:"SHOPIFY",name:"Shopify",mode:"OAUTH",ready:false},
+        {code:"TRAY",name:"Tray",mode:"OAUTH",ready:false}
       ],
       connections:connections.map(x=>({
         id:x.id,platform:x.platform,displayName:x.display_name||"",status:x.status,
@@ -1975,6 +2015,26 @@ app.post("/api/client/connections", requireAuth, requireRole("CLIENT"), async (r
     if(!allowed.has(platform)) return res.status(400).json({error:"Plataforma ainda não suportada."});
     const displayName=String(req.body.displayName||"").trim();
     const storeUrl=String(req.body.storeUrl||"").trim();
+
+    if(platform==="NUVEMSHOP"){
+      if(!NUVEMSHOP_APP_ID || !NUVEMSHOP_CLIENT_SECRET){
+        return res.status(503).json({error:"O aplicativo Postal na Nuvemshop ainda precisa do App ID e Client Secret do Portal de Parceiros."});
+      }
+      const connection=await clientDb.createConnection({userId:req.user.userId,platform,displayName});
+      const state=signEcommerceState(connection.id);
+      const authorizationUrl=ecommerce.buildNuvemshopAuthorizationUrl({appId:NUVEMSHOP_APP_ID,state});
+      const updated=await clientDb.updateConnection(connection.id,req.user.userId,{
+        status:"AWAITING_PROVIDER_AUTH",
+        authorizationUrl,
+        config:{whiteLabel:"POSTAL_SERVICOS",bridge:"DIRECT_NUVEMSHOP",authRequestedAt:new Date().toISOString(),lastError:""}
+      });
+      await audit(req,"CREATE_ECOMMERCE_CONNECTION","ECOMMERCE_CONNECTION",connection.id,{platform});
+      return res.status(201).json({
+        connection:{id:updated.id,platform:updated.platform,status:updated.status,displayName:updated.display_name||"",authorizationUrl},
+        authorizationUrl,
+        message:"Nuvemshop preparada. Autorize o aplicativo Postal na sua loja."
+      });
+    }
 
     if(platform==="WOOCOMMERCE"){
       const normalizedStoreUrl=await ecommerce.assertPublicHttpsUrl(storeUrl);
@@ -2088,7 +2148,7 @@ app.post("/api/client/connections/:id/sync", requireAuth, requireRole("CLIENT"),
       return res.status(409).json({error:"Conclua a autorização da loja antes de sincronizar."});
     }
 
-    if(["WOOCOMMERCE","LOJA_INTEGRADA"].includes(String(connection.platform).toUpperCase())){
+    if(["WOOCOMMERCE","LOJA_INTEGRADA","NUVEMSHOP"].includes(String(connection.platform).toUpperCase())){
       await clientDb.updateConnection(connection.id,req.user.userId,{
         status:"SYNCING",
         config:{...(connection.config||{}),lastError:""}
@@ -2259,6 +2319,37 @@ app.patch("/api/collections/:id", requireAuth, requireRole("ADMIN","STORE_OWNER"
 app.get("/api/admin/collections", requireAuth, requireRole("ADMIN"), async (_req,res)=>{
   try{res.json({collections:await clientDb.listCollections({all:true},250)});}
   catch(error){res.status(500).json({error:"Não foi possível carregar o painel de coletas."});}
+});
+
+app.get("/api/integrations/nuvemshop/callback", async (req,res)=>{
+  try{
+    const connectionId=verifyEcommerceState(req.query.state);
+    const code=String(req.query.code||"").trim();
+    if(!connectionId||!code) return res.status(400).send("Autorização Nuvemshop inválida ou expirada.");
+    if(!NUVEMSHOP_APP_ID||!NUVEMSHOP_CLIENT_SECRET) return res.status(503).send("Aplicativo Nuvemshop não configurado.");
+    const connection=await clientDb.getConnectionById(connectionId);
+    if(!connection||String(connection.platform).toUpperCase()!=="NUVEMSHOP"){
+      return res.status(404).send("Conexão Nuvemshop não encontrada.");
+    }
+    const token=await ecommerce.exchangeNuvemshopCode({
+      appId:NUVEMSHOP_APP_ID,clientSecret:NUVEMSHOP_CLIENT_SECRET,code
+    });
+    const config=connection.config||{};
+    const credentialBlob=ecommerce.encryptCredentials({accessToken:token.accessToken,storeId:token.storeId},SESSION_SECRET);
+    const updated=await clientDb.updateConnection(connection.id,connection.user_id,{
+      externalStoreId:token.storeId,status:"CONNECTED",authorizationUrl:"",
+      config:{...config,credentialBlob,scope:token.scope,connectedAt:new Date().toISOString(),lastError:""}
+    });
+    setImmediate(()=>syncNuvemshopConnection(updated).catch(async error=>{
+      await clientDb.updateConnection(updated.id,updated.user_id,{
+        status:"ERROR",config:{...(updated.config||{}),lastError:String(error.message||"Falha inicial de sincronização").slice(0,500)}
+      }).catch(()=>{});
+    }));
+    res.redirect("/cliente?integration=nuvemshop");
+  }catch(error){
+    console.error("nuvemshop oauth callback error:",error.message);
+    res.status(502).send("Não foi possível concluir a autorização da Nuvemshop.");
+  }
 });
 
 app.post("/api/integrations/woocommerce/callback", async (req,res)=>{
@@ -2445,6 +2536,9 @@ app.get("/api/admin/go-live-readiness", requireAuth, requireRole("ADMIN"), async
     const connected=eq.rows.reduce((s,x)=>s+(x.status==="CONNECTED"?Number(x.total||0):0),0);
     add("ecommerce","Integrações de e-commerce",connected>0,
       eq.rows.length?eq.rows.map(x=>x.platform+":"+x.status+"="+x.total).join(", "):"Nenhuma conexão cadastrada.",
+      false);
+    add("nuvemshop_app","Aplicativo Nuvemshop",Boolean(NUVEMSHOP_APP_ID&&NUVEMSHOP_CLIENT_SECRET),
+      NUVEMSHOP_APP_ID&&NUVEMSHOP_CLIENT_SECRET?"App ID e Client Secret configurados.":"Credenciais do aplicativo ainda não configuradas no Railway.",
       false);
   }catch(error){
     add("ecommerce","Integrações de e-commerce",false,error.message,false);
