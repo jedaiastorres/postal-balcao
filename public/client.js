@@ -374,9 +374,17 @@
     $("#walletBalanceHero").textContent=money(d.balance);
     $("#clientTopBalance strong").textContent=money(d.balance);
     await previewTopup();
-    $("#walletModeNote").textContent=state.config?.paymentsConfigured
-      ?"Recargas são confirmadas automaticamente pelo gateway de pagamento."
-      :"Homologação ativa: a recarga adiciona saldo de teste, sem dinheiro real.";
+    const paymentsReady=Boolean(state.config?.paymentsOperational);
+    $("#walletModeNote").textContent=paymentsReady
+      ?"Asaas produção validado. Recargas são confirmadas automaticamente pelo gateway de pagamento."
+      :(state.config?.paymentsConfigured
+        ?"Recargas temporariamente bloqueadas: a credencial Asaas produção ainda não foi validada."
+        :"Pagamento ainda não configurado.");
+    const topupSubmit=$("#walletTopupForm button[type='submit']");
+    if(topupSubmit){
+      topupSubmit.disabled=!paymentsReady;
+      topupSubmit.title=paymentsReady?"":"Recarga será liberada após a validação do Asaas produção.";
+    }
     const host=$("#walletTransactions");
     host.innerHTML=d.transactions.length?d.transactions.map(t=>`
       <div class="inventory-row">
@@ -407,7 +415,12 @@
   }
 
   async function topup(e){
-    e.preventDefault(); const btn=e.currentTarget.querySelector("button"); btn.disabled=true;
+    e.preventDefault();
+    if(!state.config?.paymentsOperational){
+      toast("Recargas reais estão bloqueadas até a validação do Asaas produção.","error");
+      return;
+    }
+    const btn=e.currentTarget.querySelector("button"); btn.disabled=true;
     try{
       const r=await api("/api/client/wallet/topups",{method:"POST",body:JSON.stringify({
         amount:Number($("#walletTopupAmount").value),paymentMethod:$("#walletTopupMethod").value
