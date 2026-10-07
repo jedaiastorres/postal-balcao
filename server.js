@@ -38,6 +38,20 @@ const POINT_PICKUP_EARNING_PER_PACKAGE = Math.max(0, Number(process.env.POINT_PI
 const POINT_DROPOFF_EARNING_PER_PACKAGE = Math.max(0, Number(process.env.POINT_DROPOFF_EARNING_PER_PACKAGE || 2));
 const REFERRAL_EARNING_PER_SHIPMENT = Math.max(0, Number(process.env.REFERRAL_EARNING_PER_SHIPMENT || 0.50));
 
+const paymentRuntime = {
+  operational: false,
+  pixReady: false,
+  webhookReady: false,
+  environment: asaas.environmentInfo(),
+  lastError: "",
+  checkedAt: null
+};
+
+function paymentOperational() {
+  return Boolean(paymentRuntime.operational);
+}
+
+
 app.disable("x-powered-by");
 app.use(helmet({
   contentSecurityPolicy: {
@@ -1208,6 +1222,8 @@ app.get("/api/public-config", (_req, res) => {
     shipmentCreationEnabled: ENABLE_SHIPMENT_CREATION,
     paymentsProvider: "ASAAS",
     paymentsConfigured: asaas.configured(),
+    paymentsOperational: paymentOperational(),
+    paymentsEnvironment: paymentRuntime.environment?.keyEnvironment || "unknown",
     databaseConfigured: Boolean(process.env.DATABASE_URL),
     version: "1.9.0",
     paymentSimulatorEnabled: PAYMENT_SIMULATOR_ENABLED && !asaas.configured(),
@@ -1378,6 +1394,30 @@ app.use("/api", (req, res, next) => {
   next();
 });
 
+app.post("/api/account/password", requireAuth, async (req,res)=>{
+  try{
+    const currentPassword=String(req.body.currentPassword||"");
+    const newPassword=String(req.body.newPassword||"");
+    if(newPassword.length<10){
+      return res.status(400).json({error:"A nova senha precisa ter pelo menos 10 caracteres."});
+    }
+    if(currentPassword===newPassword){
+      return res.status(400).json({error:"A nova senha precisa ser diferente da senha atual."});
+    }
+    const user=await db.findUserByEmail(req.user.email);
+    if(!user || !user.active || !verifyPassword(currentPassword,user.password_hash)){
+      return res.status(401).json({error:"Senha atual incorreta."});
+    }
+    await db.updateUser(user.id,{passwordHash:hashPassword(newPassword)});
+    await audit(req,"CHANGE_OWN_PASSWORD","USER",user.id,{});
+    res.setHeader("Set-Cookie","postal_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
+    res.json({ok:true,reloginRequired:true,message:"Senha alterada. Entre novamente com a nova senha."});
+  }catch(error){
+    console.error("change own password error:",error.message);
+    res.status(500).json({error:"Não foi possível alterar a senha."});
+  }
+});
+
 app.get("/api/client/dashboard", requireAuth, requireRole("CLIENT"), async (req,res)=>{
   try{
     const [wallet,operations,collections,connections]=await Promise.all([
@@ -1444,6 +1484,9 @@ app.post("/api/client/wallet/topups", requireAuth, requireRole("CLIENT"), async 
 
     const preview=asaas.grossUp(amount,paymentMethod);
     const simulation=PAYMENT_SIMULATOR_ENABLED&&!asaas.configured();
+    if(!simulation && !paymentOperational()){
+      return res.status(503).json({error:"Pagamentos reais estão temporariamente bloqueados até a validação completa do Asaas produção."});
+    }
     topup=await clientDb.createTopup({
       userId:req.user.userId,amount,fee:preview.surcharge,totalAmount:preview.grossAmount,
       paymentMethod,provider:simulation?"SIMULATOR":"ASAAS",isSimulation:simulation
@@ -2203,7 +2246,7 @@ app.get("/api/admin/system-health", requireAuth, requireRole("ADMIN"), async (_r
   const health={
     database:{ok:false},
     conectenvios:{ok:false,configured:Boolean(TOKEN),mode:CONECTENVIOS_PAYMENT_MODE},
-    asaas:{ok:false,...asaas.environmentInfo()},
+    asaas:{ok:false,...asaas.environmentInfo(),runtimeOperational:paymentOperational(),webhookReady:Boolean(paymentRuntime.webhookReady)},
     providerPayments:{awaitingFunds:0,awaitingProvider:0,errors:0,paid:0},
     shipmentCreationEnabled:ENABLE_SHIPMENT_CREATION,
     checkedAt:new Date().toISOString()
@@ -2227,7 +2270,8 @@ app.get("/api/admin/system-health", requireAuth, requireRole("ADMIN"), async (_r
       const pix=await asaas.ensurePixKey({waitForActiveMs:0});
       health.asaas.pixReady=Boolean(pix.ok && String(pix.status||"").toUpperCase()==="ACTIVE");
       health.asaas.preferredPixKeyMatched=Boolean(pix.preferredMatched);
-      health.asaas.ok=health.asaas.pixReady;
+      health.asaas.ok=Boolean(health.asaas.pixReady && paymentRuntime.webhookReady && asaas.environmentInfo().keyEnvironment==="production");
+      health.asaas.runtimeOperational=paymentOperational();
     }
   }catch(error){
     health.asaas.error=asaas.providerErrorMessage(error.providerData,error.message);
@@ -2962,6 +3006,11 @@ app.post("/api/orders", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CL
     if (!["PIX", "CARTAO", "DINHEIRO"].includes(paymentMethod)) {
       return res.status(400).json({ error: "Selecione PIX, cartão ou dinheiro." });
     }
+    if(!paymentOperational()){
+      return res.status(503).json({
+        error:"Pagamentos e repasses estão bloqueados até o Asaas produção ficar 100% validado. Nenhum valor foi recebido."
+      });
+    }
 
     const sender = body.sender || {};
     const recipient = body.recipient || {};
@@ -3054,8 +3103,8 @@ app.post("/api/orders", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CL
     await db.addOrderEvent(order.id, "ORDER_CREATED", "Frete registrado", "Aguardando confirmação financeira.");
     await audit(req,"CREATE_FREIGHT_ORDER","FREIGHT_ORDER",order.id,{paymentMethod,addonsCount:addons.length});
 
-    if (!asaas.configured()) {
-      if (PAYMENT_SIMULATOR_ENABLED) {
+    if (!paymentOperational()) {
+      if (PAYMENT_SIMULATOR_ENABLED && !asaas.configured()) {
         await db.updateStatus(order.id, "SIMULATED_PAYMENT_PENDING", "PENDING");
         await db.addOrderEvent(order.id, "PAYMENT_SIMULATOR", "Pagamento de homologação pendente", "Use o simulador para confirmar o pagamento sem movimentar dinheiro.");
         const complete = await db.getOrder(order.id, scopeForUser(req.user));
@@ -3473,7 +3522,10 @@ async function start() {
   await clientDb.initClientDb();
   await ensureBootstrapAdmin();
   await seedDefaultCatalog();
-  await ensureAsaasCheckoutWebhook();
+  const webhookState=await ensureAsaasCheckoutWebhook();
+  paymentRuntime.webhookReady=Boolean(webhookState?.configured);
+  paymentRuntime.environment=asaas.environmentInfo();
+  paymentRuntime.lastError="";
   if (CONECTENVIO_MULTI_QUOTE_PROBE) {
     await probeConectEnviosMultiVolumeQuote();
   }
@@ -3483,18 +3535,36 @@ async function start() {
     console.log("ASAAS_ENVIRONMENT", envInfo.keyEnvironment, envInfo.urlEnvironment, envInfo.baseUrl);
   }
 
-  let asaasPixReady=!asaas.configured();
+  let asaasPixReady=false;
   if (asaas.configured()) {
     try {
       const pixKey=await asaas.ensurePixKey({waitForActiveMs:60000});
       asaasPixReady=Boolean(pixKey.ok && String(pixKey.status||"").toUpperCase()==="ACTIVE");
+      paymentRuntime.pixReady=asaasPixReady;
       console.log("ASAAS_PIX_KEY_READY", asaasPixReady ? "ACTIVE" : (pixKey.status || "PENDING"));
       console.log("ASAAS_PIX_KEY_SOURCE", pixKey.preferredMatched ? "PREFERRED_MATCHED" : "ACTIVE_ACCOUNT_KEY");
     } catch (error) {
       asaasPixReady=false;
-      console.error("ASAAS_PIX_KEY_FAIL", error.status || "", asaas.providerErrorMessage(error.providerData,error.message));
+      paymentRuntime.pixReady=false;
+      paymentRuntime.lastError=asaas.providerErrorMessage(error.providerData,error.message);
+      console.error("ASAAS_PIX_KEY_FAIL", error.status || "", paymentRuntime.lastError);
     }
   }
+  const env=paymentRuntime.environment||{};
+  paymentRuntime.operational=Boolean(
+    asaas.configured() &&
+    env.keyEnvironment==="production" &&
+    env.urlEnvironment==="production" &&
+    paymentRuntime.webhookReady &&
+    paymentRuntime.pixReady
+  );
+  paymentRuntime.checkedAt=new Date().toISOString();
+  console.log(
+    "ASAAS_RUNTIME_READY",
+    paymentRuntime.operational ? "YES" : "NO",
+    "webhook="+paymentRuntime.webhookReady,
+    "pix="+paymentRuntime.pixReady
+  );
 
   try {
     const storeWallets=await db.pool.query(
