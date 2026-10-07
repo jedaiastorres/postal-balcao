@@ -8,6 +8,7 @@ const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
 const db = require("./db");
 const clientDb = require("./client_db");
 const asaas = require("./asaas");
+const ecommerce = require("./ecommerce_connectors");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -114,6 +115,107 @@ function verifySelectionToken(token) {
     return payload;
   } catch {
     return null;
+  }
+}
+
+
+function signEcommerceState(connectionId) {
+  const id=String(connectionId||"");
+  const sig=crypto.createHmac("sha256",SESSION_SECRET).update("ecommerce."+id).digest("base64url");
+  return id+"."+sig;
+}
+
+function verifyEcommerceState(value) {
+  const raw=String(value||"");
+  const pos=raw.lastIndexOf(".");
+  if(pos<1) return null;
+  const id=raw.slice(0,pos), sig=raw.slice(pos+1);
+  const expected=crypto.createHmac("sha256",SESSION_SECRET).update("ecommerce."+id).digest("base64url");
+  const a=Buffer.from(sig), b=Buffer.from(expected);
+  if(a.length!==b.length || !crypto.timingSafeEqual(a,b)) return null;
+  return id;
+}
+
+function safeConnectionConfig(config={}) {
+  const src=config&&typeof config==="object"?config:{};
+  const out={...src};
+  delete out.credentialBlob;
+  delete out.consumerKey;
+  delete out.consumerSecret;
+  delete out.accessToken;
+  delete out.personalToken;
+  delete out.apiKey;
+  return out;
+}
+
+async function syncWooCommerceConnection(connection) {
+  const config=connection?.config||{};
+  if(!config.credentialBlob) throw new Error("Autorização WooCommerce ainda não concluída.");
+  const credentials=ecommerce.decryptCredentials(config.credentialBlob,SESSION_SECRET);
+  const account=await clientDb.getCustomerAccount(connection.user_id);
+  const sender=account?.default_sender||{};
+  const orders=await ecommerce.fetchWooOrders({
+    storeUrl:config.storeUrl,
+    consumerKey:credentials.consumerKey,
+    consumerSecret:credentials.consumerSecret,
+    perPage:100,
+    status:"processing"
+  });
+
+  let imported=0;
+  for(const order of orders){
+    const payload=ecommerce.normalizeWooOrder(order,sender);
+    await clientDb.importEcommerceOrder({
+      connectionId:connection.id,
+      externalOrderId:String(order.id),
+      customerName:payload.recipient?.name||"",
+      externalStatus:String(order.status||""),
+      payload
+    });
+    imported++;
+  }
+
+  await clientDb.updateConnection(connection.id,connection.user_id,{
+    status:"CONNECTED",
+    config:{...config,lastError:"",lastImportedCount:imported},
+    markSynced:true
+  });
+  return {imported};
+}
+
+async function syncEcommerceConnection(connection) {
+  if(!connection) throw new Error("Conexão não encontrada.");
+  if(String(connection.platform).toUpperCase()==="WOOCOMMERCE"){
+    return syncWooCommerceConnection(connection);
+  }
+  throw new Error("Sincronização nativa desta plataforma ainda não está disponível.");
+}
+
+async function processEcommerceSyncQueue() {
+  try{
+    const connections=await clientDb.listBridgeConnections(null,250);
+    for(const connection of connections){
+      if(String(connection.platform).toUpperCase()!=="WOOCOMMERCE") continue;
+      if(!["CONNECTED","SYNC_REQUESTED"].includes(String(connection.status||""))) continue;
+      try{
+        if(connection.status==="SYNC_REQUESTED"){
+          await clientDb.updateConnection(connection.id,connection.user_id,{
+            status:"SYNCING",
+            config:{...(connection.config||{}),lastError:""}
+          });
+        }
+        await syncWooCommerceConnection(connection);
+      }catch(error){
+        const current=connection.config||{};
+        await clientDb.updateConnection(connection.id,connection.user_id,{
+          status:"ERROR",
+          config:{...current,lastError:String(error.message||"Falha de sincronização").slice(0,500)}
+        });
+        console.error("ecommerce sync error:",connection.id,connection.platform,error.message);
+      }
+    }
+  }catch(error){
+    console.error("ecommerce worker error:",error.message);
   }
 }
 
@@ -1792,9 +1894,39 @@ app.post("/api/client/connections", requireAuth, requireRole("CLIENT"), async (r
     if(!allowed.has(platform)) return res.status(400).json({error:"Plataforma ainda não suportada."});
     const displayName=String(req.body.displayName||"").trim();
     const storeUrl=String(req.body.storeUrl||"").trim();
-    const connection=await clientDb.createConnection({
-      userId:req.user.userId,platform,displayName
-    });
+
+    if(platform==="WOOCOMMERCE"){
+      const normalizedStoreUrl=await ecommerce.assertPublicHttpsUrl(storeUrl);
+      const connection=await clientDb.createConnection({userId:req.user.userId,platform,displayName});
+      const state=signEcommerceState(connection.id);
+      const authorizationUrl=ecommerce.buildWooAuthorizationUrl({
+        storeUrl:normalizedStoreUrl,
+        connectionState:state,
+        appPublicUrl:process.env.APP_PUBLIC_URL
+      });
+      const updated=await clientDb.updateConnection(connection.id,req.user.userId,{
+        status:"AWAITING_PROVIDER_AUTH",
+        authorizationUrl,
+        config:{
+          whiteLabel:"POSTAL_SERVICOS",
+          bridge:"DIRECT_WOOCOMMERCE",
+          storeUrl:normalizedStoreUrl,
+          authRequestedAt:new Date().toISOString(),
+          lastError:""
+        }
+      });
+      await audit(req,"CREATE_ECOMMERCE_CONNECTION","ECOMMERCE_CONNECTION",connection.id,{platform});
+      return res.status(201).json({
+        connection:{
+          id:updated.id,platform:updated.platform,status:updated.status,
+          displayName:updated.display_name||"",authorizationUrl
+        },
+        authorizationUrl,
+        message:"WooCommerce preparado. Autorize o acesso na sua loja."
+      });
+    }
+
+    const connection=await clientDb.createConnection({userId:req.user.userId,platform,displayName});
     if(storeUrl){
       await clientDb.updateConnection(connection.id,req.user.userId,{
         config:{whiteLabel:"POSTAL_SERVICOS",bridge:"CONECTENVIOS",storeUrl}
@@ -1806,9 +1938,12 @@ app.post("/api/client/connections", requireAuth, requireRole("CLIENT"), async (r
         id:connection.id,platform:connection.platform,status:connection.status,
         displayName:connection.display_name||""
       },
-      message:"Integração criada. Agora conclua a autorização quando o botão Autorizar estiver disponível."
+      message:"Integração criada. A autorização desta plataforma será habilitada quando as credenciais do aplicativo estiverem configuradas."
     });
-  }catch(error){res.status(500).json({error:"Não foi possível preparar a integração."});}
+  }catch(error){
+    console.error("create ecommerce connection error:",error.message);
+    res.status(400).json({error:error.message||"Não foi possível preparar a integração."});
+  }
 });
 
 app.post("/api/client/connections/:id/sync", requireAuth, requireRole("CLIENT"), async (req,res)=>{
@@ -1817,9 +1952,21 @@ app.post("/api/client/connections/:id/sync", requireAuth, requireRole("CLIENT"),
     if(!connection || String(connection.user_id)!==String(req.user.userId)) {
       return res.status(404).json({error:"Integração não encontrada."});
     }
-    if(connection.status!=="CONNECTED"){
+    if(connection.status!=="CONNECTED" && connection.status!=="ERROR"){
       return res.status(409).json({error:"Conclua a autorização da loja antes de sincronizar."});
     }
+
+    if(String(connection.platform).toUpperCase()==="WOOCOMMERCE"){
+      await clientDb.updateConnection(connection.id,req.user.userId,{
+        status:"SYNCING",
+        config:{...(connection.config||{}),lastError:""}
+      });
+      const fresh=await clientDb.getConnectionById(connection.id);
+      const result=await syncWooCommerceConnection(fresh);
+      await audit(req,"SYNC_ECOMMERCE_CONNECTION","ECOMMERCE_CONNECTION",connection.id,{platform:connection.platform,imported:result.imported});
+      return res.json({ok:true,imported:result.imported,message:result.imported+" pedido(s) pago(s) sincronizado(s)."});
+    }
+
     const currentConfig=connection.config||{};
     const updated=await clientDb.updateConnection(connection.id,req.user.userId,{
       status:"SYNC_REQUESTED",
@@ -1827,7 +1974,17 @@ app.post("/api/client/connections/:id/sync", requireAuth, requireRole("CLIENT"),
     });
     await audit(req,"REQUEST_ECOMMERCE_SYNC","ECOMMERCE_CONNECTION",connection.id,{platform:connection.platform});
     res.json({ok:true,connection:{id:updated.id,status:updated.status},message:"Sincronização solicitada."});
-  }catch(error){res.status(500).json({error:"Não foi possível solicitar a sincronização."});}
+  }catch(error){
+    const connection=await clientDb.getConnectionById(req.params.id).catch(()=>null);
+    if(connection){
+      await clientDb.updateConnection(connection.id,connection.user_id,{
+        status:"ERROR",
+        config:{...(connection.config||{}),lastError:String(error.message||"Falha na sincronização").slice(0,500)}
+      }).catch(()=>{});
+    }
+    console.error("manual ecommerce sync error:",error.message);
+    res.status(502).json({error:error.message||"Não foi possível sincronizar a loja."});
+  }
 });
 
 app.delete("/api/client/connections/:id", requireAuth, requireRole("CLIENT"), async (req,res)=>{
@@ -1972,11 +2129,46 @@ app.get("/api/admin/collections", requireAuth, requireRole("ADMIN"), async (_req
   catch(error){res.status(500).json({error:"Não foi possível carregar o painel de coletas."});}
 });
 
+app.post("/api/integrations/woocommerce/callback", async (req,res)=>{
+  try{
+    const body=req.body||{};
+    const connectionId=verifyEcommerceState(body.user_id);
+    if(!connectionId) return res.status(401).json({error:"Estado de autorização inválido."});
+    const connection=await clientDb.getConnectionById(connectionId);
+    if(!connection || String(connection.platform).toUpperCase()!=="WOOCOMMERCE"){
+      return res.status(404).json({error:"Conexão WooCommerce não encontrada."});
+    }
+    const consumerKey=String(body.consumer_key||"").trim();
+    const consumerSecret=String(body.consumer_secret||"").trim();
+    if(!/^ck_/i.test(consumerKey) || !/^cs_/i.test(consumerSecret)){
+      return res.status(400).json({error:"Credenciais WooCommerce inválidas."});
+    }
+    const config=connection.config||{};
+    const credentialBlob=ecommerce.encryptCredentials({consumerKey,consumerSecret},SESSION_SECRET);
+    const updated=await clientDb.updateConnection(connection.id,connection.user_id,{
+      status:"CONNECTED",
+      externalStoreId:String(body.key_id||"")||connection.external_store_id,
+      authorizationUrl:"",
+      config:{...config,credentialBlob,keyPermissions:String(body.key_permissions||"read"),connectedAt:new Date().toISOString(),lastError:""}
+    });
+    res.status(200).json({ok:true});
+    setImmediate(()=>syncWooCommerceConnection(updated).catch(async error=>{
+      await clientDb.updateConnection(updated.id,updated.user_id,{
+        status:"ERROR",
+        config:{...(updated.config||{}),lastError:String(error.message||"Falha inicial de sincronização").slice(0,500)}
+      }).catch(()=>{});
+    }));
+  }catch(error){
+    console.error("woocommerce auth callback error:",error.message);
+    res.status(500).json({error:"Não foi possível concluir a autorização WooCommerce."});
+  }
+});
+
 app.get("/api/integrations/v1/ecommerce/connections", requireIntegrationAuth, async (req,res)=>{
   try{
     const status=String(req.query.status||"").trim();
     const rows=await clientDb.listBridgeConnections(status||null,Math.min(250,Number(req.query.limit||100)));
-    res.json({ok:true,version:"v1",connections:rows});
+    res.json({ok:true,version:"v1",connections:rows.map(row=>({...row,config:safeConnectionConfig(row.config)}))});
   }catch(error){res.status(500).json({error:"Falha ao listar conexões de e-commerce."});}
 });
 
@@ -3349,6 +3541,10 @@ async function start() {
   setInterval(() => {
     processPendingProviderPayments().catch(error => console.error("provider payment worker error:", error.message));
   }, 5 * 60 * 1000).unref();
+
+  setInterval(() => {
+    processEcommerceSyncQueue().catch(error => console.error("ecommerce worker error:", error.message));
+  }, 10 * 60 * 1000).unref();
 }
 
 start().catch(error => {
