@@ -213,6 +213,109 @@ async function fetchWooOrders({ storeUrl, consumerKey, consumerSecret, perPage =
   return body;
 }
 
+
+const LOJA_INTEGRADA_API_BASE = "https://api.awsli.com.br/v1";
+
+function firstObject(...values) {
+  return values.find(v => v && typeof v === "object" && !Array.isArray(v)) || {};
+}
+
+function normalizeLiMoney(value) {
+  if (typeof value === "number") return value;
+  const raw=String(value??"").trim().replace(/\s/g,"");
+  if (/^\d{1,3}(\.\d{3})*,\d+$/.test(raw)) return Number(raw.replace(/\./g,"").replace(",","."));
+  if (/^\d+,\d+$/.test(raw)) return Number(raw.replace(",","."));
+  const n=Number(raw.replace(/[^\d.-]/g,""));
+  return Number.isFinite(n)?n:0;
+}
+
+function normalizeLojaIntegradaOrder(order, sender = {}) {
+  const cliente=firstObject(order?.cliente, order?.customer);
+  const endereco=firstObject(order?.endereco_entrega, order?.shipping_address, order?.endereco);
+  const situacao=firstObject(order?.situacao);
+  const rawItems=Array.isArray(order?.itens) ? order.itens : (Array.isArray(order?.items) ? order.items : []);
+  const items=rawItems.map(item=>{
+    const qty=Math.max(1,Number(item.quantidade ?? item.quantity ?? 1));
+    const unit=normalizeLiMoney(item.preco_venda ?? item.preco ?? item.valor ?? item.price ?? 0);
+    return {
+      description:String(item.nome ?? item.name ?? item.sku ?? "Produto"),
+      quantity:qty,
+      value:Math.max(0,unit),
+      sku:String(item.sku ?? item.codigo ?? "")
+    };
+  });
+
+  const document=firstNonEmpty(
+    cliente.cpf, cliente.cnpj, order.cliente_cpf, order.cliente_cnpj,
+    endereco.cpf, endereco.cnpj
+  );
+  const recipientName=firstNonEmpty(
+    endereco.nome, endereco.razao_social, order.endereco_entrega_razao_social,
+    cliente.nome, cliente.razao_social,
+    [cliente.nome,cliente.sobrenome].filter(Boolean).join(" ")
+  );
+  const approved=Boolean(situacao.aprovado ?? order.situacao_aprovado ?? order.aprovado);
+  const canceled=Boolean(situacao.cancelado ?? order.situacao_cancelado ?? order.cancelado);
+  const declaredValue=items.length
+    ? items.reduce((sum,item)=>sum+Number(item.value||0)*Number(item.quantity||1),0)
+    : normalizeLiMoney(order.valor_subtotal ?? order.subtotal ?? order.valor_total ?? 0);
+
+  return {
+    sender:sender||{},
+    recipient:{
+      name:String(recipientName||""),
+      document:String(document||""),
+      phone:String(firstNonEmpty(cliente.telefone_celular,cliente.telefone_principal,cliente.telefone,order.cliente_telefone,"")),
+      email:String(firstNonEmpty(cliente.email,order.cliente_email,"")),
+      cep:String(firstNonEmpty(endereco.cep,order.endereco_entrega_cep,"")),
+      address:String(firstNonEmpty(endereco.endereco,endereco.logradouro,order.endereco_entrega_endereco,"")),
+      number:String(firstNonEmpty(endereco.numero,order.endereco_entrega_numero,"")),
+      neighborhood:String(firstNonEmpty(endereco.bairro,order.endereco_entrega_bairro,"")),
+      complement:String(firstNonEmpty(endereco.complemento,order.endereco_entrega_complemento,"")),
+      city:String(firstNonEmpty(endereco.cidade?.nome,endereco.cidade,order.endereco_entrega_cidade,"")),
+      state:String(firstNonEmpty(endereco.estado?.sigla,endereco.estado,order.endereco_entrega_estado,""))
+    },
+    package:{
+      weightKg:Number(order.peso_real ?? order.peso ?? 0)||0,
+      length:0,width:0,height:0,
+      declaredValue:Math.round((declaredValue+Number.EPSILON)*100)/100
+    },
+    items,
+    invoiceNumber:String(firstNonEmpty(order.nota_fiscal?.chave,order.nfe_chave,order.chave_nfe,"")),
+    source:{
+      platform:"LOJA_INTEGRADA",
+      orderId:String(order.id ?? order.numero ?? ""),
+      orderNumber:String(order.numero ?? order.id ?? ""),
+      status:String(situacao.nome ?? order.situacao_nome ?? order.status ?? ""),
+      approved,canceled,
+      createdAt:order.data_criacao ?? order.created_at ?? null
+    }
+  };
+}
+
+async function fetchLojaIntegradaOrders({ personalToken, limit = 50 }) {
+  const url=new URL(LOJA_INTEGRADA_API_BASE+"/pedido");
+  url.searchParams.set("limit",String(Math.max(1,Math.min(100,Number(limit)||50))));
+  const response=await safeFetch(url.toString(),{
+    method:"GET",
+    headers:{
+      "accept":"application/json",
+      "authorization":"Basic "+String(personalToken||"").trim(),
+      "user-agent":"PostalBalcao/1.9 (Loja Integrada connector)"
+    },
+    timeout:30000
+  });
+  let body;
+  try{body=await response.json();}catch{body=null;}
+  if(!response.ok){
+    const msg=body?.message||body?.error||body?.detail||("Loja Integrada respondeu HTTP "+response.status+".");
+    const error=new Error(String(msg)); error.status=response.status; throw error;
+  }
+  const rows=Array.isArray(body)?body:(Array.isArray(body?.objects)?body.objects:(Array.isArray(body?.data)?body.data:[]));
+  if(!Array.isArray(rows)) throw new Error("Resposta inesperada da Loja Integrada.");
+  return rows;
+}
+
 function buildWooAuthorizationUrl({ storeUrl, connectionState, appPublicUrl }) {
   const base = normalizeStoreUrl(storeUrl);
   const publicUrl = String(appPublicUrl || "").replace(/\/$/, "");
@@ -233,5 +336,7 @@ module.exports = {
   assertPublicHttpsUrl,
   normalizeWooOrder,
   fetchWooOrders,
-  buildWooAuthorizationUrl
+  buildWooAuthorizationUrl,
+  normalizeLojaIntegradaOrder,
+  fetchLojaIntegradaOrders
 };
