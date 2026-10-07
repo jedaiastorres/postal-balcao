@@ -18,6 +18,9 @@
   function initRegistration(){
     const params=new URLSearchParams(location.search);
     const ref=params.get("ref")||"";
+    if(params.get("integration")==="woocommerce"){
+      setTimeout(()=>toast("Retorno do WooCommerce recebido. Abra Integrações para conferir a conexão."),300);
+    }
     if(ref){
       $("#clientReferralCode").value=ref;
       $("#clientReferralNotice").textContent="Cadastro vinculado ao ponto indicador "+ref+".";
@@ -423,7 +426,7 @@
     $("#platformCards").innerHTML=(d.supported||[]).map(p=>`
       <article class="platform-card">
         <div class="platform-logo">${escapeHtml(p.name.slice(0,2).toUpperCase())}</div>
-        <div><strong>${escapeHtml(p.name)}</strong><p>Importe pedidos e centralize fretes, etiquetas, coletas e rastreamento na Postal.</p></div>
+        <div><strong>${escapeHtml(p.name)}</strong><p>${p.code==="WOOCOMMERCE"?"Conexão nativa pronta: autorize a loja e importe pedidos pagos automaticamente.":"Importe pedidos e centralize fretes, etiquetas, coletas e rastreamento na Postal."}</p></div>
         <button class="primary" type="button" data-platform="${escapeHtml(p.code)}" ${connectedPlatforms.has(p.code)?"disabled":""}>${connectedPlatforms.has(p.code)?"Já adicionada":"Adicionar loja"}</button>
       </article>`).join("");
     $("#platformCards [data-platform]").forEach(btn=>btn.addEventListener("click",async()=>{
@@ -431,7 +434,11 @@
       const storeUrl=prompt("Endereço da loja (URL/domínio). Ex.: minhaloja.com.br","")||"";
       try{
         const r=await api("/api/client/connections",{method:"POST",body:JSON.stringify({platform:btn.dataset.platform,displayName:name,storeUrl})});
-        toast(r.message||"Integração criada."); await loadConnections();
+        toast(r.message||"Integração criada.");
+        if(r.authorizationUrl){
+          window.open(r.authorizationUrl,"_blank","noopener");
+        }
+        await loadConnections();
       }catch(err){toast(err.message,"error");}
     }));
 
