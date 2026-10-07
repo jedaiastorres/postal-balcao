@@ -83,6 +83,7 @@ async function loadConfig() {
       $("#quoteModeLabel").textContent = "Dados demonstrativos";
     }
     $("#demoLoginHint").style.display = state.config.demoAuth ? "block" : "none";
+    document.body.dataset.paymentsOperational = state.config.paymentsOperational ? "true" : "false";
     $("#commissionCaption").textContent = `${state.config.commissionPercent}% sobre o preço final`;
     $("#commissionBig").textContent = `${state.config.commissionPercent}%`;
     return state.config;
@@ -182,6 +183,43 @@ $("#logoutBtn").addEventListener("click", async () => {
   state.csrfToken = "";
   state.user = null;
   showLogin();
+});
+
+function closeChangePasswordModal(){
+  $("#changePasswordModal")?.classList.add("hidden");
+  $("#changePasswordForm")?.reset();
+}
+$("#changePasswordBtn")?.addEventListener("click",()=>$("#changePasswordModal")?.classList.remove("hidden"));
+$("#closeChangePasswordBtn")?.addEventListener("click",closeChangePasswordModal);
+$("#cancelChangePasswordBtn")?.addEventListener("click",closeChangePasswordModal);
+$("#changePasswordModal")?.addEventListener("click",e=>{if(e.target.id==="changePasswordModal")closeChangePasswordModal();});
+$("#changePasswordForm")?.addEventListener("submit",async event=>{
+  event.preventDefault();
+  const currentPassword=$("#currentPassword").value;
+  const newPassword=$("#newPassword").value;
+  const confirm=$("#confirmNewPassword").value;
+  if(newPassword!==confirm){
+    toast("A confirmação da nova senha não confere.","error");
+    return;
+  }
+  const btn=event.currentTarget.querySelector('button[type="submit"]');
+  btn.disabled=true;btn.textContent="Salvando...";
+  try{
+    const r=await api("/api/account/password",{
+      method:"POST",
+      body:JSON.stringify({currentPassword,newPassword})
+    });
+    closeChangePasswordModal();
+    state.csrfToken="";
+    state.user=null;
+    showLogin();
+    $("#loginPassword").value="";
+    toast(r.message||"Senha alterada. Entre novamente.");
+  }catch(err){
+    toast(err.message,"error");
+  }finally{
+    btn.disabled=false;btn.textContent="Salvar nova senha";
+  }
 });
 
 function navigate(name) {
