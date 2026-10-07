@@ -778,15 +778,16 @@ async function loadInventory() {
           const minText = window.prompt("Estoque mínimo para alerta:", String(Number(item.minQuantity || 0)));
           if (minText == null) return;
           try {
+            const adjustment={
+              code:item.code,
+              quantity:Number(qtyText),
+              minQuantity:Number(minText),
+              note:"Ajuste manual pelo ponto"
+            };
+            if(state.user?.role==="ADMIN") adjustment.salePrice=price;
             await api("/api/inventory/adjust", {
               method: "POST",
-              body: JSON.stringify({
-                code: item.code,
-                quantity: Number(qtyText),
-                salePrice: Number(String(priceText).replace(",", ".")),
-                minQuantity: Number(minText),
-                note: "Ajuste manual pelo ponto"
-              })
+              body: JSON.stringify(adjustment)
             });
             toast("Estoque ajustado.");
             await loadInventory();
