@@ -2291,6 +2291,86 @@ app.get("/api/admin/system-health", requireAuth, requireRole("ADMIN"), async (_r
   res.json(health);
 });
 
+app.get("/api/admin/go-live-readiness", requireAuth, requireRole("ADMIN"), async (_req,res)=>{
+  const checks=[];
+  const add=(key,label,ok,detail,blocking=true)=>checks.push({key,label,ok:Boolean(ok),detail:String(detail||""),blocking:Boolean(blocking)});
+  try{
+    await db.pool.query("SELECT 1");
+    add("database","Banco PostgreSQL",true,"Conexão ativa.");
+  }catch(error){
+    add("database","Banco PostgreSQL",false,error.message);
+  }
+
+  try{
+    const ce=TOKEN?await providerFetch("/postal_company",{method:"GET",timeout:15000}):null;
+    add("conectenvios","ConectEnvios",Boolean(ce?.data),"API logística autenticada.");
+  }catch(error){
+    add("conectenvios","ConectEnvios",false,providerFailureText(error)||error.message);
+  }
+
+  const env=asaas.environmentInfo();
+  add(
+    "asaas",
+    "Asaas produção",
+    paymentOperational(),
+    paymentOperational()
+      ?"API, webhook e PIX validados em produção."
+      : (paymentRuntime.lastError || ("Ambiente "+env.keyEnvironment+"; webhook="+paymentRuntime.webhookReady+"; pix="+paymentRuntime.pixReady))
+  );
+  add("shipment_creation","Emissão real",ENABLE_SHIPMENT_CREATION,ENABLE_SHIPMENT_CREATION?"Criação de postagem está habilitada.":"ENABLE_SHIPMENT_CREATION está desabilitado.");
+  add("payment_simulator","Simulador desligado",!PAYMENT_SIMULATOR_ENABLED,PAYMENT_SIMULATOR_ENABLED?"Simulador ainda está ligado.":"Somente fluxos reais permitidos.");
+
+  try{
+    const wallets=await db.pool.query(
+      `SELECT COUNT(*) FILTER (WHERE active=TRUE)::int AS active,
+              COUNT(*) FILTER (WHERE active=TRUE AND COALESCE(asaas_wallet_id,'')='')::int AS missing
+         FROM stores`
+    );
+    const row=wallets.rows[0]||{};
+    add("store_wallets","Carteiras dos pontos",Number(row.missing||0)===0,
+      Number(row.active||0)+" ponto(s) ativo(s); "+Number(row.missing||0)+" sem wallet Asaas.");
+  }catch(error){
+    add("store_wallets","Carteiras dos pontos",false,error.message);
+  }
+
+  add("admin_reset","Reset automático da senha MASTER",!ADMIN_PASSWORD_RESET_HASH,
+    ADMIN_PASSWORD_RESET_HASH?"Variável de reset ainda está ativa.":"Reset automático desativado.");
+
+  try{
+    const payments=await db.providerPaymentSummary();
+    const bad=Number(payments.awaiting_funds||0)+Number(payments.awaiting_provider||0)+Number(payments.provider_errors||0);
+    add("provider_queue","Fila de postagens",bad===0,
+      "aguardando saldo="+Number(payments.awaiting_funds||0)+", aguardando provedor="+Number(payments.awaiting_provider||0)+", erros="+Number(payments.provider_errors||0),
+      false);
+  }catch(error){
+    add("provider_queue","Fila de postagens",false,error.message,false);
+  }
+
+  try{
+    const eq=await db.pool.query(
+      `SELECT platform,status,COUNT(*)::int AS total
+         FROM ecommerce_connections
+        GROUP BY platform,status
+        ORDER BY platform,status`
+    );
+    const connected=eq.rows.reduce((s,x)=>s+(x.status==="CONNECTED"?Number(x.total||0):0),0);
+    add("ecommerce","Integrações de e-commerce",connected>0,
+      eq.rows.length?eq.rows.map(x=>x.platform+":"+x.status+"="+x.total).join(", "):"Nenhuma conexão cadastrada.",
+      false);
+  }catch(error){
+    add("ecommerce","Integrações de e-commerce",false,error.message,false);
+  }
+
+  const blockingFailures=checks.filter(x=>x.blocking&&!x.ok);
+  res.json({
+    ready:blockingFailures.length===0,
+    version:"1.9.0",
+    blockingFailures:blockingFailures.map(x=>x.key),
+    checks,
+    checkedAt:new Date().toISOString()
+  });
+});
+
 app.get("/api/admin/overview", requireAuth, requireRole("ADMIN"), async (_req, res) => {
   try {
     const overview = await db.adminOverview();
