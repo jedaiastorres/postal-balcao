@@ -1414,6 +1414,7 @@ app.get("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,res
 
 app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,res)=>{
   let createdOrderId=null;
+  let createdCollectionId=null;
   try{
     const body=req.body||{};
     const safeSandbox=asaas.isSandbox();
@@ -1495,6 +1496,7 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
         postalCompensation:postalFirstMile,address:sender,latitude:body.latitude||null,longitude:body.longitude||null,
         scheduledFor:body.scheduledFor||null,notes:String(body.collectionNotes||"")
       });
+      createdCollectionId=collection?.id||null;
     }
 
     await db.addOrderEvent(orderId,"WALLET_PAYMENT","Pagamento com saldo Postal","Valor debitado da carteira pré-paga.");
@@ -1546,12 +1548,30 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
     if(createdOrderId){
       try{
         const existing=await clientDb.getClientOrder(createdOrderId,req.user.userId);
-        if(existing&&["PAYMENT_CONFIRMED","PAID_WAITING_SHIPMENT"].includes(existing.status)){
+        const permanentProviderFailure=String(existing?.provider_payment_status||"").toUpperCase()==="ERROR";
+        const preProviderFailure=["PAYMENT_CONFIRMED","PAID_WAITING_SHIPMENT"].includes(String(existing?.status||""));
+        if(existing&&(preProviderFailure||permanentProviderFailure)){
           await clientDb.creditWallet(req.user.userId,Number(existing.payment_amount||0),{
-            type:"REFUND",description:"Estorno automático por falha na criação do envio",
+            type:"REFUND",description:"Estorno automático por falha definitiva na criação do envio",
             orderId:createdOrderId,idempotencyKey:"client-order-refund:"+createdOrderId
           });
           await db.updateStatus(createdOrderId,"CLIENT_ORDER_ERROR","REFUNDED");
+          await db.addOrderEvent(
+            createdOrderId,
+            "CLIENT_ORDER_REFUNDED",
+            "Saldo devolvido automaticamente",
+            "A postagem não pôde ser criada. O valor foi devolvido ao Saldo Postal."
+          );
+          if(createdCollectionId){
+            try{
+              await clientDb.updateCollection(createdCollectionId,{
+                status:"CANCELED",
+                notes:"Cancelada automaticamente porque a postagem não foi criada."
+              });
+            }catch(collectionError){
+              console.error("client collection cancel error:",collectionError.message);
+            }
+          }
         }
       }catch(refundError){console.error("client shipment refund error:",refundError.message);}
     }
@@ -3282,6 +3302,23 @@ async function start() {
       asaasPixReady=false;
       console.error("ASAAS_PIX_KEY_FAIL", error.status || "", asaas.providerErrorMessage(error.providerData,error.message));
     }
+  }
+
+  try {
+    const storeWallets=await db.pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE active=TRUE)::int AS active_stores,
+         COUNT(*) FILTER (WHERE active=TRUE AND COALESCE(asaas_wallet_id,'')='')::int AS active_stores_without_asaas_wallet
+       FROM stores`
+    );
+    const ecommerce=await db.pool.query(
+      `SELECT status,COUNT(*)::int AS total FROM ecommerce_connections GROUP BY status ORDER BY status`
+    );
+    const sw=storeWallets.rows[0]||{};
+    console.log("GO_LIVE_STORE_WALLETS","active="+Number(sw.active_stores||0),"missing="+Number(sw.active_stores_without_asaas_wallet||0));
+    console.log("GO_LIVE_ECOMMERCE_CONNECTIONS",JSON.stringify(ecommerce.rows||[]));
+  } catch (error) {
+    console.error("GO_LIVE_DIAGNOSTICS_FAIL",error.message);
   }
 
   if (ASAAS_SELF_TEST_ON_BOOT && asaas.configured() && asaasPixReady) {
