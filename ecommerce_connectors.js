@@ -214,6 +214,118 @@ async function fetchWooOrders({ storeUrl, consumerKey, consumerSecret, perPage =
 }
 
 
+const NUVEMSHOP_API_BASE = "https://api.nuvemshop.com.br/v1";
+const NUVEMSHOP_AUTH_BASE = "https://www.nuvemshop.com.br/apps";
+
+function buildNuvemshopAuthorizationUrl({ appId, state }) {
+  if(!String(appId||"").trim()) throw new Error("NUVEMSHOP_APP_ID não configurado.");
+  const url=new URL(NUVEMSHOP_AUTH_BASE+"/"+encodeURIComponent(String(appId).trim())+"/authorize");
+  url.searchParams.set("state",String(state||""));
+  return url.toString();
+}
+
+async function exchangeNuvemshopCode({ appId, clientSecret, code }) {
+  if(!appId||!clientSecret||!code) throw new Error("Credenciais OAuth Nuvemshop incompletas.");
+  const response=await fetch("https://www.nuvemshop.com.br/apps/authorize/token",{
+    method:"POST",
+    headers:{"accept":"application/json","content-type":"application/json","user-agent":"PostalBalcao/1.9"},
+    body:JSON.stringify({
+      client_id:String(appId),
+      client_secret:String(clientSecret),
+      grant_type:"authorization_code",
+      code:String(code)
+    }),
+    signal:AbortSignal.timeout(30000)
+  });
+  let body; try{body=await response.json();}catch{body=null;}
+  if(!response.ok || !body?.access_token || !body?.user_id){
+    const error=new Error(String(body?.message||body?.error_description||body?.error||"Nuvemshop recusou a autorização."));
+    error.status=response.status; throw error;
+  }
+  return {
+    accessToken:String(body.access_token),
+    storeId:String(body.user_id),
+    scope:String(body.scope||"")
+  };
+}
+
+function normalizeNuvemshopOrder(order, sender = {}) {
+  const shipping=firstObject(order?.shipping_address,order?.shipping);
+  const customer=firstObject(order?.customer);
+  const rawProducts=Array.isArray(order?.products)?order.products:[];
+  const items=rawProducts.map(item=>{
+    const qty=Math.max(1,Number(item.quantity||1));
+    const unit=Number(item.price ?? item.price_customer ?? item.original_price ?? 0);
+    return {
+      description:String(item.name||item.variant_name||item.sku||"Produto"),
+      quantity:qty,
+      value:Number.isFinite(unit)?Math.max(0,unit):0,
+      sku:String(item.sku||"")
+    };
+  });
+  const declaredValue=items.reduce((sum,item)=>sum+Number(item.value||0)*Number(item.quantity||1),0);
+  const phone=firstNonEmpty(shipping.phone,customer.phone,order.contact_phone,"");
+  const email=firstNonEmpty(customer.email,order.contact_email,"");
+  const name=firstNonEmpty(shipping.name,customer.name,[customer.first_name,customer.last_name].filter(Boolean).join(" "));
+  const document=firstNonEmpty(shipping.identification,customer.identification,customer.document,order.customer_document,"");
+  return {
+    sender:sender||{},
+    recipient:{
+      name:String(name||""),
+      document:String(document||""),
+      phone:String(phone||""),
+      email:String(email||""),
+      cep:String(firstNonEmpty(shipping.zipcode,shipping.zip_code,shipping.postal_code,"")),
+      address:String(firstNonEmpty(shipping.address,shipping.street,"")),
+      number:String(firstNonEmpty(shipping.number,"")),
+      neighborhood:String(firstNonEmpty(shipping.locality,shipping.neighborhood,"")),
+      complement:String(firstNonEmpty(shipping.floor,shipping.complement,"")),
+      city:String(firstNonEmpty(shipping.city,"")),
+      state:String(firstNonEmpty(shipping.province,shipping.state,""))
+    },
+    package:{
+      weightKg:Number(order.weight||0)||0,
+      length:0,width:0,height:0,
+      declaredValue:Math.round((declaredValue+Number.EPSILON)*100)/100
+    },
+    items,
+    invoiceNumber:String(firstNonEmpty(order.invoice?.key,order.invoice_number,"")),
+    source:{
+      platform:"NUVEMSHOP",
+      orderId:String(order.id||""),
+      orderNumber:String(order.number||order.id||""),
+      status:String(order.status||""),
+      paymentStatus:String(order.payment_status||""),
+      shippingStatus:String(order.shipping_status||""),
+      createdAt:order.created_at||null
+    }
+  };
+}
+
+async function fetchNuvemshopOrders({ storeId, accessToken, appId, perPage=50 }) {
+  if(!storeId||!accessToken) throw new Error("Conexão Nuvemshop incompleta.");
+  const url=new URL(NUVEMSHOP_API_BASE+"/"+encodeURIComponent(String(storeId))+"/orders");
+  url.searchParams.set("status","open");
+  url.searchParams.set("per_page",String(Math.max(1,Math.min(100,Number(perPage)||50))));
+  const response=await fetch(url.toString(),{
+    method:"GET",
+    headers:{
+      "accept":"application/json",
+      "content-type":"application/json",
+      "authorization":"Bearer "+String(accessToken),
+      "user-agent":"Postal Balcao ("+String(appId||"postal-balcao")+")"
+    },
+    signal:AbortSignal.timeout(30000)
+  });
+  let body; try{body=await response.json();}catch{body=null;}
+  if(!response.ok){
+    const error=new Error(String(body?.message||body?.description||body?.error||("Nuvemshop respondeu HTTP "+response.status+".")));
+    error.status=response.status; throw error;
+  }
+  if(!Array.isArray(body)) throw new Error("Resposta inesperada da Nuvemshop.");
+  return body.filter(order=>String(order?.payment_status||"").toLowerCase()==="paid" && String(order?.status||"").toLowerCase()!=="cancelled");
+}
+
 const LOJA_INTEGRADA_API_BASE = "https://api.awsli.com.br/v1";
 
 function firstObject(...values) {
@@ -338,5 +450,9 @@ module.exports = {
   fetchWooOrders,
   buildWooAuthorizationUrl,
   normalizeLojaIntegradaOrder,
-  fetchLojaIntegradaOrders
+  fetchLojaIntegradaOrders,
+  buildNuvemshopAuthorizationUrl,
+  exchangeNuvemshopCode,
+  normalizeNuvemshopOrder,
+  fetchNuvemshopOrders
 };
