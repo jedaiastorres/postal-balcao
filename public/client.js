@@ -451,6 +451,19 @@
         if(r.authorizationUrl){
           window.open(r.authorizationUrl,"_blank","noopener");
         }
+        if(r.requiresCredential==="PERSONAL_TOKEN" && r.connection?.id){
+          const token=prompt("Cole o personal token da Loja Integrada. Ele será criptografado e não ficará visível depois:","");
+          if(token){
+            try{
+              const linked=await api("/api/client/connections/"+encodeURIComponent(r.connection.id)+"/credentials",{
+                method:"POST",body:JSON.stringify({personalToken:token.trim()})
+              });
+              toast(linked.message||"Loja conectada.");
+            }catch(err){
+              toast(err.message,"error");
+            }
+          }
+        }
         await loadConnections();
       }catch(err){toast(err.message,"error");}
     }));
@@ -471,12 +484,26 @@
         <div><span>Pedidos</span><strong>${Number(x.importedOrders||0)}</strong><small>${escapeHtml(x.lastError||"")}</small></div>
         <div class="inventory-actions">
           ${x.authorizationUrl?`<button class="primary" type="button" data-auth="${escapeHtml(x.authorizationUrl)}">Autorizar</button>`:""}
-          <button class="ghost" type="button" data-sync="${escapeHtml(x.id)}" ${x.status!=="CONNECTED"?"disabled":""}>Sincronizar</button>
+          ${x.platform==="LOJA_INTEGRADA"&&x.status!=="CONNECTED"?`<button class="primary" type="button" data-li-token="${escapeHtml(x.id)}">Configurar token</button>`:""}
+          <button class="ghost" type="button" data-sync="${escapeHtml(x.id)}" ${!["CONNECTED","ERROR"].includes(x.status)?"disabled":""}>Sincronizar</button>
           <button class="ghost" type="button" data-delete="${escapeHtml(x.id)}">Desconectar</button>
         </div>
       </div>`).join(""):'<div class="empty-state">Nenhuma loja adicionada ainda.</div>';
 
     $("#connectionsList [data-auth]").forEach(btn=>btn.addEventListener("click",()=>window.open(btn.dataset.auth,"_blank","noopener")));
+    $("#connectionsList [data-li-token]").forEach(btn=>btn.addEventListener("click",async()=>{
+      const token=prompt("Cole o personal token da Loja Integrada. Ele será criptografado e não será exibido novamente:","");
+      if(!token)return;
+      btn.disabled=true;
+      try{
+        const r=await api("/api/client/connections/"+encodeURIComponent(btn.dataset.liToken)+"/credentials",{
+          method:"POST",body:JSON.stringify({personalToken:token.trim()})
+        });
+        toast(r.message||"Loja Integrada conectada.");
+        await loadConnections();
+      }catch(err){toast(err.message,"error");}
+      finally{btn.disabled=false;}
+    }));
     $("#connectionsList [data-sync]").forEach(btn=>btn.addEventListener("click",async()=>{
       try{const r=await api("/api/client/connections/"+encodeURIComponent(btn.dataset.sync)+"/sync",{method:"POST",body:"{}"});toast(r.message||"Sincronização solicitada.");await loadConnections();}
       catch(err){toast(err.message,"error");}
