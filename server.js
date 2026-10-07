@@ -197,11 +197,48 @@ async function syncWooCommerceConnection(connection) {
   return {imported};
 }
 
+
+async function syncLojaIntegradaConnection(connection) {
+  const config=connection?.config||{};
+  if(!config.credentialBlob) throw new Error("Personal token da Loja Integrada ainda não configurado.");
+  const credentials=ecommerce.decryptCredentials(config.credentialBlob,SESSION_SECRET);
+  const account=await clientDb.getCustomerAccount(connection.user_id);
+  const sender=account?.default_sender||{};
+  const orders=await ecommerce.fetchLojaIntegradaOrders({
+    personalToken:credentials.personalToken,
+    limit:100
+  });
+
+  let imported=0;
+  for(const order of orders){
+    const payload=ecommerce.normalizeLojaIntegradaOrder(order,sender);
+    if(payload.source?.canceled) continue;
+    if(payload.source?.approved===false) continue;
+    const externalId=String(payload.source?.orderId||order.id||order.numero||"");
+    if(!externalId) continue;
+    await clientDb.importEcommerceOrder({
+      connectionId:connection.id,
+      externalOrderId:externalId,
+      customerName:payload.recipient?.name||"",
+      externalStatus:payload.source?.status||"",
+      payload
+    });
+    imported++;
+  }
+
+  await clientDb.updateConnection(connection.id,connection.user_id,{
+    status:"CONNECTED",
+    config:{...config,lastError:"",lastImportedCount:imported,lastValidatedAt:new Date().toISOString()},
+    markSynced:true
+  });
+  return {imported};
+}
+
 async function syncEcommerceConnection(connection) {
   if(!connection) throw new Error("Conexão não encontrada.");
-  if(String(connection.platform).toUpperCase()==="WOOCOMMERCE"){
-    return syncWooCommerceConnection(connection);
-  }
+  const platform=String(connection.platform).toUpperCase();
+  if(platform==="WOOCOMMERCE") return syncWooCommerceConnection(connection);
+  if(platform==="LOJA_INTEGRADA") return syncLojaIntegradaConnection(connection);
   throw new Error("Sincronização nativa desta plataforma ainda não está disponível.");
 }
 
@@ -209,7 +246,8 @@ async function processEcommerceSyncQueue() {
   try{
     const connections=await clientDb.listBridgeConnections(null,250);
     for(const connection of connections){
-      if(String(connection.platform).toUpperCase()!=="WOOCOMMERCE") continue;
+      const platform=String(connection.platform).toUpperCase();
+      if(!["WOOCOMMERCE","LOJA_INTEGRADA"].includes(platform)) continue;
       if(!["CONNECTED","SYNC_REQUESTED"].includes(String(connection.status||""))) continue;
       try{
         if(connection.status==="SYNC_REQUESTED"){
@@ -218,7 +256,7 @@ async function processEcommerceSyncQueue() {
             config:{...(connection.config||{}),lastError:""}
           });
         }
-        await syncWooCommerceConnection(connection);
+        await syncEcommerceConnection(connection);
       }catch(error){
         const current=connection.config||{};
         await clientDb.updateConnection(connection.id,connection.user_id,{
@@ -1970,6 +2008,18 @@ app.post("/api/client/connections", requireAuth, requireRole("CLIENT"), async (r
     }
 
     const connection=await clientDb.createConnection({userId:req.user.userId,platform,displayName});
+    if(platform==="LOJA_INTEGRADA"){
+      const updated=await clientDb.updateConnection(connection.id,req.user.userId,{
+        status:"AWAITING_PROVIDER_AUTH",
+        config:{whiteLabel:"POSTAL_SERVICOS",bridge:"DIRECT_LOJA_INTEGRADA",lastError:""}
+      });
+      await audit(req,"CREATE_ECOMMERCE_CONNECTION","ECOMMERCE_CONNECTION",connection.id,{platform});
+      return res.status(201).json({
+        connection:{id:updated.id,platform:updated.platform,status:updated.status,displayName:updated.display_name||""},
+        requiresCredential:"PERSONAL_TOKEN",
+        message:"Loja Integrada preparada. Informe o personal token gerado pelo proprietário da loja."
+      });
+    }
     if(storeUrl){
       await clientDb.updateConnection(connection.id,req.user.userId,{
         config:{whiteLabel:"POSTAL_SERVICOS",bridge:"CONECTENVIOS",storeUrl}
@@ -1989,6 +2039,45 @@ app.post("/api/client/connections", requireAuth, requireRole("CLIENT"), async (r
   }
 });
 
+app.post("/api/client/connections/:id/credentials", requireAuth, requireRole("CLIENT"), async (req,res)=>{
+  try{
+    const connection=await clientDb.getConnectionById(req.params.id);
+    if(!connection || String(connection.user_id)!==String(req.user.userId)){
+      return res.status(404).json({error:"Integração não encontrada."});
+    }
+    const platform=String(connection.platform||"").toUpperCase();
+    if(platform!=="LOJA_INTEGRADA"){
+      return res.status(400).json({error:"Esta conexão não usa credencial manual."});
+    }
+    const personalToken=String(req.body.personalToken||"").trim();
+    if(personalToken.length<12){
+      return res.status(400).json({error:"Personal token inválido."});
+    }
+    const config=connection.config||{};
+    const credentialBlob=ecommerce.encryptCredentials({personalToken},SESSION_SECRET);
+    const validating={...connection,config:{...config,credentialBlob}};
+    // A primeira sincronização também funciona como validação real da credencial.
+    await clientDb.updateConnection(connection.id,req.user.userId,{
+      status:"SYNCING",
+      config:{...config,credentialBlob,lastError:""}
+    });
+    try{
+      const result=await syncLojaIntegradaConnection(validating);
+      await audit(req,"CONNECT_ECOMMERCE_CREDENTIAL","ECOMMERCE_CONNECTION",connection.id,{platform,imported:result.imported});
+      return res.json({ok:true,connected:true,imported:result.imported,message:"Loja Integrada conectada com sucesso."});
+    }catch(error){
+      await clientDb.updateConnection(connection.id,req.user.userId,{
+        status:"ERROR",
+        config:{...config,lastError:String(error.message||"Credencial recusada").slice(0,500)}
+      });
+      throw error;
+    }
+  }catch(error){
+    console.error("ecommerce credential setup error:",error.message);
+    res.status(error.status&&error.status<500?error.status:502).json({error:error.message||"Não foi possível validar a credencial."});
+  }
+});
+
 app.post("/api/client/connections/:id/sync", requireAuth, requireRole("CLIENT"), async (req,res)=>{
   try{
     const connection=await clientDb.getConnectionById(req.params.id);
@@ -1999,15 +2088,15 @@ app.post("/api/client/connections/:id/sync", requireAuth, requireRole("CLIENT"),
       return res.status(409).json({error:"Conclua a autorização da loja antes de sincronizar."});
     }
 
-    if(String(connection.platform).toUpperCase()==="WOOCOMMERCE"){
+    if(["WOOCOMMERCE","LOJA_INTEGRADA"].includes(String(connection.platform).toUpperCase())){
       await clientDb.updateConnection(connection.id,req.user.userId,{
         status:"SYNCING",
         config:{...(connection.config||{}),lastError:""}
       });
       const fresh=await clientDb.getConnectionById(connection.id);
-      const result=await syncWooCommerceConnection(fresh);
+      const result=await syncEcommerceConnection(fresh);
       await audit(req,"SYNC_ECOMMERCE_CONNECTION","ECOMMERCE_CONNECTION",connection.id,{platform:connection.platform,imported:result.imported});
-      return res.json({ok:true,imported:result.imported,message:result.imported+" pedido(s) pago(s) sincronizado(s)."});
+      return res.json({ok:true,imported:result.imported,message:result.imported+" pedido(s) aprovado(s) sincronizado(s)."});
     }
 
     const currentConfig=connection.config||{};
