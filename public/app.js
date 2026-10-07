@@ -1402,14 +1402,15 @@ async function loadCredit() {
 async function loadMaster() {
   if (state.user?.role !== "ADMIN") return;
   try {
-    const [overview, stores, users, catalog, partners, products, auditResult] = await Promise.all([
+    const [overview, stores, users, catalog, partners, products, auditResult, readiness] = await Promise.all([
       api("/api/admin/overview"),
       api("/api/admin/stores"),
       api("/api/admin/users"),
       api("/api/admin/catalog"),
       api("/api/admin/credit/partners"),
       api("/api/admin/credit/products"),
-      api("/api/admin/audit?limit=80")
+      api("/api/admin/audit?limit=80"),
+      api("/api/admin/go-live-readiness")
     ]);
 
     state.admin.stores = stores.stores || [];
@@ -1423,6 +1424,21 @@ async function loadMaster() {
     $("#masterOrders").textContent = overview.totalOrders || 0;
     $("#masterGross").textContent = money(overview.grossSales);
     $("#masterPostalRevenue").textContent = money(overview.postalRevenue);
+
+    const readinessHost=$("#goLiveReadiness");
+    if(readinessHost){
+      const checks=readiness.checks||[];
+      readinessHost.innerHTML=`
+        <div class="payment-method-note">${readiness.ready
+          ? "✅ Todos os bloqueios técnicos obrigatórios foram aprovados."
+          : "⚠️ Operação real bloqueada por: "+(readiness.blockingFailures||[]).join(", ")}</div>
+        ${checks.map(x=>`
+          <div class="inventory-row">
+            <div><span class="addon-type">${x.blocking?"OBRIGATÓRIO":"MONITORAMENTO"}</span><strong>${escapeHtml(x.label)}</strong><small>${escapeHtml(x.detail||"")}</small></div>
+            <div><span>Status</span><strong>${x.ok?"✅ OK":"⚠️ PENDENTE"}</strong></div>
+          </div>`).join("")}
+      `;
+    }
 
     const storeSelect = $("#adminUserStore");
     if (storeSelect) {
@@ -1537,6 +1553,7 @@ async function loadMaster() {
   }
 }
 
+$("#refreshGoLiveBtn")?.addEventListener("click",loadMaster);
 $("#refreshMasterBtn")?.addEventListener("click",loadMaster);
 $("#exportBackupBtn")?.addEventListener("click", async () => {
   try {
