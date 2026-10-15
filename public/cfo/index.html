@@ -13,6 +13,8 @@ header{height:66px;background:var(--navy);color:#fff;display:flex;align-items:ce
 .badges{display:flex;gap:8px;flex-wrap:wrap}.badge{padding:7px 10px;border:1px solid #ffffff33;border-radius:999px;background:#ffffff14;font-size:12px}
 .layout{display:grid;grid-template-columns:230px 1fr;min-height:calc(100vh - 66px)}aside{background:white;border-right:1px solid var(--line);padding:18px 12px}nav button{display:flex;gap:10px;align-items:center;width:100%;border:0;background:transparent;color:#344054;padding:11px 12px;border-radius:9px;font-weight:650;text-align:left;cursor:pointer;margin-bottom:5px}nav button:hover,nav button.active{background:#eef4ff;color:#1849a9}
 .preview{margin:14px 4px;padding:12px;border-radius:10px;background:#fff6ed;border:1px solid #ffd7ae;color:#9c2a10;font-size:12px;line-height:1.4}
+.navtitle{font-size:10px;color:#98a2b3;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:13px 12px 6px}
+.pill{display:inline-block;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:700}.pill.green{background:#ecfdf3;color:#067647}.pill.red{background:#fef3f2;color:#b42318}.pill.blue{background:#eff8ff;color:#175cd3}.pill.orange{background:#fffaeb;color:#b54708}
 main{padding:22px;min-width:0}.page{display:none}.page.active{display:block}.title{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px}.title h1,.title h2{margin:0}.sub{color:var(--muted);font-size:13px;margin-top:4px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:0 1px 3px #1018280d}
 .filters{display:grid;grid-template-columns:repeat(6,minmax(125px,1fr));gap:8px;margin-bottom:12px}.filters input,.filters select,input,select,textarea{width:100%;padding:9px 10px;border:1px solid #d0d5dd;border-radius:8px;background:#fff;color:#101828}
@@ -39,16 +41,33 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 <div class="layout">
 <aside>
 <nav>
+<div class="navtitle">Visão gerencial</div>
 <button class="active" data-page="dashboard">📊 Dashboard</button>
 <button data-page="dre">📑 DRE</button>
+<button data-page="fluxo">💧 Fluxo de caixa</button>
+
+<div class="navtitle">Financeiro</div>
+<button data-page="pagar">📤 Contas a pagar</button>
+<button data-page="receber">📥 Contas a receber</button>
+<button data-page="inadimplencia">⚠️ Inadimplência</button>
+<button data-page="conciliacao">🔄 Conciliação bancária</button>
 <button data-page="lancamentos">🧾 Lançamentos</button>
-<button data-page="clientes">👥 Clientes</button>
 <button data-page="avulsos">➕ Lançamentos avulsos</button>
 <button data-page="importacao">⬆️ Importar extrato</button>
+
+<div class="navtitle">Cadastros</div>
+<button data-page="clientes">👥 Clientes</button>
+<button data-page="fornecedores">🏢 Fornecedores</button>
+<button data-page="bancos">🏦 Contas bancárias</button>
+<button data-page="plano">🗂️ Plano de contas</button>
+<button data-page="filiais">🏬 Filiais / Bases</button>
+<button data-page="centros">📍 Centros / Rotas</button>
+
+<div class="navtitle">Inteligência</div>
 <button data-page="regras">🧠 Regras aprendidas</button>
 <button data-page="cfo">🤖 CFO IA</button>
 </nav>
-<div class="preview"><b>Prévia online</b><br>Esta prévia já permite cadastrar/excluir clientes e lançamentos avulsos. Nesta fase esses dois cadastros ficam salvos neste navegador; na ativação do backend serão centralizados para todos os dispositivos.</div>
+<div class="preview"><b>Prévia online</b><br>Evolução inspirada no XFIN, ampliada para a operação da Postal: pagar/receber, inadimplência, conciliação, fluxo de caixa, DRE, cadastros e dimensões logísticas. Clientes e lançamentos avulsos já salvam neste navegador; o backend definitivo centralizará tudo.</div>
 </aside>
 <main>
 <section class="page active" id="dashboard">
@@ -87,6 +106,98 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 <div class="metricrow"><span>Aprendizado por favorecido</span><span class="status info">Previsto</span></div>
 <div class="metricrow"><span>Controle de duplicidade</span><span class="status info">Previsto</span></div>
 </div></div>
+</section>
+
+
+<section class="page" id="fluxo">
+<div class="title"><div><h2>Fluxo de caixa</h2><div class="sub">Visão diária, mensal e projetada — sem confundir caixa com competência.</div></div><div class="toolbar"><button class="btn">Diário</button><button class="btn secondary">Mensal</button><button class="btn secondary">Projetado</button></div></div>
+<div class="kpis">
+<div class="card kpi"><span>Saldo inicial</span><b>R$ 95.000,00</b><small>exemplo gerencial</small></div>
+<div class="card kpi"><span>Entradas previstas</span><b>R$ 93.655,32</b><small>competência atual</small></div>
+<div class="card kpi"><span>Saídas previstas</span><b>R$ 291.000,00</b><small>custos + despesas</small></div>
+<div class="card kpi"><span>Saldo projetado</span><b style="color:var(--red)">-R$ 102.344,68</b><small>exige capital de giro</small></div>
+<div class="card kpi"><span>Contas a receber</span><b>R$ 50.000,00</b><small>exemplo</small></div>
+<div class="card kpi"><span>Contas vencidas</span><b>R$ 0,00</b><small>na prévia</small></div>
+</div>
+<div class="grid2">
+<div class="card chartbox"><b>Entradas x saídas</b><div class="sub">Fluxo financeiro por mês</div><canvas id="cashChart"></canvas></div>
+<div class="card"><b>Alertas de caixa</b><div class="alert medium"><b>Previsão de aperto</b>O sistema final cruzará títulos a pagar, a receber e saldo bancário para antecipar falta de caixa.</div><div class="alert"><b>Caixa ≠ DRE</b>Transferências, principal de empréstimos, consórcios e CAPEX serão tratados separadamente do resultado.</div></div>
+</div>
+</section>
+
+<section class="page" id="pagar">
+<div class="title"><div><h2>Contas a pagar</h2><div class="sub">Despesas, fornecedores, vencimentos, parcelas e baixas.</div></div><button class="btn" onclick="toast('Na versão definitiva, abrirá o cadastro de título a pagar.')">+ Nova conta</button></div>
+<div class="kpis">
+<div class="card kpi"><span>A vencer</span><b>R$ 0,00</b></div><div class="card kpi"><span>Vence hoje</span><b>R$ 0,00</b></div><div class="card kpi"><span>Vencido</span><b>R$ 0,00</b></div><div class="card kpi"><span>Pago no mês</span><b>R$ 0,00</b></div><div class="card kpi"><span>Próximos 7 dias</span><b>R$ 0,00</b></div><div class="card kpi"><span>Próximos 30 dias</span><b>R$ 0,00</b></div>
+</div>
+<div class="card"><div class="toolbar"><input placeholder="Buscar fornecedor ou descrição" style="max-width:360px"><select style="max-width:180px"><option>Todos os status</option><option>Em aberto</option><option>Pago</option><option>Vencido</option></select><button class="btn secondary">Filtrar</button></div><div class="tablewrap"><table><thead><tr><th>Vencimento</th><th>Fornecedor</th><th>Descrição</th><th>Valor</th><th>Competência</th><th>Cliente/Rota</th><th>Status</th></tr></thead><tbody><tr><td colspan="7" class="empty">Os títulos a pagar aparecerão aqui.</td></tr></tbody></table></div></div>
+</section>
+
+<section class="page" id="receber">
+<div class="title"><div><h2>Contas a receber</h2><div class="sub">Faturas, clientes, vencimentos, recebimentos parciais e previsão de caixa.</div></div><button class="btn" onclick="toast('Na versão definitiva, abrirá o cadastro de título a receber.')">+ Nova receita</button></div>
+<div class="kpis">
+<div class="card kpi"><span>A receber</span><b>R$ 0,00</b></div><div class="card kpi"><span>Vence hoje</span><b>R$ 0,00</b></div><div class="card kpi"><span>Vencido</span><b>R$ 0,00</b></div><div class="card kpi"><span>Recebido no mês</span><b>R$ 0,00</b></div><div class="card kpi"><span>Próximos 7 dias</span><b>R$ 0,00</b></div><div class="card kpi"><span>Próximos 30 dias</span><b>R$ 0,00</b></div>
+</div>
+<div class="card"><div class="toolbar"><input placeholder="Buscar cliente ou documento" style="max-width:360px"><select style="max-width:180px"><option>Todos os status</option><option>Em aberto</option><option>Recebido</option><option>Vencido</option></select><button class="btn secondary">Filtrar</button></div><div class="tablewrap"><table><thead><tr><th>Vencimento</th><th>Cliente</th><th>Documento</th><th>Valor</th><th>Competência</th><th>Rota/Cidade</th><th>Status</th></tr></thead><tbody><tr><td colspan="7" class="empty">Os títulos a receber aparecerão aqui.</td></tr></tbody></table></div></div>
+</section>
+
+<section class="page" id="inadimplencia">
+<div class="title"><div><h2>Inadimplência</h2><div class="sub">Acompanhamento de recebíveis vencidos e cobrança.</div></div></div>
+<div class="grid3">
+<div class="card"><b>0–7 dias</b><div class="metricrow"><span>Total</span><b>R$ 0,00</b></div><span class="pill blue">Acompanhar</span></div>
+<div class="card"><b>8–30 dias</b><div class="metricrow"><span>Total</span><b>R$ 0,00</b></div><span class="pill orange">Cobrar</span></div>
+<div class="card"><b>31+ dias</b><div class="metricrow"><span>Total</span><b>R$ 0,00</b></div><span class="pill red">Crítico</span></div>
+</div>
+<div class="card" style="margin-top:12px"><b>Régua de cobrança</b><div class="metricrow"><span>D-3</span><span>Lembrete preventivo</span></div><div class="metricrow"><span>D+1</span><span>Primeiro aviso</span></div><div class="metricrow"><span>D+7</span><span>Cobrança ativa</span></div><div class="metricrow"><span>D+15</span><span>Escalonar responsável</span></div></div>
+</section>
+
+<section class="page" id="conciliacao">
+<div class="title"><div><h2>Conciliação bancária</h2><div class="sub">Cruze extrato OFX/XLSX com contas a pagar/receber e lançamentos já registrados.</div></div><button class="btn" onclick="goPage('importacao')">Importar extrato</button></div>
+<div class="kpis"><div class="card kpi"><span>Conciliados</span><b>0</b></div><div class="card kpi"><span>Com sugestão</span><b>0</b></div><div class="card kpi"><span>Sem correspondência</span><b>0</b></div><div class="card kpi"><span>Duplicidades</span><b>0</b></div><div class="card kpi"><span>Inter atualizado</span><b>10/10</b></div><div class="card kpi"><span>BB atualizado</span><b>14/10</b></div></div>
+<div class="flow"><div class="step"><em>1</em><b>Extrato</b><span class="sub">OFX/XLSX</span></div><div class="step"><em>2</em><b>Matching</b><span class="sub">Data, valor, favorecido</span></div><div class="step"><em>3</em><b>Classificação</b><span class="sub">Regras aprendidas + IA</span></div><div class="step"><em>4</em><b>Conciliação</b><span class="sub">Confirmar e baixar títulos</span></div></div>
+<div class="card" style="margin-top:12px"><div class="alert"><b>Melhoria sobre o XFIN</b>A conciliação será conectada à competência, cliente, rota, cidade e regras CFO da Postal, não apenas ao plano de contas.</div></div>
+</section>
+
+<section class="page" id="fornecedores">
+<div class="title"><div><h2>Fornecedores</h2><div class="sub">Prestadores, parceiros de entrega, combustível, manutenção, sistemas e serviços.</div></div><button class="btn" onclick="toast('Cadastro de fornecedor será persistente no backend definitivo.')">+ Cadastrar fornecedor</button></div>
+<div class="card"><div class="tablewrap"><table><thead><tr><th>Fornecedor</th><th>Tipo</th><th>Rota/Cidade</th><th>Regra financeira</th><th>Status</th></tr></thead><tbody>
+<tr><td>IBPO Serviços Financeiros</td><td>BPO financeiro</td><td>Corporativo</td><td>Despesa administrativa · competência do pagamento</td><td><span class="status ok">Ativo</span></td></tr>
+<tr><td>Lider Log</td><td>Parceiro operacional</td><td>Multirrota</td><td>Custo operacional</td><td><span class="status ok">Ativo</span></td></tr>
+<tr><td>Auto Posto / Raízen</td><td>Combustível</td><td>Frota</td><td>Custo de frota</td><td><span class="status ok">Ativo</span></td></tr>
+</tbody></table></div></div>
+</section>
+
+<section class="page" id="bancos">
+<div class="title"><div><h2>Contas bancárias</h2><div class="sub">Saldos, última atualização e conciliação.</div></div><button class="btn" onclick="toast('Cadastro de conta bancária será persistente no backend definitivo.')">+ Nova conta</button></div>
+<div class="grid2">
+<div class="card"><b>Banco Inter</b><div class="metricrow"><span>Último extrato</span><b>10/10/2026</b></div><div class="metricrow"><span>Status</span><span class="pill green">Atualizado</span></div></div>
+<div class="card"><b>Banco do Brasil</b><div class="metricrow"><span>Último extrato</span><b>14/10/2026</b></div><div class="metricrow"><span>Status</span><span class="pill green">Atualizado</span></div></div>
+</div>
+</section>
+
+<section class="page" id="plano">
+<div class="title"><div><h2>Plano de contas</h2><div class="sub">Estrutura usada na DRE e nas classificações automáticas.</div></div><button class="btn" onclick="toast('O plano de contas poderá ser editado no backend definitivo.')">+ Nova categoria</button></div>
+<div class="card"><div class="tablewrap"><table><thead><tr><th>Grupo</th><th>Subgrupo</th><th>Exemplos</th><th>DRE</th></tr></thead><tbody>
+<tr><td>Receita Bruta</td><td>Receita operacional</td><td>Fretes e serviços logísticos</td><td><span class="pill green">Inclui</span></td></tr>
+<tr><td>Custos dos Serviços</td><td>Custos operacionais</td><td>Fretes terceiros, redespacho, segurança</td><td><span class="pill green">Inclui</span></td></tr>
+<tr><td>Custos dos Serviços</td><td>Custos de frota</td><td>Combustível, manutenção, pneus</td><td><span class="pill green">Inclui</span></td></tr>
+<tr><td>Despesas Operacionais</td><td>Despesas administrativas</td><td>BPO, contabilidade, aluguel, sistemas</td><td><span class="pill green">Inclui</span></td></tr>
+<tr><td>Fora do DRE</td><td>Movimentação patrimonial</td><td>Transferências, principal de empréstimos, CAPEX</td><td><span class="pill red">Exclui</span></td></tr>
+</tbody></table></div></div>
+</section>
+
+<section class="page" id="filiais">
+<div class="title"><div><h2>Filiais / Bases</h2><div class="sub">Estrutura organizacional e centros operacionais.</div></div><button class="btn" onclick="toast('Cadastro de filial/base será habilitado no backend definitivo.')">+ Nova base</button></div>
+<div class="card"><div class="metricrow"><div><b>Parauapebas — Sede operacional</b><div class="sub">Base principal da Postal Serviços</div></div><span class="status ok">Ativa</span></div></div>
+</section>
+
+<section class="page" id="centros">
+<div class="title"><div><h2>Centros de custo / Rotas</h2><div class="sub">Dimensão gerencial adicional que transforma o financeiro em ferramenta logística.</div></div><button class="btn" onclick="toast('Rotas e centros poderão ser cadastrados/alterados no backend definitivo.')">+ Nova rota</button></div>
+<div class="card"><div class="tablewrap"><table><thead><tr><th>Centro / Rota</th><th>Cidades</th><th>Uso no BI</th><th>Status</th></tr></thead><tbody>
+<tr><td>Parauapebas</td><td>Parauapebas</td><td>DRE, margem, custos e clientes</td><td><span class="status ok">Ativa</span></td></tr>
+<tr><td>Rota Redenção</td><td>Redenção, Pau D'Arco, Conceição, Santana, Santa Maria, Cumaru</td><td>DRE por rota/cidade</td><td><span class="status ok">Ativa</span></td></tr>
+<tr><td>Xingu</td><td>Água Azul, Ourilândia, Tucumã, São Félix</td><td>DRE por rota/cidade</td><td><span class="status ok">Ativa</span></td></tr>
+</tbody></table></div></div>
 </section>
 
 <section class="page" id="dre">
@@ -221,5 +332,6 @@ renderClients();renderClientSuggestions();renderAvulsos();if(document.getElement
 
 new Chart(document.getElementById('trend'),{type:'bar',data:{labels:['Ago/26','Set/26','Out/26 MTD'],datasets:[{label:'Receita Bruta',data:[456443.55,93655.32,495.82]},{label:'Resultado Líquido',data:[152546.90,-197092.44,-17199.57]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
 new Chart(document.getElementById('margin'),{type:'line',data:{labels:['Ago/26','Set/26','Out/26 MTD'],datasets:[{label:'Margem %',data:[33.42,-210.44,-3468.91],tension:.25}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
+if(document.getElementById('cashChart')) new Chart(document.getElementById('cashChart'),{type:'bar',data:{labels:['Ago/26','Set/26','Out/26 MTD'],datasets:[{label:'Entradas',data:[456443.55,93655.32,495.82]},{label:'Saídas',data:[303896.65,290747.76,17695.39]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
 </script>
 </body></html>
