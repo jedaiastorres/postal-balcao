@@ -212,15 +212,15 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 </section>
 
 <section class="page" id="dre">
-<div class="title"><div><h2>DRE Oficial</h2><div class="sub">Modelo mensal + acumulado + AV%, seguindo o padrão solicitado e com apresentação executiva.</div></div><div class="toolbar"><button class="btn secondary" onclick="window.print()">Gerar PDF</button><button class="btn secondary" onclick="exportDreCSV()">Exportar Excel</button></div></div>
+<div class="title"><div><h2>DRE Oficial</h2><div class="sub">Modelo mensal + acumulado + AV%, com todos os grupos preenchidos a partir das classificações atuais: pessoal, ocupação, terceiros/sistemas, administrativos, frota, fretes/redespachos, financeiro e impostos.</div></div><div class="toolbar"><button class="btn secondary" onclick="window.print()">Gerar PDF</button><button class="btn secondary" onclick="exportDreCSV()">Exportar Excel</button></div></div>
 <div class="dre-shell">
 <div class="dre-head">
-<div><h2>Demonstrativo de Resultado</h2><div class="sub">Postal Serviços e Transportes LTDA · Visão gerencial por competência</div></div>
+<div><h2>Demonstrativo de Resultado</h2><div class="sub">Postal Serviços e Transportes LTDA · Competência gerencial · Inter até 10/10/2026 · BB até 14/10/2026</div></div>
 <div class="dre-meta"><span class="dre-chip">Ano: 2026</span><span class="dre-chip">Mensal + Acumulado</span><span class="dre-chip">AV% sobre Receita Bruta</span></div>
 </div>
 <div class="dre-toolbar">
 <div class="toolbar" style="margin:0"><label>Ano <select id="dreYear" style="width:110px"><option>2026</option></select></label><label>Visual <select id="dreView" style="width:160px"><option>Executivo</option><option>Compacto</option></select></label></div>
-<div class="sub">Linhas principais recebem destaque automático; negativos ficam em vermelho e resultados positivos em verde.</div>
+<div class="sub">Todos os grupos recebem valor mesmo quando zero. Maio–julho são retroativos/parciais; agosto e setembro são bases revisadas; outubro é MTD.</div>
 </div>
 <div class="dre-kpis">
 <div class="dre-kpi"><span>Receita Bruta · Ago/26</span><b>R$ 456.443,55</b></div>
@@ -360,46 +360,59 @@ renderClients();renderClientSuggestions();renderAvulsos();if(document.getElement
 const dreMonths=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const DRE_ROWS=[
  {label:'(+) Receita Bruta',key:'receitaBruta',type:'section'},
- {label:'1 - Receita com Vendas',key:'receitaVendas',type:'detail'},
- {label:'(-) Deduções Sobre Vendas',key:'deducoes',type:'section'},
- {label:'2 - Impostos Sobre Vendas',key:'impostosVendas',type:'detail'},
+ {label:'1 - Receita com Fretes e Serviços Logísticos',key:'receitaFretes',type:'detail'},
+ {label:'(-) Deduções Sobre a Receita',key:'deducoes',type:'section'},
+ {label:'2 - Impostos Sobre Faturamento',key:'impostosVendas',type:'detail'},
  {label:'3 - Outras Deduções',key:'outrasDeducoes',type:'detail'},
  {label:'(=) Receita Líquida',key:'receitaLiquida',type:'result'},
- {label:'(-) Custos Variáveis',key:'custosVariaveis',type:'section'},
- {label:'4 - Custos Variáveis',key:'custosVariaveisDetalhe',type:'detail'},
+ {label:'(-) Custos Variáveis / Operacionais',key:'custosVariaveis',type:'section'},
+ {label:'4 - Fretes de Terceiros / Redespachos / Operação',key:'fretesTerceiros',type:'detail'},
+ {label:'5 - Custos de Frota',key:'frota',type:'detail'},
  {label:'(=) Margem de Contribuição',key:'margemContribuicao',type:'result'},
  {label:'(=) % Margem de Contribuição',key:'percMargemContribuicao',type:'percent',percent:true},
- {label:'(-) Custos Fixos',key:'custosFixos',type:'section'},
- {label:'5 - Gastos com Pessoal',key:'pessoal',type:'detail'},
- {label:'6 - Gastos com Ocupação',key:'ocupacao',type:'detail'},
- {label:'7 - Gastos com Serviços de Terceiros',key:'terceiros',type:'detail'},
- {label:'8 - Gastos com Marketing',key:'marketing',type:'detail'},
+ {label:'(-) Custos Fixos / Estrutura',key:'custosFixos',type:'section'},
+ {label:'6 - Gastos com Pessoal',key:'pessoal',type:'detail'},
+ {label:'7 - Gastos com Ocupação',key:'ocupacao',type:'detail'},
+ {label:'8 - Gastos com Serviços de Terceiros / Sistemas',key:'terceiros',type:'detail'},
+ {label:'9 - Gastos Administrativos Gerais',key:'administrativos',type:'detail'},
+ {label:'10 - Gastos com Marketing',key:'marketing',type:'detail'},
  {label:'(=) Resultado Operacional',key:'resultadoOperacional',type:'result'},
- {label:'Resultado Não Operacional',key:'resultadoNaoOperacional',type:'section'},
- {label:'9 - Receitas não Operacionais',key:'receitasNaoOperacionais',type:'detail'},
- {label:'10 - Gastos não Operacionais',key:'gastosNaoOperacionais',type:'detail'},
+ {label:'Resultado Não Operacional / Financeiro',key:'resultadoNaoOperacional',type:'section'},
+ {label:'11 - Receitas não Operacionais / Financeiras',key:'receitasNaoOperacionais',type:'detail'},
+ {label:'12 - Gastos Financeiros / Não Operacionais',key:'gastosNaoOperacionais',type:'detail'},
  {label:'(=) Lucro Antes do Imposto de Renda (LAIR)',key:'lair',type:'result'},
  {label:'(-) Imposto de Renda e CSLL',key:'ircsll',type:'section'},
- {label:'11 - Imposto de Renda e CSLL',key:'ircsllDetalhe',type:'detail'},
+ {label:'13 - Imposto de Renda e CSLL',key:'ircsllDetalhe',type:'detail'},
  {label:'(=) Lucro Líquido',key:'lucroLiquido',type:'result'},
  {label:'(=) % Margem Líquida',key:'percMargemLiquida',type:'percent',percent:true}
 ];
 // Snapshot de demonstração: usamos os valores mensais já consolidados disponíveis.
 // As sublinhas sem informação suficiente permanecem zeradas até o backend fazer o mapeamento pelo plano de contas.
 const DRE_DATA={
- receitaBruta:{ago:456443.55,set:93655.32,out:495.82},
- receitaVendas:{ago:456443.55,set:93655.32,out:495.82},
- deducoes:{ago:0,set:0,out:0},
- impostosVendas:{ago:0,set:0,out:0},outrasDeducoes:{ago:0,set:0,out:0},
- receitaLiquida:{ago:456443.55,set:93655.32,out:495.82},
- custosVariaveis:{ago:0,set:0,out:0},custosVariaveisDetalhe:{ago:0,set:0,out:0},
- margemContribuicao:{ago:456443.55,set:93655.32,out:495.82},
- custosFixos:{ago:-303896.65,set:-290747.76,out:-17695.39},
- pessoal:{},ocupacao:{},terceiros:{},marketing:{},
- resultadoOperacional:{ago:152546.90,set:-197092.44,out:-17199.57},
- resultadoNaoOperacional:{ago:0,set:0,out:0},receitasNaoOperacionais:{},gastosNaoOperacionais:{},
- lair:{ago:152546.90,set:-197092.44,out:-17199.57},ircsll:{ago:0,set:0,out:0},ircsllDetalhe:{ago:0,set:0,out:0},
- lucroLiquido:{ago:152546.90,set:-197092.44,out:-17199.57}
+ receitaBruta:{mai:4600.00,jun:83690.32,jul:131473.85,ago:456443.55,set:93655.32,out:495.82},
+ receitaFretes:{mai:4600.00,jun:83690.32,jul:131473.85,ago:456443.55,set:93655.32,out:495.82},
+ deducoes:{mai:0,jun:0,jul:25991.07,ago:24496.27,set:0,out:0},
+ impostosVendas:{mai:0,jun:0,jul:25991.07,ago:24496.27,set:0,out:0},
+ outrasDeducoes:{mai:0,jun:0,jul:0,ago:0,set:0,out:0},
+ receitaLiquida:{mai:4600.00,jun:83690.32,jul:105482.78,ago:431947.28,set:93655.32,out:495.82},
+ custosVariaveis:{mai:0,jun:34202.89,jul:33426.65,ago:133167.18,set:185113.51,out:12174.77},
+ fretesTerceiros:{mai:0,jun:34202.89,jul:31227.20,ago:100365.65,set:155902.75,out:2451.76},
+ frota:{mai:0,jun:0,jul:2199.45,ago:32801.53,set:29210.76,out:9723.01},
+ margemContribuicao:{mai:4600.00,jun:49487.43,jul:72056.13,ago:298780.10,set:-91458.19,out:-11678.95},
+ custosFixos:{mai:0,jun:0,jul:60751.73,ago:144138.88,set:103572.45,out:3948.86},
+ pessoal:{mai:0,jun:0,jul:51841.67,ago:129375.83,set:76788.76,out:1075.39},
+ ocupacao:{mai:0,jun:0,jul:0,ago:10800.18,set:5921.91,out:0},
+ terceiros:{mai:0,jun:0,jul:0,ago:2790.46,set:4621.06,out:1620.00},
+ administrativos:{mai:0,jun:0,jul:8910.06,ago:1172.41,set:16240.72,out:1253.47},
+ marketing:{mai:0,jun:0,jul:0,ago:0,set:0,out:0},
+ resultadoOperacional:{mai:4600.00,jun:49487.43,jul:11304.40,ago:154641.22,set:-195030.64,out:-15627.81},
+ resultadoNaoOperacional:{mai:0,jun:0,jul:0,ago:-2094.32,set:-2061.80,out:-1571.76},
+ receitasNaoOperacionais:{mai:0,jun:0,jul:0,ago:0,set:0,out:0},
+ gastosNaoOperacionais:{mai:0,jun:0,jul:0,ago:2094.32,set:2061.80,out:1571.76},
+ lair:{mai:4600.00,jun:49487.43,jul:11304.40,ago:152546.90,set:-197092.44,out:-17199.57},
+ ircsll:{mai:0,jun:0,jul:0,ago:0,set:0,out:0},
+ ircsllDetalhe:{mai:0,jun:0,jul:0,ago:0,set:0,out:0},
+ lucroLiquido:{mai:4600.00,jun:49487.43,jul:11304.40,ago:152546.90,set:-197092.44,out:-17199.57}
 };
 function dreVal(key,m){return Number((DRE_DATA[key]||{})[m]||0)}
 function moneyCell(v){if(!v)return '-';return v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}
