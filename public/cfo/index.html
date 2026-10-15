@@ -78,7 +78,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 <button data-page="regras">🧠 Regras aprendidas</button>
 <button data-page="cfo">🤖 CFO IA</button>
 </nav>
-<div class="preview"><b>Prévia online</b><br>Evolução inspirada no XFIN, ampliada para a operação da Postal: pagar/receber, inadimplência, conciliação, fluxo de caixa, DRE, cadastros e dimensões logísticas. Clientes e lançamentos avulsos já salvam neste navegador; o backend definitivo centralizará tudo.</div>
+<div class="preview"><b>Prévia online</b><br>Evolução inspirada no XFIN, ampliada para a Postal. Aprendizado por favorecido e controle de duplicidades já estão ativos nesta versão, além de clientes e lançamentos avulsos.</div>
 </aside>
 <main>
 <section class="page active" id="dashboard">
@@ -114,8 +114,8 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 <div class="metricrow"><span>Cliente único ou múltiplo</span><span class="status ok">Ativo</span></div>
 <div class="metricrow"><span>Rota única ou múltipla</span><span class="status ok">Ativo</span></div>
 <div class="metricrow"><span>Cidade única ou múltipla</span><span class="status ok">Ativo</span></div>
-<div class="metricrow"><span>Aprendizado por favorecido</span><span class="status info">Previsto</span></div>
-<div class="metricrow"><span>Controle de duplicidade</span><span class="status info">Previsto</span></div>
+<div class="metricrow"><span>Aprendizado por favorecido</span><span class="status ok">Ativo</span></div>
+<div class="metricrow"><span>Controle de duplicidade</span><span class="status ok">Ativo</span></div>
 </div></div>
 </section>
 
@@ -279,6 +279,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 <label>Entrada / Saída<select id="avFlow"><option>Saída</option><option>Entrada</option></select></label>
 <label>Valor<input id="avValue" type="number" step="0.01" min="0" required></label>
 <label>Competência<input id="avComp" placeholder="MM/AAAA" required></label>
+<label class="span2">Favorecido / Origem<input id="avParty" placeholder="Ex.: IBPO Serviços Financeiros" onblur="applyLearnedRule()"></label>
 <label class="span2">Descrição / Natureza<input id="avNature" required placeholder="Ex.: Frete, combustível, receita avulsa..."></label>
 <label>Grupo DRE<select id="avGroup"><option>Receita Bruta</option><option>Deduções da Receita</option><option>Custos dos Serviços</option><option>Despesas Operacionais</option><option>Resultado Financeiro</option><option>Outros Resultados</option><option>IR/CSLL</option><option>Fora do DRE</option></select></label>
 <label>Incluir no DRE?<select id="avInclude"><option>Sim</option><option>Não</option></select></label>
@@ -286,13 +287,19 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 <label>Rota(s)<input id="avRoutes" placeholder="Separe múltiplas por ;"></label>
 <label>Cidade(s)<input id="avCities" placeholder="Separe múltiplas por ;"></label>
 <label class="span4">Observação<input id="avNotes" placeholder="Detalhes adicionais do lançamento"></label>
+<label class="span2"><input id="avLearnRule" type="checkbox" style="width:auto"> Aprender esta classificação para este favorecido</label>
+<label class="span2"><span class="hint">Duplicidades são bloqueadas por data + movimento + valor + favorecido + competência.</span></label>
 <div class="span4"><button class="btn" type="submit">Salvar lançamento avulso</button></div>
 </form>
 <datalist id="clientSuggestions"></datalist>
 </div>
 <div class="card" style="margin-top:12px">
+<div class="toolbar"><b>Controle de duplicidades</b><span class="sub">Bloqueio automático antes de salvar</span></div>
+<div class="metricrow"><span>Duplicidades bloqueadas nesta base local</span><b id="dupBlockedCount">0</b></div>
+</div>
+<div class="card" style="margin-top:12px">
 <div class="toolbar"><input id="avSearch" placeholder="Buscar lançamento..." style="max-width:360px" oninput="renderAvulsos()"><span class="sub" id="avCount"></span></div>
-<div class="tablewrap"><table><thead><tr><th>Data</th><th>Mov.</th><th>Valor</th><th>Competência</th><th>Natureza</th><th>Cliente(s)</th><th>Rota(s)</th><th>Cidade(s)</th><th>DRE</th><th></th></tr></thead><tbody id="avBody"></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Data</th><th>Mov.</th><th>Valor</th><th>Favorecido/Origem</th><th>Competência</th><th>Natureza</th><th>Cliente(s)</th><th>Rota(s)</th><th>Cidade(s)</th><th>DRE</th><th></th></tr></thead><tbody id="avBody"></tbody></table></div>
 </div>
 </section>
 
@@ -304,11 +311,23 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 </section>
 
 <section class="page" id="regras">
-<div class="title"><div><h2>Regras aprendidas</h2><div class="sub">O sistema reaproveita suas classificações futuras</div></div></div>
-<div class="card"><div class="metricrow"><div><b>IBPO Serviços Financeiros</b><div class="sub">BPO financeiro · Despesas Administrativas · competência = mês do pagamento</div></div><span class="status ok">Aprendida</span></div>
-<div class="metricrow"><div><b>Transferências entre contas</b><div class="sub">Fora do DRE; não confundir com despesa</div></div><span class="status ok">Regra CFO</span></div>
-<div class="metricrow"><div><b>Financiamentos e consórcios</b><div class="sub">Principal fora do DRE; juros e taxas no resultado financeiro</div></div><span class="status ok">Regra CFO</span></div>
-<div class="metricrow"><div><b>CAPEX</b><div class="sub">Não reconhecer integralmente como despesa operacional</div></div><span class="status ok">Regra CFO</span></div></div>
+<div class="title"><div><h2>Regras aprendidas</h2><div class="sub">O sistema reaproveita automaticamente classificações já confirmadas por favorecido.</div></div></div>
+<div class="card">
+<form id="ruleForm" class="formgrid" onsubmit="addRule(event)">
+<label class="span2">Favorecido / Origem<input id="ruleParty" required placeholder="Ex.: IBPO Serviços Financeiros"></label>
+<label class="span2">Natureza<input id="ruleNature" required placeholder="Ex.: BPO financeiro"></label>
+<label>Grupo DRE<select id="ruleGroup"><option>Receita Bruta</option><option>Deduções da Receita</option><option>Custos dos Serviços</option><option>Despesas Operacionais</option><option>Resultado Financeiro</option><option>Outros Resultados</option><option>IR/CSLL</option><option>Fora do DRE</option></select></label>
+<label>Incluir no DRE?<select id="ruleInclude"><option>Sim</option><option>Não</option></select></label>
+<label>Competência<select id="ruleCompMode"><option value="payment_month">Mês do pagamento</option><option value="manual">Manual / não alterar</option></select></label>
+<label>Subgrupo<input id="ruleSubgroup" placeholder="Ex.: Despesas administrativas"></label>
+<label>Cliente(s)<input id="ruleClients" placeholder="Separe por ;"></label>
+<label>Rota(s)<input id="ruleRoutes" placeholder="Separe por ;"></label>
+<label>Cidade(s)<input id="ruleCities" placeholder="Separe por ;"></label>
+<label>Observação<input id="ruleNote" placeholder="Regra / critério"></label>
+<div class="span4"><button class="btn" type="submit">Cadastrar regra</button></div>
+</form>
+</div>
+<div class="card" style="margin-top:12px"><div class="toolbar"><b>Regras ativas</b><span class="sub" id="ruleCount"></span></div><div id="ruleList"></div></div>
 </section>
 
 <section class="page" id="cfo">
@@ -322,7 +341,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 const pages=document.querySelectorAll('.page'),buttons=document.querySelectorAll('nav button');buttons.forEach(b=>b.onclick=()=>goPage(b.dataset.page));
 function toast(t){const e=document.getElementById('toast');e.textContent=t;e.style.display='block';clearTimeout(window._tt);window._tt=setTimeout(()=>e.style.display='none',3200)}
 
-const CLIENT_KEY='postal_cfo_clients_v1', AVULSO_KEY='postal_cfo_avulsos_v1';
+const CLIENT_KEY='postal_cfo_clients_v1', AVULSO_KEY='postal_cfo_avulsos_v1', RULE_KEY='postal_cfo_rules_v2', DUP_KEY='postal_cfo_dup_blocked_v1';
 const defaultClients=[
  {id:'c-loggi',name:'Loggi',doc:'',city:'',route:'',notes:''},
  {id:'c-imile',name:'iMile',doc:'',city:'',route:'',notes:''},
@@ -335,8 +354,25 @@ const defaultClients=[
 function loadJson(k,fallback){try{const v=localStorage.getItem(k);return v?JSON.parse(v):fallback}catch(e){return fallback}}
 let clients=loadJson(CLIENT_KEY,defaultClients);
 let avulsos=loadJson(AVULSO_KEY,[]);
+const defaultRules=[
+ {id:'rule-ibpo',party:'IBPO Serviços Financeiros',nature:'BPO financeiro / serviços financeiros',group:'Despesas Operacionais',subgroup:'Despesas administrativas',include:'Sim',compMode:'payment_month',clients:['CORPORATIVO / TODOS'],routes:['CORPORATIVO / TODOS'],cities:[],note:'Competência igual ao mês do pagamento.'}
+];
+let learnedRules=loadJson(RULE_KEY,defaultRules);
+let dupBlocked=Number(localStorage.getItem(DUP_KEY)||0);
 function saveClients(){localStorage.setItem(CLIENT_KEY,JSON.stringify(clients));renderClients();renderClientSuggestions()}
-function saveAvulsos(){localStorage.setItem(AVULSO_KEY,JSON.stringify(avulsos));renderAvulsos()}
+function saveAvulsos(){localStorage.setItem(AVULSO_KEY,JSON.stringify(avulsos));renderAvulsos();renderDuplicateCount()}
+function saveRules(){localStorage.setItem(RULE_KEY,JSON.stringify(learnedRules));renderRulesLocal()}
+function renderDuplicateCount(){const e=document.getElementById('dupBlockedCount');if(e)e.textContent=dupBlocked}
+function normKey(s){return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/\s+/g,' ').trim()}
+function avFingerprint(a){return [a.date,a.flow,Number(a.value||0).toFixed(2),normKey(a.party),a.competence].join('|')}
+function isDuplicateAvulso(a){const fp=avFingerprint(a);return avulsos.some(x=>avFingerprint(x)===fp)}
+function monthCompetence(date){if(!date||date.length<7)return'';return date.slice(5,7)+'/'+date.slice(0,4)}
+function findRuleByParty(party){const k=normKey(party);return learnedRules.find(r=>normKey(r.party)===k)}
+function applyLearnedRule(){const r=findRuleByParty(document.getElementById('avParty')?.value);if(!r)return false;
+ avNature.value=r.nature||'';avGroup.value=r.group||'Despesas Operacionais';avInclude.value=r.include||'Sim';
+ avClients.value=(r.clients||[]).join('; ');avRoutes.value=(r.routes||[]).join('; ');avCities.value=(r.cities||[]).join('; ');
+ if(r.compMode==='payment_month'&&avDate.value)avComp.value=monthCompetence(avDate.value);
+ toast('Regra aprendida aplicada para '+r.party+'.');return true}
 function uid(prefix){return prefix+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,7)}
 function goPage(id){buttons.forEach(x=>x.classList.toggle('active',x.dataset.page===id));pages.forEach(p=>p.classList.toggle('active',p.id===id));window.scrollTo({top:0,behavior:'smooth'});if(id==='clientes')renderClients();if(id==='avulsos')renderAvulsos()}
 function addClient(e){e.preventDefault();const name=clientName.value.trim();if(!name)return;if(clients.some(c=>c.name.toLowerCase()===name.toLowerCase())){toast('Este cliente já está cadastrado.');return}
@@ -346,15 +382,30 @@ function deleteClient(id){const c=clients.find(x=>x.id===id);if(!c)return;if(!co
 function renderClients(){const q=(document.getElementById('clientSearch')?.value||'').toLowerCase();const xs=clients.filter(c=>[c.name,c.doc,c.city,c.route,c.notes].join(' ').toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name,'pt-BR'));clientCount.textContent=xs.length+' cliente(s)';clientBody.innerHTML=xs.length?xs.map(c=>`<tr><td><b>${esc2(c.name)}</b></td><td>${esc2(c.doc)}</td><td>${esc2(c.city)}</td><td>${esc2(c.route)}</td><td>${esc2(c.notes)}</td><td><button class="btn danger" onclick="deleteClient('${c.id}')">Excluir</button></td></tr>`).join(''):'<tr><td colspan="6" class="empty">Nenhum cliente encontrado.</td></tr>'}
 function renderClientSuggestions(){clientSuggestions.innerHTML=clients.slice().sort((a,b)=>a.name.localeCompare(b.name,'pt-BR')).map(c=>`<option value="${esc2(c.name)}"></option>`).join('')}
 function addAvulso(e){e.preventDefault();const value=Number(avValue.value||0);if(value<=0){toast('Informe um valor maior que zero.');return}
- avulsos.push({id:uid('a'),date:avDate.value,flow:avFlow.value,value,competence:avComp.value.trim(),nature:avNature.value.trim(),group:avGroup.value,include:avInclude.value,clients:splitSemi(avClients.value),routes:splitSemi(avRoutes.value),cities:splitSemi(avCities.value),notes:avNotes.value.trim(),createdAt:new Date().toISOString()});
- avulsoForm.reset();avDate.value=new Date().toISOString().slice(0,10);saveAvulsos();toast('Lançamento avulso salvo.')}
+ const obj={id:uid('a'),date:avDate.value,flow:avFlow.value,value,party:avParty.value.trim(),competence:avComp.value.trim(),nature:avNature.value.trim(),group:avGroup.value,include:avInclude.value,clients:splitSemi(avClients.value),routes:splitSemi(avRoutes.value),cities:splitSemi(avCities.value),notes:avNotes.value.trim(),createdAt:new Date().toISOString()};
+ if(isDuplicateAvulso(obj)){dupBlocked++;localStorage.setItem(DUP_KEY,String(dupBlocked));renderDuplicateCount();toast('Duplicidade bloqueada: já existe lançamento com mesma data, movimento, valor, favorecido e competência.');return}
+ avulsos.push(obj);
+ if(avLearnRule.checked&&obj.party){
+   learnedRules=learnedRules.filter(r=>normKey(r.party)!==normKey(obj.party));
+   learnedRules.push({id:uid('r'),party:obj.party,nature:obj.nature,group:obj.group,subgroup:'',include:obj.include,compMode:'payment_month',clients:obj.clients,routes:obj.routes,cities:obj.cities,note:'Regra aprendida a partir de lançamento avulso confirmado.'});
+   saveRules();
+ }
+ avulsoForm.reset();avDate.value=new Date().toISOString().slice(0,10);saveAvulsos();toast('Lançamento avulso salvo'+(obj.party&&avLearnRule.checked?' e regra aprendida.':'.'))}
 function deleteAvulso(id){const a=avulsos.find(x=>x.id===id);if(!a)return;if(!confirm('Excluir este lançamento avulso de '+fmtBR(a.value)+'?'))return;avulsos=avulsos.filter(x=>x.id!==id);saveAvulsos();toast('Lançamento avulso excluído.')}
-function renderAvulsos(){const q=(document.getElementById('avSearch')?.value||'').toLowerCase();const xs=avulsos.filter(a=>[a.date,a.flow,a.competence,a.nature,a.clients.join(' '),a.routes.join(' '),a.cities.join(' '),a.notes].join(' ').toLowerCase().includes(q)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));avCount.textContent=xs.length+' lançamento(s)';avBody.innerHTML=xs.length?xs.map(a=>`<tr><td>${formatDate(a.date)}</td><td>${esc2(a.flow)}</td><td style="color:${a.flow==='Entrada'?'var(--green)':'var(--red)'}">${a.flow==='Entrada'?'+':'-'}${fmtBR(a.value)}</td><td>${esc2(a.competence)}</td><td><b>${esc2(a.nature)}</b><div class="sub">${esc2(a.group)}</div></td><td>${esc2(a.clients.join('; '))}</td><td>${esc2(a.routes.join('; '))}</td><td>${esc2(a.cities.join('; '))}</td><td><span class="status ${a.include==='Sim'?'ok':'warn'}">${a.include}</span></td><td><button class="btn danger" onclick="deleteAvulso('${a.id}')">Excluir</button></td></tr>`).join(''):'<tr><td colspan="10" class="empty">Nenhum lançamento avulso cadastrado.</td></tr>'}
+function renderAvulsos(){const q=(document.getElementById('avSearch')?.value||'').toLowerCase();const xs=avulsos.filter(a=>[a.date,a.flow,a.party,a.competence,a.nature,a.clients.join(' '),a.routes.join(' '),a.cities.join(' '),a.notes].join(' ').toLowerCase().includes(q)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));avCount.textContent=xs.length+' lançamento(s)';avBody.innerHTML=xs.length?xs.map(a=>`<tr><td>${formatDate(a.date)}</td><td>${esc2(a.flow)}</td><td style="color:${a.flow==='Entrada'?'var(--green)':'var(--red)'}">${a.flow==='Entrada'?'+':'-'}${fmtBR(a.value)}</td><td>${esc2(a.party||'')}</td><td>${esc2(a.competence)}</td><td><b>${esc2(a.nature)}</b><div class="sub">${esc2(a.group)}</div></td><td>${esc2(a.clients.join('; '))}</td><td>${esc2(a.routes.join('; '))}</td><td>${esc2(a.cities.join('; '))}</td><td><span class="status ${a.include==='Sim'?'ok':'warn'}">${a.include}</span></td><td><button class="btn danger" onclick="deleteAvulso('${a.id}')">Excluir</button></td></tr>`).join(''):'<tr><td colspan="11" class="empty">Nenhum lançamento avulso cadastrado.</td></tr>'}
 function splitSemi(v){return String(v||'').split(';').map(x=>x.trim()).filter(Boolean)}
 function esc2(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 function fmtBR(v){return Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}
 function formatDate(d){if(!d)return'';const p=d.split('-');return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:d}
-renderClients();renderClientSuggestions();renderAvulsos();if(document.getElementById('avDate'))avDate.value=new Date().toISOString().slice(0,10);
+function addRule(e){e.preventDefault();const party=ruleParty.value.trim();if(!party)return;
+ learnedRules=learnedRules.filter(r=>normKey(r.party)!==normKey(party));
+ learnedRules.push({id:uid('r'),party,nature:ruleNature.value.trim(),group:ruleGroup.value,subgroup:ruleSubgroup.value.trim(),include:ruleInclude.value,compMode:ruleCompMode.value,clients:splitSemi(ruleClients.value),routes:splitSemi(ruleRoutes.value),cities:splitSemi(ruleCities.value),note:ruleNote.value.trim()});
+ ruleForm.reset();saveRules();toast('Regra cadastrada. Próximos lançamentos deste favorecido serão sugeridos automaticamente.')}
+function deleteRule(id){const r=learnedRules.find(x=>x.id===id);if(!r)return;if(!confirm('Excluir a regra de '+r.party+'?'))return;learnedRules=learnedRules.filter(x=>x.id!==id);saveRules();toast('Regra excluída.')}
+function renderRulesLocal(){const list=document.getElementById('ruleList'),count=document.getElementById('ruleCount');if(!list)return;if(count)count.textContent=learnedRules.length+' regra(s)';
+ list.innerHTML=learnedRules.length?learnedRules.slice().sort((a,b)=>a.party.localeCompare(b.party,'pt-BR')).map(r=>`<div class="metricrow"><div><b>${esc2(r.party)}</b><div class="sub">${esc2(r.nature)} · ${esc2(r.group)} · ${r.compMode==='payment_month'?'competência do pagamento':'competência manual'}</div><div class="hint">Clientes: ${esc2((r.clients||[]).join('; ')||'—')} · Rotas: ${esc2((r.routes||[]).join('; ')||'—')}</div></div><button class="btn danger" onclick="deleteRule('${r.id}')">Excluir</button></div>`).join(''):'<div class="empty">Nenhuma regra cadastrada.</div>';
+}
+renderClients();renderClientSuggestions();renderAvulsos();renderRulesLocal();renderDuplicateCount();if(document.getElementById('avDate'))avDate.value=new Date().toISOString().slice(0,10);
 
 
 const dreMonths=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
