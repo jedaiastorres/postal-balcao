@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Postal CFO BI</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+:root{--navy:#16365f;--blue:#245b91;--bg:#f4f7fb;--card:#fff;--line:#e4e7ec;--muted:#667085;--green:#067647;--red:#b42318;--orange:#b54708}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#101828;font-family:Inter,Segoe UI,Arial,sans-serif}
+header{height:66px;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 24px;position:sticky;top:0;z-index:20;box-shadow:0 2px 10px #0002}
+.brand{display:flex;align-items:center;gap:12px}.brandmark{width:36px;height:36px;border-radius:10px;background:#fff;color:var(--navy);display:grid;place-items:center;font-weight:900}.brand b{font-size:19px}.brand small{display:block;opacity:.75}
+.badges{display:flex;gap:8px;flex-wrap:wrap}.badge{padding:7px 10px;border:1px solid #ffffff33;border-radius:999px;background:#ffffff14;font-size:12px}
+.layout{display:grid;grid-template-columns:230px 1fr;min-height:calc(100vh - 66px)}aside{background:white;border-right:1px solid var(--line);padding:18px 12px}nav button{display:flex;gap:10px;align-items:center;width:100%;border:0;background:transparent;color:#344054;padding:11px 12px;border-radius:9px;font-weight:650;text-align:left;cursor:pointer;margin-bottom:5px}nav button:hover,nav button.active{background:#eef4ff;color:#1849a9}
+.preview{margin:14px 4px;padding:12px;border-radius:10px;background:#fff6ed;border:1px solid #ffd7ae;color:#9c2a10;font-size:12px;line-height:1.4}
+main{padding:22px;min-width:0}.page{display:none}.page.active{display:block}.title{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px}.title h1,.title h2{margin:0}.sub{color:var(--muted);font-size:13px;margin-top:4px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:0 1px 3px #1018280d}
+.filters{display:grid;grid-template-columns:repeat(6,minmax(125px,1fr));gap:8px;margin-bottom:12px}.filters input,.filters select,input,select,textarea{width:100%;padding:9px 10px;border:1px solid #d0d5dd;border-radius:8px;background:#fff;color:#101828}
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:12px}.kpi span{color:var(--muted);font-size:12px}.kpi b{display:block;font-size:21px;margin-top:5px}.kpi small{font-size:11px;color:var(--muted)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.chartbox{height:310px}.chartbox canvas{max-height:265px}
+.alert{border-left:4px solid #1570ef;background:#f5f8ff;padding:10px 12px;border-radius:7px;margin:8px 0}.alert.high{border-color:#d92d20;background:#fff5f5}.alert.medium{border-color:#f79009;background:#fffaeb}.alert b{display:block;margin-bottom:3px}
+.btn{border:0;background:var(--navy);color:#fff;padding:9px 13px;border-radius:8px;font-weight:700;cursor:pointer}.btn.secondary{background:#fff;color:#344054;border:1px solid #d0d5dd}.btn:disabled{opacity:.5;cursor:not-allowed}
+.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{background:#f9fafb;color:#475467}.tablewrap{overflow:auto;border:1px solid var(--line);border-radius:10px;background:#fff}
+.status{display:inline-block;padding:3px 7px;border-radius:999px;font-size:11px;font-weight:700}.status.ok{background:#ecfdf3;color:var(--green)}.status.info{background:#eff8ff;color:#175cd3}.status.warn{background:#fffaeb;color:var(--orange)}
+.drop{border:2px dashed #98a2b3;border-radius:12px;padding:34px;text-align:center;background:#fafcff}.drop strong{font-size:16px}.flow{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.step{position:relative;padding:14px;background:#fff;border:1px solid var(--line);border-radius:12px}.step b{display:block;margin-bottom:5px}.step em{position:absolute;top:10px;right:10px;font-style:normal;font-size:11px;color:var(--muted)}
+.answer{background:#0b1220;color:#e5eefc;padding:16px;border-radius:12px;white-space:pre-wrap;line-height:1.5;min-height:190px}.memory{padding:9px 0;border-bottom:1px solid var(--line)}
+.metricrow{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}.metricrow:last-child{border-bottom:0}
+@media(max-width:1100px){.filters{grid-template-columns:repeat(3,1fr)}.kpis{grid-template-columns:repeat(3,1fr)}.grid2,.grid3,.flow{grid-template-columns:1fr 1fr}}
+@media(max-width:760px){header{padding:0 12px}.badges{display:none}.layout{grid-template-columns:1fr}aside{display:none}main{padding:12px}.filters{grid-template-columns:1fr 1fr}.kpis{grid-template-columns:1fr 1fr}.grid2,.grid3,.flow{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+<div class="brand"><div class="brandmark">P</div><div><b>Postal CFO BI</b><small>Inteligência financeira e DRE</small></div></div>
+<div class="badges"><span class="badge">Inter: até 10/10/2026</span><span class="badge">Banco do Brasil: até 14/10/2026</span></div>
+</header>
+<div class="layout">
+<aside>
+<nav>
+<button class="active" data-page="dashboard">📊 Dashboard</button>
+<button data-page="dre">📑 DRE</button>
+<button data-page="lancamentos">🧾 Lançamentos</button>
+<button data-page="importacao">⬆️ Importar extrato</button>
+<button data-page="regras">🧠 Regras aprendidas</button>
+<button data-page="cfo">🤖 CFO IA</button>
+</nav>
+<div class="preview"><b>Prévia online</b><br>Esta tela já mostra o desenho final do sistema. Na ativação persistente, os extratos, classificações e regras ficarão salvos no banco de dados e serão acessíveis de qualquer dispositivo.</div>
+</aside>
+<main>
+<section class="page active" id="dashboard">
+<div class="title"><div><h2>Visão executiva</h2><div class="sub">Resultado gerencial por competência, cliente, rota e cidade</div></div><button class="btn secondary" onclick="toast('Dashboard atualizado com o snapshot atual.')">Atualizar</button></div>
+<div class="card filters">
+<select id="period"><option>Agosto a Outubro/2026</option><option>Agosto/2026</option><option>Setembro/2026</option><option>Outubro/2026 MTD</option></select>
+<select><option>Todos os clientes</option><option>Loggi</option><option>iMile</option><option>Anjun</option><option>Graúna</option></select>
+<select><option>Todas as rotas</option><option>Parauapebas</option><option>Canaã dos Carajás</option><option>Rota Redenção</option><option>Xinguara</option></select>
+<select><option>Todas as cidades</option><option>Parauapebas</option><option>Canaã dos Carajás</option><option>Redenção</option></select>
+<select><option>Todos os bancos</option><option>Banco Inter</option><option>Banco do Brasil</option></select>
+<select><option>Competência</option><option>08/2026</option><option>09/2026</option><option>10/2026</option></select>
+</div>
+<div class="kpis">
+<div class="card kpi"><span>Receita Bruta · Agosto</span><b>R$ 456.443,55</b><small>base final revisada</small></div>
+<div class="card kpi"><span>Resultado · Agosto</span><b style="color:var(--green)">R$ 152.546,90</b><small>margem 33,42%</small></div>
+<div class="card kpi"><span>Receita Bruta · Setembro</span><b>R$ 93.655,32</b><small>base final revisada</small></div>
+<div class="card kpi"><span>Resultado · Setembro</span><b style="color:var(--red)">-R$ 197.092,44</b><small>margem -210,44%</small></div>
+<div class="card kpi"><span>Resultado · Outubro MTD</span><b style="color:var(--red)">-R$ 17.199,57</b><small>parcial</small></div>
+<div class="card kpi"><span>Resultado acumulado</span><b style="color:var(--green)">R$ 3.646,72</b><small>competências disponíveis</small></div>
+</div>
+<div class="grid2">
+<div class="card chartbox"><b>Receita x resultado</b><div class="sub">Por competência</div><canvas id="trend"></canvas></div>
+<div class="card chartbox"><b>Margem líquida</b><div class="sub">Comparativo mensal</div><canvas id="margin"></canvas></div>
+</div>
+<div class="grid2" style="margin-top:12px">
+<div class="card"><b>Alertas do CFO</b>
+<div class="alert high"><b>Setembro exige diagnóstico</b>Resultado de -R$ 197,1 mil na competência 09/2026. A tela final permitirá abrir por cliente, rota, cidade, natureza e lançamento.</div>
+<div class="alert medium"><b>Outubro ainda é parcial</b>Inter está atualizado até 10/10 e Banco do Brasil até 14/10. O painel mostrará o corte de cada banco sempre no topo.</div>
+<div class="alert"><b>Classificação IBPO aprendida</b>IBPO Serviços Financeiros = BPO financeiro, despesa administrativa, competência igual ao mês do pagamento.</div>
+</div>
+<div class="card"><b>Qualidade da base</b>
+<div class="metricrow"><span>Competência obrigatória</span><span class="status ok">Ativa</span></div>
+<div class="metricrow"><span>Cliente único ou múltiplo</span><span class="status ok">Ativo</span></div>
+<div class="metricrow"><span>Rota única ou múltipla</span><span class="status ok">Ativo</span></div>
+<div class="metricrow"><span>Cidade única ou múltipla</span><span class="status ok">Ativo</span></div>
+<div class="metricrow"><span>Aprendizado por favorecido</span><span class="status info">Previsto</span></div>
+<div class="metricrow"><span>Controle de duplicidade</span><span class="status info">Previsto</span></div>
+</div></div>
+</section>
+
+<section class="page" id="dre">
+<div class="title"><div><h2>DRE gerencial</h2><div class="sub">Consolidado e visões por dimensão</div></div></div>
+<div class="grid3">
+<div class="card"><b>Agosto/2026</b><div class="metricrow"><span>Receita Bruta</span><b>R$ 456.443,55</b></div><div class="metricrow"><span>Resultado Líquido</span><b style="color:var(--green)">R$ 152.546,90</b></div><div class="metricrow"><span>Margem</span><b>33,42%</b></div></div>
+<div class="card"><b>Setembro/2026</b><div class="metricrow"><span>Receita Bruta</span><b>R$ 93.655,32</b></div><div class="metricrow"><span>Resultado Líquido</span><b style="color:var(--red)">-R$ 197.092,44</b></div><div class="metricrow"><span>Margem</span><b>-210,44%</b></div></div>
+<div class="card"><b>Outubro/2026 MTD</b><div class="metricrow"><span>Receita Bruta</span><b>R$ 495,82</b></div><div class="metricrow"><span>Resultado Líquido</span><b style="color:var(--red)">-R$ 17.199,57</b></div><div class="metricrow"><span>Status</span><span class="status warn">Parcial</span></div></div>
+</div>
+<div class="card" style="margin-top:12px">
+<div class="toolbar"><button class="btn">Consolidado</button><button class="btn secondary">Por cliente</button><button class="btn secondary">Por rota</button><button class="btn secondary">Por cidade</button></div>
+<div class="tablewrap"><table><thead><tr><th>Conta</th><th>08/2026</th><th>09/2026</th><th>10/2026 MTD</th></tr></thead><tbody>
+<tr><td><b>Receita Operacional Bruta</b></td><td>R$ 456.443,55</td><td>R$ 93.655,32</td><td>R$ 495,82</td></tr>
+<tr><td><b>Resultado Líquido</b></td><td style="color:var(--green)">R$ 152.546,90</td><td style="color:var(--red)">-R$ 197.092,44</td><td style="color:var(--red)">-R$ 17.199,57</td></tr>
+<tr><td><b>Margem Líquida</b></td><td>33,42%</td><td>-210,44%</td><td>-3.468,91%</td></tr>
+</tbody></table></div>
+</div>
+</section>
+
+<section class="page" id="lancamentos">
+<div class="title"><div><h2>Lançamentos</h2><div class="sub">Edição individual com competência, natureza, cliente, rota e cidade</div></div><button class="btn" onclick="toast('Na versão persistente, este botão abrirá o cadastro completo.')">+ Novo lançamento</button></div>
+<div class="toolbar"><input placeholder="Buscar favorecido, cliente ou natureza" style="max-width:360px"><select style="max-width:180px"><option>Todos os status</option><option>Confirmado</option><option>Pendente</option></select><button class="btn secondary">Filtrar</button></div>
+<div class="tablewrap"><table><thead><tr><th>Data</th><th>Banco</th><th>Valor</th><th>Destino/Origem</th><th>Competência</th><th>Natureza</th><th>Cliente</th><th>Rota</th><th>Cidade</th><th>Status</th></tr></thead><tbody>
+<tr><td>10/09/2026</td><td>Banco Inter</td><td>-R$ 1.620,00</td><td>IBPO Serviços Financeiros</td><td>09/2026</td><td>BPO financeiro</td><td>Corporativo / Todos</td><td>Corporativo / Todos</td><td>N/A</td><td><span class="status ok">Confirmado</span></td></tr>
+<tr><td>10/10/2026</td><td>Banco Inter</td><td>-R$ 1.620,00</td><td>IBPO Serviços Financeiros</td><td>10/2026</td><td>BPO financeiro</td><td>Corporativo / Todos</td><td>Corporativo / Todos</td><td>N/A</td><td><span class="status ok">Confirmado</span></td></tr>
+</tbody></table></div>
+</section>
+
+<section class="page" id="importacao">
+<div class="title"><div><h2>Importar extratos</h2><div class="sub">XLSX, CSV, OFX e QFX</div></div></div>
+<div class="grid2"><div class="card"><div class="drop"><strong>Arraste o extrato aqui</strong><p class="sub">O sistema fará leitura, deduplicação, identificação do banco e aplicação das regras aprendidas.</p><button class="btn" onclick="toast('Importação real será habilitada quando a persistência do backend for conectada.')">Selecionar arquivo</button></div></div>
+<div class="card"><b>Última atualização</b><div class="metricrow"><span>Banco Inter</span><b>10/10/2026</b></div><div class="metricrow"><span>Banco do Brasil</span><b>14/10/2026</b></div><div class="metricrow"><span>Duplicidades</span><span class="status info">Proteção automática</span></div><div class="metricrow"><span>Competência sugerida</span><span class="status info">Regra + revisão</span></div></div></div>
+<div class="card" style="margin-top:12px"><b>Fluxo de importação</b><div class="flow" style="margin-top:10px"><div class="step"><em>1</em><b>Enviar arquivo</b><span class="sub">Excel, CSV ou OFX</span></div><div class="step"><em>2</em><b>Reconhecer</b><span class="sub">Banco, data, valor e favorecido</span></div><div class="step"><em>3</em><b>Classificar</b><span class="sub">Competência, DRE, cliente, rota e cidade</span></div><div class="step"><em>4</em><b>Confirmar</b><span class="sub">Salvar e atualizar o BI</span></div></div></div>
+</section>
+
+<section class="page" id="regras">
+<div class="title"><div><h2>Regras aprendidas</h2><div class="sub">O sistema reaproveita suas classificações futuras</div></div></div>
+<div class="card"><div class="metricrow"><div><b>IBPO Serviços Financeiros</b><div class="sub">BPO financeiro · Despesas Administrativas · competência = mês do pagamento</div></div><span class="status ok">Aprendida</span></div>
+<div class="metricrow"><div><b>Transferências entre contas</b><div class="sub">Fora do DRE; não confundir com despesa</div></div><span class="status ok">Regra CFO</span></div>
+<div class="metricrow"><div><b>Financiamentos e consórcios</b><div class="sub">Principal fora do DRE; juros e taxas no resultado financeiro</div></div><span class="status ok">Regra CFO</span></div>
+<div class="metricrow"><div><b>CAPEX</b><div class="sub">Não reconhecer integralmente como despesa operacional</div></div><span class="status ok">Regra CFO</span></div></div>
+</section>
+
+<section class="page" id="cfo">
+<div class="title"><div><h2>Agente CFO IA</h2><div class="sub">Análise contínua da saúde financeira da Postal</div></div></div>
+<div class="grid2"><div class="card"><textarea rows="7" placeholder="Ex.: Qual cliente está com pior rentabilidade? Qual rota precisa de reajuste? Quanto combustível representa da receita?"></textarea><button class="btn" style="margin-top:10px" onclick="document.getElementById('answer').textContent='Prévia: o CFO usará os filtros ativos, DRE, lançamentos e regras aprendidas para separar fatos, alertas, hipóteses e ações recomendadas. Ele também acompanhará o corte dos bancos e avisará quando um mês estiver parcial.'">Analisar</button></div><div class="card"><pre class="answer" id="answer">O CFO IA ficará integrado ao mesmo banco de dados do sistema e analisará os números conforme os filtros do BI.</pre></div></div>
+<div class="card" style="margin-top:12px"><b>Memória CFO</b><div class="memory">Banco do Brasil atualizado até 14/10/2026.</div><div class="memory">Banco Inter atualizado até 10/10/2026.</div><div class="memory">IBPO é BPO financeiro e usa competência do mês do pagamento.</div><div class="memory">Custos compartilhados só devem ser rateados com base objetiva.</div></div>
+</section>
+</main></div>
+<div id="toast" style="position:fixed;right:18px;bottom:18px;background:#101828;color:white;padding:12px 16px;border-radius:10px;display:none;z-index:99;max-width:360px"></div>
+<script>
+const pages=document.querySelectorAll('.page'),buttons=document.querySelectorAll('nav button');buttons.forEach(b=>b.onclick=()=>{buttons.forEach(x=>x.classList.remove('active'));b.classList.add('active');pages.forEach(p=>p.classList.remove('active'));document.getElementById(b.dataset.page).classList.add('active')});
+function toast(t){const e=document.getElementById('toast');e.textContent=t;e.style.display='block';clearTimeout(window._tt);window._tt=setTimeout(()=>e.style.display='none',3200)}
+new Chart(document.getElementById('trend'),{type:'bar',data:{labels:['Ago/26','Set/26','Out/26 MTD'],datasets:[{label:'Receita Bruta',data:[456443.55,93655.32,495.82]},{label:'Resultado Líquido',data:[152546.90,-197092.44,-17199.57]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
+new Chart(document.getElementById('margin'),{type:'line',data:{labels:['Ago/26','Set/26','Out/26 MTD'],datasets:[{label:'Margem %',data:[33.42,-210.44,-3468.91],tension:.25}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
+</script>
+</body></html>
