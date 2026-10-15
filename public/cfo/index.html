@@ -26,8 +26,9 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 .drop{border:2px dashed #98a2b3;border-radius:12px;padding:34px;text-align:center;background:#fafcff}.drop strong{font-size:16px}.flow{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.step{position:relative;padding:14px;background:#fff;border:1px solid var(--line);border-radius:12px}.step b{display:block;margin-bottom:5px}.step em{position:absolute;top:10px;right:10px;font-style:normal;font-size:11px;color:var(--muted)}
 .answer{background:#0b1220;color:#e5eefc;padding:16px;border-radius:12px;white-space:pre-wrap;line-height:1.5;min-height:190px}.memory{padding:9px 0;border-bottom:1px solid var(--line)}
 .metricrow{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}.metricrow:last-child{border-bottom:0}
+.formgrid{display:grid;grid-template-columns:repeat(4,minmax(140px,1fr));gap:10px}.formgrid label{font-size:12px;font-weight:700;color:#344054}.formgrid .span2{grid-column:span 2}.formgrid .span4{grid-column:span 4}.danger{background:#fff;color:var(--red);border:1px solid #fda29b}.danger:hover{background:#fff5f5}.hint{font-size:11px;color:var(--muted);margin-top:4px}.empty{padding:22px;text-align:center;color:var(--muted)}
 @media(max-width:1100px){.filters{grid-template-columns:repeat(3,1fr)}.kpis{grid-template-columns:repeat(3,1fr)}.grid2,.grid3,.flow{grid-template-columns:1fr 1fr}}
-@media(max-width:760px){header{padding:0 12px}.badges{display:none}.layout{grid-template-columns:1fr}aside{display:none}main{padding:12px}.filters{grid-template-columns:1fr 1fr}.kpis{grid-template-columns:1fr 1fr}.grid2,.grid3,.flow{grid-template-columns:1fr}}
+@media(max-width:760px){header{padding:0 12px}.badges{display:none}.layout{grid-template-columns:1fr}aside{display:none}main{padding:12px}.filters{grid-template-columns:1fr 1fr}.kpis{grid-template-columns:1fr 1fr}.grid2,.grid3,.flow{grid-template-columns:1fr}.formgrid{grid-template-columns:1fr}.formgrid .span2,.formgrid .span4{grid-column:span 1}}
 </style>
 </head>
 <body>
@@ -41,11 +42,13 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 <button class="active" data-page="dashboard">📊 Dashboard</button>
 <button data-page="dre">📑 DRE</button>
 <button data-page="lancamentos">🧾 Lançamentos</button>
+<button data-page="clientes">👥 Clientes</button>
+<button data-page="avulsos">➕ Lançamentos avulsos</button>
 <button data-page="importacao">⬆️ Importar extrato</button>
 <button data-page="regras">🧠 Regras aprendidas</button>
 <button data-page="cfo">🤖 CFO IA</button>
 </nav>
-<div class="preview"><b>Prévia online</b><br>Esta tela já mostra o desenho final do sistema. Na ativação persistente, os extratos, classificações e regras ficarão salvos no banco de dados e serão acessíveis de qualquer dispositivo.</div>
+<div class="preview"><b>Prévia online</b><br>Esta prévia já permite cadastrar/excluir clientes e lançamentos avulsos. Nesta fase esses dois cadastros ficam salvos neste navegador; na ativação do backend serão centralizados para todos os dispositivos.</div>
 </aside>
 <main>
 <section class="page active" id="dashboard">
@@ -104,12 +107,56 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 </section>
 
 <section class="page" id="lancamentos">
-<div class="title"><div><h2>Lançamentos</h2><div class="sub">Edição individual com competência, natureza, cliente, rota e cidade</div></div><button class="btn" onclick="toast('Na versão persistente, este botão abrirá o cadastro completo.')">+ Novo lançamento</button></div>
+<div class="title"><div><h2>Lançamentos</h2><div class="sub">Edição individual com competência, natureza, cliente, rota e cidade</div></div><button class="btn" onclick="goPage('avulsos')">+ Novo lançamento avulso</button></div>
 <div class="toolbar"><input placeholder="Buscar favorecido, cliente ou natureza" style="max-width:360px"><select style="max-width:180px"><option>Todos os status</option><option>Confirmado</option><option>Pendente</option></select><button class="btn secondary">Filtrar</button></div>
 <div class="tablewrap"><table><thead><tr><th>Data</th><th>Banco</th><th>Valor</th><th>Destino/Origem</th><th>Competência</th><th>Natureza</th><th>Cliente</th><th>Rota</th><th>Cidade</th><th>Status</th></tr></thead><tbody>
 <tr><td>10/09/2026</td><td>Banco Inter</td><td>-R$ 1.620,00</td><td>IBPO Serviços Financeiros</td><td>09/2026</td><td>BPO financeiro</td><td>Corporativo / Todos</td><td>Corporativo / Todos</td><td>N/A</td><td><span class="status ok">Confirmado</span></td></tr>
 <tr><td>10/10/2026</td><td>Banco Inter</td><td>-R$ 1.620,00</td><td>IBPO Serviços Financeiros</td><td>10/2026</td><td>BPO financeiro</td><td>Corporativo / Todos</td><td>Corporativo / Todos</td><td>N/A</td><td><span class="status ok">Confirmado</span></td></tr>
 </tbody></table></div>
+</section>
+
+
+<section class="page" id="clientes">
+<div class="title"><div><h2>Cadastro de clientes</h2><div class="sub">Cadastre, consulte e exclua clientes usados nos lançamentos e relatórios.</div></div></div>
+<div class="card">
+<form id="clientForm" class="formgrid" onsubmit="addClient(event)">
+<label>Nome / Razão Social<input id="clientName" required placeholder="Ex.: Loggi"></label>
+<label>CNPJ / CPF<input id="clientDoc" placeholder="Opcional"></label>
+<label>Cidade principal<input id="clientCity" placeholder="Ex.: Parauapebas"></label>
+<label>Rota principal<input id="clientRoute" placeholder="Ex.: Parauapebas"></label>
+<label class="span4">Observações<input id="clientNotes" placeholder="Condições comerciais, responsável, particularidades..."></label>
+<div class="span4"><button class="btn" type="submit">Cadastrar cliente</button></div>
+</form>
+</div>
+<div class="card" style="margin-top:12px">
+<div class="toolbar"><input id="clientSearch" placeholder="Buscar cliente..." style="max-width:360px" oninput="renderClients()"><span class="sub" id="clientCount"></span></div>
+<div class="tablewrap"><table><thead><tr><th>Cliente</th><th>CNPJ/CPF</th><th>Cidade</th><th>Rota</th><th>Observações</th><th></th></tr></thead><tbody id="clientBody"></tbody></table></div>
+</div>
+</section>
+
+<section class="page" id="avulsos">
+<div class="title"><div><h2>Lançamentos avulsos</h2><div class="sub">Receitas e despesas que não vieram do extrato ou que precisam ser lançadas manualmente.</div></div></div>
+<div class="card">
+<form id="avulsoForm" class="formgrid" onsubmit="addAvulso(event)">
+<label>Data<input id="avDate" type="date" required></label>
+<label>Entrada / Saída<select id="avFlow"><option>Saída</option><option>Entrada</option></select></label>
+<label>Valor<input id="avValue" type="number" step="0.01" min="0" required></label>
+<label>Competência<input id="avComp" placeholder="MM/AAAA" required></label>
+<label class="span2">Descrição / Natureza<input id="avNature" required placeholder="Ex.: Frete, combustível, receita avulsa..."></label>
+<label>Grupo DRE<select id="avGroup"><option>Receita Bruta</option><option>Deduções da Receita</option><option>Custos dos Serviços</option><option>Despesas Operacionais</option><option>Resultado Financeiro</option><option>Outros Resultados</option><option>IR/CSLL</option><option>Fora do DRE</option></select></label>
+<label>Incluir no DRE?<select id="avInclude"><option>Sim</option><option>Não</option></select></label>
+<label class="span2">Cliente(s)<input id="avClients" list="clientSuggestions" placeholder="Separe múltiplos por ;"><div class="hint">Pode informar um ou mais clientes.</div></label>
+<label>Rota(s)<input id="avRoutes" placeholder="Separe múltiplas por ;"></label>
+<label>Cidade(s)<input id="avCities" placeholder="Separe múltiplas por ;"></label>
+<label class="span4">Observação<input id="avNotes" placeholder="Detalhes adicionais do lançamento"></label>
+<div class="span4"><button class="btn" type="submit">Salvar lançamento avulso</button></div>
+</form>
+<datalist id="clientSuggestions"></datalist>
+</div>
+<div class="card" style="margin-top:12px">
+<div class="toolbar"><input id="avSearch" placeholder="Buscar lançamento..." style="max-width:360px" oninput="renderAvulsos()"><span class="sub" id="avCount"></span></div>
+<div class="tablewrap"><table><thead><tr><th>Data</th><th>Mov.</th><th>Valor</th><th>Competência</th><th>Natureza</th><th>Cliente(s)</th><th>Rota(s)</th><th>Cidade(s)</th><th>DRE</th><th></th></tr></thead><tbody id="avBody"></tbody></table></div>
+</div>
 </section>
 
 <section class="page" id="importacao">
@@ -135,8 +182,43 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 </main></div>
 <div id="toast" style="position:fixed;right:18px;bottom:18px;background:#101828;color:white;padding:12px 16px;border-radius:10px;display:none;z-index:99;max-width:360px"></div>
 <script>
-const pages=document.querySelectorAll('.page'),buttons=document.querySelectorAll('nav button');buttons.forEach(b=>b.onclick=()=>{buttons.forEach(x=>x.classList.remove('active'));b.classList.add('active');pages.forEach(p=>p.classList.remove('active'));document.getElementById(b.dataset.page).classList.add('active')});
+const pages=document.querySelectorAll('.page'),buttons=document.querySelectorAll('nav button');buttons.forEach(b=>b.onclick=()=>goPage(b.dataset.page));
 function toast(t){const e=document.getElementById('toast');e.textContent=t;e.style.display='block';clearTimeout(window._tt);window._tt=setTimeout(()=>e.style.display='none',3200)}
+
+const CLIENT_KEY='postal_cfo_clients_v1', AVULSO_KEY='postal_cfo_avulsos_v1';
+const defaultClients=[
+ {id:'c-loggi',name:'Loggi',doc:'',city:'',route:'',notes:''},
+ {id:'c-imile',name:'iMile',doc:'',city:'',route:'',notes:''},
+ {id:'c-anjun',name:'Anjun',doc:'',city:'',route:'',notes:''},
+ {id:'c-grauna',name:'Graúna',doc:'',city:'Parauapebas',route:'Parauapebas',notes:''},
+ {id:'c-cavalheiro',name:'Cavalheiro Logistics',doc:'',city:'Parauapebas',route:'Parauapebas',notes:''},
+ {id:'c-ima',name:'IMA',doc:'',city:'',route:'',notes:''},
+ {id:'c-avulsos',name:'Clientes Avulsos / Balcão',doc:'',city:'',route:'',notes:''}
+];
+function loadJson(k,fallback){try{const v=localStorage.getItem(k);return v?JSON.parse(v):fallback}catch(e){return fallback}}
+let clients=loadJson(CLIENT_KEY,defaultClients);
+let avulsos=loadJson(AVULSO_KEY,[]);
+function saveClients(){localStorage.setItem(CLIENT_KEY,JSON.stringify(clients));renderClients();renderClientSuggestions()}
+function saveAvulsos(){localStorage.setItem(AVULSO_KEY,JSON.stringify(avulsos));renderAvulsos()}
+function uid(prefix){return prefix+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,7)}
+function goPage(id){buttons.forEach(x=>x.classList.toggle('active',x.dataset.page===id));pages.forEach(p=>p.classList.toggle('active',p.id===id));window.scrollTo({top:0,behavior:'smooth'});if(id==='clientes')renderClients();if(id==='avulsos')renderAvulsos()}
+function addClient(e){e.preventDefault();const name=clientName.value.trim();if(!name)return;if(clients.some(c=>c.name.toLowerCase()===name.toLowerCase())){toast('Este cliente já está cadastrado.');return}
+ clients.push({id:uid('c'),name,doc:clientDoc.value.trim(),city:clientCity.value.trim(),route:clientRoute.value.trim(),notes:clientNotes.value.trim(),createdAt:new Date().toISOString()});
+ clientForm.reset();saveClients();toast('Cliente cadastrado com sucesso.')}
+function deleteClient(id){const c=clients.find(x=>x.id===id);if(!c)return;if(!confirm('Excluir o cliente '+c.name+'? Os lançamentos já existentes não serão apagados.'))return;clients=clients.filter(x=>x.id!==id);saveClients();toast('Cliente excluído.')}
+function renderClients(){const q=(document.getElementById('clientSearch')?.value||'').toLowerCase();const xs=clients.filter(c=>[c.name,c.doc,c.city,c.route,c.notes].join(' ').toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name,'pt-BR'));clientCount.textContent=xs.length+' cliente(s)';clientBody.innerHTML=xs.length?xs.map(c=>`<tr><td><b>${esc2(c.name)}</b></td><td>${esc2(c.doc)}</td><td>${esc2(c.city)}</td><td>${esc2(c.route)}</td><td>${esc2(c.notes)}</td><td><button class="btn danger" onclick="deleteClient('${c.id}')">Excluir</button></td></tr>`).join(''):'<tr><td colspan="6" class="empty">Nenhum cliente encontrado.</td></tr>'}
+function renderClientSuggestions(){clientSuggestions.innerHTML=clients.slice().sort((a,b)=>a.name.localeCompare(b.name,'pt-BR')).map(c=>`<option value="${esc2(c.name)}"></option>`).join('')}
+function addAvulso(e){e.preventDefault();const value=Number(avValue.value||0);if(value<=0){toast('Informe um valor maior que zero.');return}
+ avulsos.push({id:uid('a'),date:avDate.value,flow:avFlow.value,value,competence:avComp.value.trim(),nature:avNature.value.trim(),group:avGroup.value,include:avInclude.value,clients:splitSemi(avClients.value),routes:splitSemi(avRoutes.value),cities:splitSemi(avCities.value),notes:avNotes.value.trim(),createdAt:new Date().toISOString()});
+ avulsoForm.reset();avDate.value=new Date().toISOString().slice(0,10);saveAvulsos();toast('Lançamento avulso salvo.')}
+function deleteAvulso(id){const a=avulsos.find(x=>x.id===id);if(!a)return;if(!confirm('Excluir este lançamento avulso de '+fmtBR(a.value)+'?'))return;avulsos=avulsos.filter(x=>x.id!==id);saveAvulsos();toast('Lançamento avulso excluído.')}
+function renderAvulsos(){const q=(document.getElementById('avSearch')?.value||'').toLowerCase();const xs=avulsos.filter(a=>[a.date,a.flow,a.competence,a.nature,a.clients.join(' '),a.routes.join(' '),a.cities.join(' '),a.notes].join(' ').toLowerCase().includes(q)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));avCount.textContent=xs.length+' lançamento(s)';avBody.innerHTML=xs.length?xs.map(a=>`<tr><td>${formatDate(a.date)}</td><td>${esc2(a.flow)}</td><td style="color:${a.flow==='Entrada'?'var(--green)':'var(--red)'}">${a.flow==='Entrada'?'+':'-'}${fmtBR(a.value)}</td><td>${esc2(a.competence)}</td><td><b>${esc2(a.nature)}</b><div class="sub">${esc2(a.group)}</div></td><td>${esc2(a.clients.join('; '))}</td><td>${esc2(a.routes.join('; '))}</td><td>${esc2(a.cities.join('; '))}</td><td><span class="status ${a.include==='Sim'?'ok':'warn'}">${a.include}</span></td><td><button class="btn danger" onclick="deleteAvulso('${a.id}')">Excluir</button></td></tr>`).join(''):'<tr><td colspan="10" class="empty">Nenhum lançamento avulso cadastrado.</td></tr>'}
+function splitSemi(v){return String(v||'').split(';').map(x=>x.trim()).filter(Boolean)}
+function esc2(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
+function fmtBR(v){return Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}
+function formatDate(d){if(!d)return'';const p=d.split('-');return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:d}
+renderClients();renderClientSuggestions();renderAvulsos();if(document.getElementById('avDate'))avDate.value=new Date().toISOString().slice(0,10);
+
 new Chart(document.getElementById('trend'),{type:'bar',data:{labels:['Ago/26','Set/26','Out/26 MTD'],datasets:[{label:'Receita Bruta',data:[456443.55,93655.32,495.82]},{label:'Resultado Líquido',data:[152546.90,-197092.44,-17199.57]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
 new Chart(document.getElementById('margin'),{type:'line',data:{labels:['Ago/26','Set/26','Out/26 MTD'],datasets:[{label:'Margem %',data:[33.42,-210.44,-3468.91],tension:.25}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
 </script>
