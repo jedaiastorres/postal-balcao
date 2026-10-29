@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Postal CFO BI</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 :root{--navy:#16365f;--blue:#245b91;--bg:#f4f7fb;--card:#fff;--line:#e4e7ec;--muted:#667085;--green:#067647;--red:#b42318;--orange:#b54708}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:#101828;font-family:Inter,Segoe UI,Arial,sans-serif}
@@ -245,7 +245,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 
 <section class="page" id="lancamentos">
 <div class="title"><div><h2>Lançamentos</h2><div class="sub">Edição individual com competência, natureza, cliente, rota e cidade</div></div><button class="btn" onclick="goPage('avulsos')">+ Novo lançamento avulso</button></div>
-<div class="toolbar"><input placeholder="Buscar favorecido, cliente ou natureza" style="max-width:360px"><select style="max-width:180px"><option>Todos os status</option><option>Confirmado</option><option>Pendente</option></select><button class="btn secondary">Filtrar</button></div>
+<div class="toolbar"><input id="allTxSearch" placeholder="Buscar favorecido, cliente ou natureza" style="max-width:360px" oninput="renderAllTransactions()"><select id="allTxStatus" style="max-width:180px" onchange="renderAllTransactions()"><option>Todos</option><option>Confirmado</option><option>Pendente</option></select><button class="btn secondary" onclick="renderAllTransactions()">Filtrar</button></div>
 <div class="tablewrap"><table><thead><tr><th>Data</th><th>Banco</th><th>Valor</th><th>Destino/Origem</th><th>Competência</th><th>Natureza</th><th>Cliente</th><th>Rota</th><th>Cidade</th><th>Status</th></tr></thead><tbody>
 <tr><td>10/09/2026</td><td>Banco Inter</td><td>-R$ 1.620,00</td><td>IBPO Serviços Financeiros</td><td>09/2026</td><td>BPO financeiro</td><td>Corporativo / Todos</td><td>Corporativo / Todos</td><td>N/A</td><td><span class="status ok">Confirmado</span></td></tr>
 <tr><td>10/10/2026</td><td>Banco Inter</td><td>-R$ 1.620,00</td><td>IBPO Serviços Financeiros</td><td>10/2026</td><td>BPO financeiro</td><td>Corporativo / Todos</td><td>Corporativo / Todos</td><td>N/A</td><td><span class="status ok">Confirmado</span></td></tr>
@@ -304,10 +304,50 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 </section>
 
 <section class="page" id="importacao">
-<div class="title"><div><h2>Importar extratos</h2><div class="sub">XLSX, CSV, OFX e QFX</div></div></div>
-<div class="grid2"><div class="card"><div class="drop"><strong>Arraste o extrato aqui</strong><p class="sub">O sistema fará leitura, deduplicação, identificação do banco e aplicação das regras aprendidas.</p><button class="btn" onclick="toast('Importação real será habilitada quando a persistência do backend for conectada.')">Selecionar arquivo</button></div></div>
-<div class="card"><b>Última atualização</b><div class="metricrow"><span>Banco Inter</span><b>10/10/2026</b></div><div class="metricrow"><span>Banco do Brasil</span><b>14/10/2026</b></div><div class="metricrow"><span>Duplicidades</span><span class="status info">Proteção automática</span></div><div class="metricrow"><span>Competência sugerida</span><span class="status info">Regra + revisão</span></div></div></div>
-<div class="card" style="margin-top:12px"><b>Fluxo de importação</b><div class="flow" style="margin-top:10px"><div class="step"><em>1</em><b>Enviar arquivo</b><span class="sub">Excel, CSV ou OFX</span></div><div class="step"><em>2</em><b>Reconhecer</b><span class="sub">Banco, data, valor e favorecido</span></div><div class="step"><em>3</em><b>Classificar</b><span class="sub">Competência, DRE, cliente, rota e cidade</span></div><div class="step"><em>4</em><b>Confirmar</b><span class="sub">Salvar e atualizar o BI</span></div></div></div>
+<div class="title"><div><h2>Importar extratos</h2><div class="sub">XLSX, XLS, CSV, OFX e QFX com deduplicação e regras aprendidas.</div></div></div>
+<div class="grid2">
+<div class="card">
+<div class="drop" id="importDrop" ondragover="event.preventDefault()" ondrop="handleImportDrop(event)">
+<strong>Arraste o extrato aqui</strong>
+<p class="sub">O sistema lê o arquivo, identifica sobreposição com a base já carregada e aplica regras por favorecido antes de gravar.</p>
+<input id="importFile" type="file" accept=".xlsx,.xls,.csv,.ofx,.qfx,.txt" hidden onchange="importFileName.textContent=this.files[0]?.name||''">
+<button class="btn" onclick="importFile.click()">Selecionar arquivo</button>
+<div id="importFileName" class="sub" style="margin-top:8px"></div>
+</div>
+<div class="toolbar">
+<label>Banco <select id="importBank" style="width:180px"><option>Auto</option><option>Banco Inter</option><option>Banco do Brasil</option></select></label>
+<button class="btn" onclick="analyzeImport()">Analisar arquivo</button>
+<button class="btn secondary" id="importConfirm" onclick="confirmImport()" disabled>Confirmar importação</button>
+</div>
+<div id="importMessage" class="sub"></div>
+</div>
+<div class="card">
+<b>Última atualização da base</b>
+<div class="metricrow"><span>Banco Inter</span><b id="lastInter">10/10/2026</b></div>
+<div class="metricrow"><span>Banco do Brasil</span><b id="lastBB">14/10/2026</b></div>
+<div class="metricrow"><span>Regra de sobreposição</span><span class="status ok">Ativa</span></div>
+<div class="metricrow"><span>Duplicidade por fingerprint</span><span class="status ok">Ativa</span></div>
+</div>
+</div>
+
+<div class="kpis" style="margin-top:12px">
+<div class="card kpi"><span>Lidos</span><b id="impParsed">0</b></div>
+<div class="card kpi"><span>Novos</span><b id="impNew">0</b></div>
+<div class="card kpi"><span>Duplicados / sobreposição</span><b id="impDup">0</b></div>
+<div class="card kpi"><span>Classificados automaticamente</span><b id="impAuto">0</b></div>
+<div class="card kpi"><span>Pendentes para revisar</span><b id="impPending">0</b></div>
+<div class="card kpi"><span>Data máxima do arquivo</span><b id="impMaxDate">-</b></div>
+</div>
+
+<div class="card">
+<div class="toolbar"><b>Prévia da importação</b><span class="sub">Duplicados não serão gravados. Regras aprendidas entram como Confirmado; sugestões sem regra ficam Pendentes.</span></div>
+<div class="tablewrap"><table><thead><tr><th>Data</th><th>Banco</th><th>Mov.</th><th>Valor</th><th>Favorecido / Origem</th><th>Competência</th><th>Natureza</th><th>Cliente(s)</th><th>Rota(s)</th><th>Cidade(s)</th><th>Status</th></tr></thead><tbody id="importPreviewBody"><tr><td colspan="11" class="empty">Selecione um arquivo e clique em Analisar.</td></tr></tbody></table></div>
+</div>
+
+<div class="card" style="margin-top:12px">
+<div class="toolbar"><b>Histórico de importações</b><span class="sub">Registro local deste navegador</span></div>
+<div id="importHistory"></div>
+</div>
 </section>
 
 <section class="page" id="regras">
@@ -341,7 +381,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 const pages=document.querySelectorAll('.page'),buttons=document.querySelectorAll('nav button');buttons.forEach(b=>b.onclick=()=>goPage(b.dataset.page));
 function toast(t){const e=document.getElementById('toast');e.textContent=t;e.style.display='block';clearTimeout(window._tt);window._tt=setTimeout(()=>e.style.display='none',3200)}
 
-const CLIENT_KEY='postal_cfo_clients_v1', AVULSO_KEY='postal_cfo_avulsos_v1', RULE_KEY='postal_cfo_rules_v2', DUP_KEY='postal_cfo_dup_blocked_v1';
+const CLIENT_KEY='postal_cfo_clients_v1', AVULSO_KEY='postal_cfo_avulsos_v1', RULE_KEY='postal_cfo_rules_v2', DUP_KEY='postal_cfo_dup_blocked_v1', IMPORTED_KEY='postal_cfo_imported_v1', IMPORT_HISTORY_KEY='postal_cfo_import_history_v1', BANK_UPDATE_KEY='postal_cfo_bank_updates_v1';
 const defaultClients=[
  {id:'c-loggi',name:'Loggi',doc:'',city:'',route:'',notes:''},
  {id:'c-imile',name:'iMile',doc:'',city:'',route:'',notes:''},
@@ -359,6 +399,13 @@ const defaultRules=[
 ];
 let learnedRules=loadJson(RULE_KEY,defaultRules);
 let dupBlocked=Number(localStorage.getItem(DUP_KEY)||0);
+let importedTx=loadJson(IMPORTED_KEY,[]);
+let importHistoryData=loadJson(IMPORT_HISTORY_KEY,[]);
+let bankUpdates=loadJson(BANK_UPDATE_KEY,{
+ 'Banco Inter':{statementThrough:'2026-10-10',importedAt:'2026-10-15T00:00:00-03:00'},
+ 'Banco do Brasil':{statementThrough:'2026-10-14',importedAt:'2026-10-15T00:00:00-03:00'}
+});
+let importPreview=[]; let importPreviewMeta=null;
 function saveClients(){localStorage.setItem(CLIENT_KEY,JSON.stringify(clients));renderClients();renderClientSuggestions()}
 function saveAvulsos(){localStorage.setItem(AVULSO_KEY,JSON.stringify(avulsos));renderAvulsos();renderDuplicateCount()}
 function saveRules(){localStorage.setItem(RULE_KEY,JSON.stringify(learnedRules));renderRulesLocal()}
@@ -374,7 +421,7 @@ function applyLearnedRule(){const r=findRuleByParty(document.getElementById('avP
  if(r.compMode==='payment_month'&&avDate.value)avComp.value=monthCompetence(avDate.value);
  toast('Regra aprendida aplicada para '+r.party+'.');return true}
 function uid(prefix){return prefix+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,7)}
-function goPage(id){buttons.forEach(x=>x.classList.toggle('active',x.dataset.page===id));pages.forEach(p=>p.classList.toggle('active',p.id===id));window.scrollTo({top:0,behavior:'smooth'});if(id==='clientes')renderClients();if(id==='avulsos')renderAvulsos()}
+function goPage(id){buttons.forEach(x=>x.classList.toggle('active',x.dataset.page===id));pages.forEach(p=>p.classList.toggle('active',p.id===id));window.scrollTo({top:0,behavior:'smooth'});if(id==='clientes')renderClients();if(id==='avulsos')renderAvulsos();if(id==='lancamentos')renderAllTransactions();if(id==='importacao'){renderBankUpdates();renderImportHistory()};if(id==='regras')renderRulesLocal()}
 function addClient(e){e.preventDefault();const name=clientName.value.trim();if(!name)return;if(clients.some(c=>c.name.toLowerCase()===name.toLowerCase())){toast('Este cliente já está cadastrado.');return}
  clients.push({id:uid('c'),name,doc:clientDoc.value.trim(),city:clientCity.value.trim(),route:clientRoute.value.trim(),notes:clientNotes.value.trim(),createdAt:new Date().toISOString()});
  clientForm.reset();saveClients();toast('Cliente cadastrado com sucesso.')}
@@ -397,6 +444,131 @@ function splitSemi(v){return String(v||'').split(';').map(x=>x.trim()).filter(Bo
 function esc2(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 function fmtBR(v){return Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}
 function formatDate(d){if(!d)return'';const p=d.split('-');return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:d}
+
+function saveImported(){localStorage.setItem(IMPORTED_KEY,JSON.stringify(importedTx))}
+function saveImportHistory(){localStorage.setItem(IMPORT_HISTORY_KEY,JSON.stringify(importHistoryData));renderImportHistory()}
+function saveBankUpdates(){localStorage.setItem(BANK_UPDATE_KEY,JSON.stringify(bankUpdates));renderBankUpdates()}
+function renderBankUpdates(){
+ const fmt=d=>formatDate(d);
+ const inter=bankUpdates['Banco Inter']?.statementThrough||'2026-10-10', bb=bankUpdates['Banco do Brasil']?.statementThrough||'2026-10-14';
+ const a=document.getElementById('lastInter'),b=document.getElementById('lastBB');if(a)a.textContent=fmt(inter);if(b)b.textContent=fmt(bb);
+ const hb=document.getElementById('bankBadges');if(hb)hb.innerHTML='<span class="badge">Inter: até '+fmt(inter)+'</span><span class="badge">Banco do Brasil: até '+fmt(bb)+'</span>';
+}
+function renderImportHistory(){
+ const el=document.getElementById('importHistory');if(!el)return;
+ el.innerHTML=importHistoryData.length?importHistoryData.slice().reverse().slice(0,30).map(x=>'<div class="metricrow"><div><b>'+esc2(x.file)+'</b><div class="sub">'+esc2(x.bank)+' · '+formatDate(x.maxDate)+' · '+new Date(x.importedAt).toLocaleString('pt-BR')+'</div></div><div><span class="pill green">'+x.inserted+' novos</span> <span class="pill orange">'+x.duplicates+' duplicados</span></div></div>').join(''):'<div class="empty">Nenhuma importação confirmada neste navegador.</div>';
+}
+function handleImportDrop(e){e.preventDefault();const f=e.dataTransfer.files?.[0];if(!f)return;const dt=new DataTransfer();dt.items.add(f);importFile.files=dt.files;importFileName.textContent=f.name}
+function parseBRMoney(v){
+ if(typeof v==='number')return v;let s=String(v??'').trim().replace(/R\$/gi,'').replace(/\s/g,'');if(!s)return 0;
+ if(/^[+-]?\d{1,3}(\.\d{3})*,\d+$/.test(s))s=s.replace(/\./g,'').replace(',','.');
+ else if(/^[+-]?\d+,\d+$/.test(s))s=s.replace(',','.');
+ return Number(s)||0;
+}
+function parseAnyDate(v){
+ if(!v)return'';if(v instanceof Date&&!isNaN(v))return v.toISOString().slice(0,10);
+ if(typeof v==='number'&&window.XLSX){const d=XLSX.SSF.parse_date_code(v);if(d)return String(d.y).padStart(4,'0')+'-'+String(d.m).padStart(2,'0')+'-'+String(d.d).padStart(2,'0')}
+ const s=String(v).trim();let m=s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);if(m)return m[3]+'-'+m[2]+'-'+m[1];
+ m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);if(m)return m[1]+'-'+m[2]+'-'+m[3];return'';
+}
+function firstField(row,names){const ks=Object.keys(row||{});for(const n of names){const k=ks.find(x=>normKey(x).includes(normKey(n)));if(k!==undefined&&row[k]!==''&&row[k]!==null&&row[k]!==undefined)return row[k]}return''}
+function detectImportBank(sample,fileName){
+ if(importBank.value!=='Auto')return importBank.value;const s=normKey((fileName||'')+' '+(sample||''));
+ if(s.includes('BANCO DO BRASIL')||s.includes('EXTRATO CONTA CORRENTE')||s.includes('EMPRESARIAL ELO'))return'Banco do Brasil';
+ if(s.includes('BANCO INTER')||s.includes('DATA LANCAMENTO')||s.includes('PIX ENVIADO')||s.includes('PIX RECEBIDO'))return'Banco Inter';
+ return'Não identificado';
+}
+function importFp(t){return [t.bank,t.date,t.flow,Number(t.value||0).toFixed(2),normKey(t.party),normKey(t.history)].join('|')}
+function overlapsKnownBase(t){
+ const cut=bankUpdates[t.bank]?.statementThrough;if(!cut||!t.date)return false;
+ return t.date<=cut;
+}
+function duplicateImported(t){const fp=importFp(t);return importedTx.some(x=>importFp(x)===fp)}
+function suggestionFromText(t){
+ const text=normKey((t.nature||'')+' '+(t.history||'')+' '+(t.party||''));
+ if(text.includes('COMBUST')||text.includes('AUTO POSTO')||text.includes('RAIZEN'))return{nature:t.nature||'Custos de frota — Combustível',group:'Custos dos Serviços',subgroup:'Custos de frota'};
+ if(text.includes('FRETE')||text.includes('REDESPACH'))return{nature:t.nature||'Custos operacionais — Fretes / redespachos',group:'Custos dos Serviços',subgroup:'Custos operacionais'};
+ if(text.includes('SALARIO')||text.includes('FOLHA')||text.includes('FGTS')||text.includes('INSS'))return{nature:t.nature||'Pessoal operacional',group:'Custos dos Serviços',subgroup:'Pessoal operacional'};
+ if(text.includes('RECEITA')||t.flow==='Entrada')return{nature:t.nature||'Receita operacional — Fretes e serviços logísticos',group:'Receita Bruta',subgroup:'Receita operacional'};
+ if(text.includes('JUROS')||text.includes('IOF')||text.includes('TARIFA'))return{nature:t.nature||'Despesas financeiras',group:'Resultado Financeiro',subgroup:'Despesas financeiras'};
+ return null;
+}
+function classifyImported(t){
+ const r=findRuleByParty(t.party);
+ if(r){t.nature=r.nature||t.nature;t.group=r.group||t.group;t.subgroup=r.subgroup||t.subgroup;t.include=r.include||'Sim';t.clients=r.clients||[];t.routes=r.routes||[];t.cities=r.cities||[];if(r.compMode==='payment_month')t.competence=monthCompetence(t.date);t.status='Confirmado';t.auto='Regra aprendida';return t}
+ if(t.nature&&t.group){t.status='Confirmado';t.auto='Classificação do arquivo';return t}
+ const s=suggestionFromText(t);if(s){Object.assign(t,s);t.status='Pendente';t.include='Pendente';t.auto='Sugestão'}else{t.status='Pendente';t.include='Pendente';t.auto='Não classificado'}
+ return t;
+}
+function buildTxFromRow(row,bank,source,rowNum){
+ const date=parseAnyDate(firstField(row,['Data Lançamento','Data Movimento','Data']));
+ let rawVal=firstField(row,['Valor (R$)','Valor','Amount']);let val=parseBRMoney(rawVal);
+ const explicitFlow=String(firstField(row,['Entrada/Saída','Entrada / Saída','Fluxo','Tipo'])||'').trim();
+ let flow=explicitFlow|| (val>=0?'Entrada':'Saída'); if(/SA.I|DEB|PAG|PIX ENVIADO/i.test(flow))flow='Saída'; else if(/ENTR|CRED|RECEB/i.test(flow))flow='Entrada';
+ val=Math.abs(val);if(!date||!val)return null;
+ const party=String(firstField(row,['Destino/Origem','Favorecido/Origem','Favorecido','Nome','Payee','Descrição'])||'').trim();
+ const history=String(firstField(row,['Histórico bancário','Histórico','Lançamento','Memo'])||'').trim();
+ const nature=String(firstField(row,['Descrição/Natureza','Natureza','Categoria'])||'').trim();
+ const group=String(firstField(row,['Grupo DRE','Categoria DRE'])||'').trim();
+ const subgroup=String(firstField(row,['Subgrupo DRE','Subcategoria'])||'').trim();
+ const competence=String(firstField(row,['Competência'])||monthCompetence(date)).trim();
+ const clients=splitSemi(String(firstField(row,['Cliente','Clientes'])||''));
+ const routes=splitSemi(String(firstField(row,['Rota','Rotas'])||''));
+ const cities=splitSemi(String(firstField(row,['Cidade','Cidades'])||''));
+ return classifyImported({id:uid('imp'),bank,date,flow,value:val,party,history,competence,nature,group,subgroup,include:group?'Sim':'Pendente',clients,routes,cities,source,rowNum,status:'Pendente'});
+}
+function parseOFX(text,bank,source){
+ return text.split(/<STMTTRN>/i).slice(1).map((chunk,i)=>{
+   const tag=n=>{const m=chunk.match(new RegExp('<'+n+'>\\s*([^<\\r\\n]+)','i'));return m?m[1].trim():''};
+   const ds=tag('DTPOSTED'),date=ds.length>=8?ds.slice(0,4)+'-'+ds.slice(4,6)+'-'+ds.slice(6,8):'';
+   const signed=parseBRMoney(tag('TRNAMT')),value=Math.abs(signed);if(!date||!value)return null;
+   const flow=signed>=0?'Entrada':'Saída',party=tag('NAME')||tag('PAYEE')||'',history=tag('MEMO')||'';
+   return classifyImported({id:tag('FITID')||uid('imp'),bank,date,flow,value,party,history,competence:monthCompetence(date),nature:'',group:'',subgroup:'',include:'Pendente',clients:[],routes:[],cities:[],source,rowNum:i+1,status:'Pendente'});
+ }).filter(Boolean);
+}
+async function parseImportFile(file){
+ const ext=(file.name.split('.').pop()||'').toLowerCase();
+ if(ext==='ofx'||ext==='qfx'){const text=await file.text();const bank=detectImportBank(text.slice(0,3000),file.name);return{bank,rows:parseOFX(text,bank,file.name)}}
+ const buf=await file.arrayBuffer();const wb=XLSX.read(buf,{type:'array',cellDates:true});let best=[],sheetName='';
+ wb.SheetNames.forEach(n=>{const rr=XLSX.utils.sheet_to_json(wb.Sheets[n],{defval:''});if(rr.length>best.length){best=rr;sheetName=n}});
+ const bank=detectImportBank(JSON.stringify(best.slice(0,10)),file.name);const rows=best.map((r,i)=>buildTxFromRow(r,bank,file.name,i+2)).filter(Boolean);return{bank,rows,sheetName};
+}
+async function analyzeImport(){
+ const file=importFile.files?.[0];if(!file){toast('Selecione um arquivo primeiro.');return}
+ importMessage.textContent='Lendo e classificando...';importConfirm.disabled=true;
+ try{
+   const parsed=await parseImportFile(file);let dup=0,auto=0,pending=0,maxDate='';
+   importPreview=parsed.rows.map(t=>{t.duplicate=overlapsKnownBase(t)||duplicateImported(t);if(t.duplicate)dup++;else if(t.status==='Confirmado')auto++;else pending++;if(t.date>maxDate)maxDate=t.date;return t});
+   importPreviewMeta={file:file.name,bank:parsed.bank,maxDate,parsed:importPreview.length,duplicates:dup,newCount:importPreview.length-dup,auto,pending};
+   renderImportPreview();importConfirm.disabled=importPreviewMeta.newCount===0;
+   importMessage.textContent='Análise concluída. Confira a prévia e confirme a importação.';
+ }catch(e){console.error(e);importMessage.textContent='Falha ao ler o arquivo: '+e.message;toast('Não consegui interpretar este arquivo.')}
+}
+function renderImportPreview(){
+ const m=importPreviewMeta||{parsed:0,newCount:0,duplicates:0,auto:0,pending:0,maxDate:''};
+ impParsed.textContent=m.parsed;impNew.textContent=m.newCount;impDup.textContent=m.duplicates;impAuto.textContent=m.auto;impPending.textContent=m.pending;impMaxDate.textContent=m.maxDate?formatDate(m.maxDate):'-';
+ importPreviewBody.innerHTML=importPreview.length?importPreview.slice(0,500).map(t=>'<tr style="'+(t.duplicate?'opacity:.55':'')+'"><td>'+formatDate(t.date)+'</td><td>'+esc2(t.bank)+'</td><td>'+esc2(t.flow)+'</td><td>'+fmtBR(t.value)+'</td><td>'+esc2(t.party)+'</td><td>'+esc2(t.competence)+'</td><td>'+esc2(t.nature||'—')+'<div class="hint">'+esc2(t.auto||'')+'</div></td><td>'+esc2((t.clients||[]).join('; ')||'—')+'</td><td>'+esc2((t.routes||[]).join('; ')||'—')+'</td><td>'+esc2((t.cities||[]).join('; ')||'—')+'</td><td><span class="status '+(t.duplicate?'warn':t.status==='Confirmado'?'ok':'info')+'">'+(t.duplicate?'Duplicado':t.status)+'</span></td></tr>').join(''):'<tr><td colspan="11" class="empty">Nenhum lançamento encontrado.</td></tr>';
+}
+function confirmImport(){
+ if(!importPreviewMeta)return;const fresh=importPreview.filter(t=>!t.duplicate);if(!fresh.length){toast('Não há lançamentos novos para importar.');return}
+ importedTx.push(...fresh);saveImported();
+ const maxDate=importPreviewMeta.maxDate,bank=importPreviewMeta.bank;if(bank&&bank!=='Não identificado'&&maxDate){const old=bankUpdates[bank]?.statementThrough||'';bankUpdates[bank]={statementThrough:maxDate>old?maxDate:old,importedAt:new Date().toISOString()};saveBankUpdates()}
+ importHistoryData.push({id:uid('hist'),file:importPreviewMeta.file,bank:importPreviewMeta.bank,maxDate:importPreviewMeta.maxDate,parsed:importPreviewMeta.parsed,inserted:fresh.length,duplicates:importPreviewMeta.duplicates,auto:importPreviewMeta.auto,pending:importPreviewMeta.pending,importedAt:new Date().toISOString()});saveImportHistory();
+ importConfirm.disabled=true;renderAllTransactions();toast(fresh.length+' lançamento(s) importado(s). '+importPreviewMeta.auto+' classificado(s) automaticamente.');
+}
+function renderAllTransactions(){
+ const body=document.getElementById('allTxBody');if(!body)return;
+ const samples=[
+  {date:'2026-09-10',bank:'Banco Inter',flow:'Saída',value:1620,party:'IBPO Serviços Financeiros',competence:'09/2026',nature:'BPO financeiro',clients:['CORPORATIVO / TODOS'],routes:['CORPORATIVO / TODOS'],cities:[],status:'Confirmado'},
+  {date:'2026-10-10',bank:'Banco Inter',flow:'Saída',value:1620,party:'IBPO Serviços Financeiros',competence:'10/2026',nature:'BPO financeiro',clients:['CORPORATIVO / TODOS'],routes:['CORPORATIVO / TODOS'],cities:[],status:'Confirmado'}
+ ];
+ const av=avulsos.map(a=>({date:a.date,bank:'Avulso',flow:a.flow,value:a.value,party:a.party||'',competence:a.competence,nature:a.nature,clients:a.clients||[],routes:a.routes||[],cities:a.cities||[],status:'Confirmado'}));
+ const all=[...importedTx,...av,...samples].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+ const q=normKey(document.getElementById('allTxSearch')?.value||''),st=document.getElementById('allTxStatus')?.value||'Todos';
+ const xs=all.filter(t=>(st==='Todos'||t.status===st)&&(!q||normKey([t.party,t.nature,(t.clients||[]).join(' '),(t.routes||[]).join(' '),(t.cities||[]).join(' ')].join(' ')).includes(q)));
+ body.innerHTML=xs.length?xs.slice(0,1500).map(t=>'<tr><td>'+formatDate(t.date)+'</td><td>'+esc2(t.bank||'')+'</td><td style="color:'+(t.flow==='Entrada'?'var(--green)':'var(--red)')+'">'+(t.flow==='Entrada'?'+':'-')+fmtBR(t.value||t.amount||0)+'</td><td>'+esc2(t.party||'')+'</td><td>'+esc2(t.competence||'')+'</td><td>'+esc2(t.nature||'—')+'</td><td>'+esc2((t.clients||[]).join('; ')||'—')+'</td><td>'+esc2((t.routes||[]).join('; ')||'—')+'</td><td>'+esc2((t.cities||[]).join('; ')||'—')+'</td><td><span class="status '+(t.status==='Confirmado'?'ok':'info')+'">'+esc2(t.status||'Pendente')+'</span></td></tr>').join(''):'<tr><td colspan="10" class="empty">Nenhum lançamento encontrado.</td></tr>';
+}
+
 function addRule(e){e.preventDefault();const party=ruleParty.value.trim();if(!party)return;
  learnedRules=learnedRules.filter(r=>normKey(r.party)!==normKey(party));
  learnedRules.push({id:uid('r'),party,nature:ruleNature.value.trim(),group:ruleGroup.value,subgroup:ruleSubgroup.value.trim(),include:ruleInclude.value,compMode:ruleCompMode.value,clients:splitSemi(ruleClients.value),routes:splitSemi(ruleRoutes.value),cities:splitSemi(ruleCities.value),note:ruleNote.value.trim()});
@@ -405,7 +577,7 @@ function deleteRule(id){const r=learnedRules.find(x=>x.id===id);if(!r)return;if(
 function renderRulesLocal(){const list=document.getElementById('ruleList'),count=document.getElementById('ruleCount');if(!list)return;if(count)count.textContent=learnedRules.length+' regra(s)';
  list.innerHTML=learnedRules.length?learnedRules.slice().sort((a,b)=>a.party.localeCompare(b.party,'pt-BR')).map(r=>`<div class="metricrow"><div><b>${esc2(r.party)}</b><div class="sub">${esc2(r.nature)} · ${esc2(r.group)} · ${r.compMode==='payment_month'?'competência do pagamento':'competência manual'}</div><div class="hint">Clientes: ${esc2((r.clients||[]).join('; ')||'—')} · Rotas: ${esc2((r.routes||[]).join('; ')||'—')}</div></div><button class="btn danger" onclick="deleteRule('${r.id}')">Excluir</button></div>`).join(''):'<div class="empty">Nenhuma regra cadastrada.</div>';
 }
-renderClients();renderClientSuggestions();renderAvulsos();renderRulesLocal();renderDuplicateCount();if(document.getElementById('avDate'))avDate.value=new Date().toISOString().slice(0,10);
+renderClients();renderClientSuggestions();renderAvulsos();renderRulesLocal();renderDuplicateCount();renderBankUpdates();renderImportHistory();renderAllTransactions();if(document.getElementById('avDate'))avDate.value=new Date().toISOString().slice(0,10);
 
 
 const dreMonths=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
