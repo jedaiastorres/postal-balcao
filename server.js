@@ -18,6 +18,10 @@ const TOKEN = (process.env.CONECTENVIOS_TOKEN || "").trim();
 const CONECTENVIOS_PAYMENT_MODE = String(process.env.CONECTENVIOS_PAYMENT_MODE || "WALLET").trim().toUpperCase();
 const ASAAS_SELF_TEST_ON_BOOT = String(process.env.ASAAS_SELF_TEST_ON_BOOT || "false").toLowerCase() === "true";
 const CONECTENVIO_MULTI_QUOTE_PROBE = String(process.env.CONECTENVIO_MULTI_QUOTE_PROBE || "false").toLowerCase() === "true";
+const CONECTENVIO_QUOTE_CACHE_TTL_MS = Math.max(5000, Math.min(120000, Number(process.env.CONECTENVIO_QUOTE_CACHE_TTL_MS || 45000)));
+const CONECTENVIO_QUOTE_CONCURRENCY = Math.max(1, Math.min(8, Number(process.env.CONECTENVIO_QUOTE_CONCURRENCY || 4)));
+const providerQuoteCache = new Map();
+const shipmentCreationLocks = new Map();
 
 const APP_USER = process.env.APP_USER || "parceiro@postalservicos.com.br";
 const APP_PASSWORD = process.env.APP_PASSWORD || "postal123";
@@ -572,6 +576,74 @@ function toPositiveInteger(value, label) {
 }
 
 
+function providerQuoteCacheKey(providerCepFrom, cepTo, volume) {
+  return [
+    providerCepFrom,
+    cepTo,
+    Number(volume.weightGrams || 0),
+    Number(volume.width || 0),
+    Number(volume.height || 0),
+    Number(volume.length || 0)
+  ].join("|");
+}
+
+function pruneProviderQuoteCache(now = Date.now()) {
+  if (providerQuoteCache.size < 250) return;
+  for (const [key, item] of providerQuoteCache.entries()) {
+    if (!item || item.expiresAt <= now) providerQuoteCache.delete(key);
+  }
+  while (providerQuoteCache.size > 500) {
+    providerQuoteCache.delete(providerQuoteCache.keys().next().value);
+  }
+}
+
+async function fetchProviderQuoteCached(providerCepFrom, cepTo, volume) {
+  const key = providerQuoteCacheKey(providerCepFrom, cepTo, volume);
+  const now = Date.now();
+  const cached = providerQuoteCache.get(key);
+  if (cached && cached.expiresAt > now) {
+    return { data: cached.data, cached: true };
+  }
+  if (cached) providerQuoteCache.delete(key);
+
+  const result = await providerFetch("/package/shipping", {
+    method:"POST",
+    body:JSON.stringify({
+      type:"box",
+      weight:volume.weightGrams,
+      width:volume.width,
+      height:volume.height,
+      length:volume.length,
+      cep_from:providerCepFrom,
+      cep_to:cepTo,
+      addr_from_cep:providerCepFrom,
+      addr_to_cep:cepTo
+    }),
+    timeout:25000
+  });
+
+  providerQuoteCache.set(key, {
+    data: result.data,
+    expiresAt: now + CONECTENVIO_QUOTE_CACHE_TTL_MS
+  });
+  pruneProviderQuoteCache(now);
+  return { data: result.data, cached: false };
+}
+
+async function mapWithConcurrency(items, limit, worker) {
+  const output = new Array(items.length);
+  let cursor = 0;
+  async function run() {
+    while (true) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      output[index] = await worker(items[index], index);
+    }
+  }
+  await Promise.all(Array.from({length:Math.min(limit,items.length)}, () => run()));
+  return output;
+}
+
 function parseQuoteVolumes(body = {}) {
   const incoming = Array.isArray(body.volumes) && body.volumes.length
     ? body.volumes
@@ -738,6 +810,17 @@ async function probeConectEnviosMultiVolumeQuote() {
 }
 
 async function createShipmentFromOrder(order) {
+  if (!order?.id) throw new Error("Pedido não encontrado.");
+  const running = shipmentCreationLocks.get(order.id);
+  if (running) return running;
+
+  const task = createShipmentFromOrderUnlocked(order)
+    .finally(() => shipmentCreationLocks.delete(order.id));
+  shipmentCreationLocks.set(order.id, task);
+  return task;
+}
+
+async function createShipmentFromOrderUnlocked(order) {
   if (!order) throw new Error("Pedido não encontrado.");
 
   const expectedVolumeCount = Math.max(1, Number(order.package_count || order.package_data?.volumes?.length || 1));
@@ -2807,6 +2890,7 @@ app.post("/api/credit/proposals", requireAuth, requireRole("ADMIN","STORE_OWNER"
  * }
  */
 app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK","CLIENT"), async (req, res) => {
+  const startedAt = Date.now();
   try {
     const body = req.body || {};
     const cepFrom = String(body.cepOrigem || "").replace(/\D/g, "");
@@ -2827,38 +2911,37 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
       }
     }
 
-    const quoteSets = [];
     let demo = false;
+    let cacheHits = 0;
 
-    for (const volume of volumes) {
-      let providerData;
-      if (!TOKEN) {
-        providerData = { error:false, data:demoQuote(body) };
-        demo = true;
-      } else {
-        const result = await providerFetch("/package/shipping", {
-          method:"POST",
-          body:JSON.stringify({
-            type:"box",
-            weight:volume.weightGrams,
-            width:volume.width,
-            height:volume.height,
-            length:volume.length,
-            cep_from:providerCepFrom,
-            cep_to:cepTo,
-            addr_from_cep:providerCepFrom,
-            addr_to_cep:cepTo
-          }),
-          timeout:25000
-        });
-        providerData = result.data;
-        if (providerData && providerData.error === true) {
-          console.error("ConectEnvios quote error: provider rejected volume", volume.index);
-          return res.status(422).json({ error:`A ConectEnvios recusou a cotação do volume ${volume.index}.` });
+    const quoteSets = await mapWithConcurrency(
+      volumes,
+      TOKEN ? CONECTENVIO_QUOTE_CONCURRENCY : 1,
+      async volume => {
+        let providerData;
+        if (!TOKEN) {
+          providerData = { error:false, data:demoQuote(body) };
+          demo = true;
+        } else {
+          let providerQuote;
+          try {
+            providerQuote = await fetchProviderQuoteCached(providerCepFrom, cepTo, volume);
+          } catch (error) {
+            error.message = `Volume ${volume.index}: ${error.message || "falha na cotação"}`;
+            throw error;
+          }
+          providerData = providerQuote.data;
+          if (providerQuote.cached) cacheHits++;
+
+          if (providerData && providerData.error === true) {
+            const err = new Error(`A ConectEnvios recusou a cotação do volume ${volume.index}.`);
+            err.status = 422;
+            throw err;
+          }
         }
+        return normalizeQuote(providerData, partnerCommissionRate);
       }
-      quoteSets.push(normalizeQuote(providerData, partnerCommissionRate));
-    }
+    );
 
     const aggregated = aggregateVolumeQuoteSets(quoteSets);
     const totalWeightGrams = volumes.reduce((sum,v)=>sum + Number(v.weightGrams || 0),0);
@@ -2916,6 +2999,8 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
       commissionPercent: round2(partnerCommissionRate * 100),
       volumeCount:volumes.length,
       totalWeightKg:round2(totalWeightGrams / 1000),
+      quoteElapsedMs:Date.now() - startedAt,
+      cacheHits,
       options
     });
   } catch (error) {
