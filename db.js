@@ -634,7 +634,7 @@ async function listProviderConfirmationCandidates(limit = 20) {
     `SELECT f.*
        FROM freight_orders f
       WHERE f.payment_status='PAID'
-        AND f.provider_payment_status='AWAITING_PROVIDER_CONFIRMATION'
+        AND f.provider_payment_status IN ('AWAITING_PROVIDER_CONFIRMATION','AWAITING_FUNDS')
         AND f.conect_cart_id IS NOT NULL
         AND COALESCE(f.provider_payment_updated_at,f.updated_at,f.created_at) < NOW() - INTERVAL '1 minute'
       ORDER BY COALESCE(f.provider_payment_updated_at,f.updated_at,f.created_at) ASC
