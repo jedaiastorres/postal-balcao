@@ -730,7 +730,13 @@ function shipmentFromProviderCart(cart, expectedVolumeCount = 1) {
   }));
 
   const first = volumes[0] || {};
+  const firstRaw = packages[0] || {};
   const cartTracking = cart?.tracking_code || cart?.trackingCode || "";
+  const rawPaid = firstRaw?.paid ?? cart?.paid ?? firstRaw?.is_paid ?? cart?.is_paid ?? null;
+  const providerPaid = rawPaid === null || rawPaid === undefined
+    ? null
+    : (rawPaid === true || rawPaid === 1 || String(rawPaid).toLowerCase() === "true" || String(rawPaid).toLowerCase() === "paid");
+  const providerStatus = String(firstRaw?.status || cart?.status || firstRaw?.status_label || cart?.status_label || "");
   const shipment = {
     cartId:cart?.id || cart?.cart_id || packages[0]?.cart_id || null,
     packageId:first.packageId || null,
@@ -739,6 +745,8 @@ function shipmentFromProviderCart(cart, expectedVolumeCount = 1) {
     labelA6Url:first.labelA6Url || cart?.public_print_url_a6 || "",
     declarationUrl:first.declarationUrl || cart?.declaration_url || "",
     publicTrackingUrl:first.publicTrackingUrl || cart?.public_tracking_url || "",
+    providerPaid,
+    providerStatus,
     volumes
   };
 
@@ -770,11 +778,18 @@ async function refreshShipmentFromProvider(order) {
       expected > 1 ? `${expected} volumes liberados pela ConectEnvios.` : "Etiqueta liberada pela ConectEnvios.");
   } else {
     await db.saveProviderPendingShipment(order.id, shipment);
+    const awaitingFunds = shipment.providerPaid === false || /aguardando pagamento|awaiting payment|unpaid/i.test(shipment.providerStatus || "");
     await db.updateProviderPayment(order.id,{
-      status:"AWAITING_PROVIDER_CONFIRMATION",
+      status:awaitingFunds ? "AWAITING_FUNDS" : "AWAITING_PROVIDER_CONFIRMATION",
       ref:shipment.cartId || shipment.packageId || null,
-      error:`Aguardando etiquetas/rastreios dos volumes (${shipment.volumes.length}/${expected}).`
+      error:awaitingFunds
+        ? "Envio criado na ConectEnvios e aguardando pagamento/saldo da carteira."
+        : `Aguardando etiquetas/rastreios dos volumes (${shipment.volumes.length}/${expected}).`
     });
+    if (awaitingFunds) {
+      await db.addOrderEvent(order.id, "PROVIDER_AWAITING_FUNDS", "Aguardando saldo ConectEnvios",
+        "O cliente já pagou a Postal; a etiqueta aguarda saldo/pagamento na carteira ConectEnvios.");
+    }
   }
   return shipment;
 }
@@ -1054,18 +1069,23 @@ async function createShipmentFromOrderUnlocked(order) {
 
   if (!shipment.ready) {
     await db.saveProviderPendingShipment(order.id,shipment);
+    const awaitingFunds = shipment.providerPaid === false || /aguardando pagamento|awaiting payment|unpaid/i.test(shipment.providerStatus || "");
     await db.updateProviderPayment(order.id,{
-      status:"AWAITING_PROVIDER_CONFIRMATION",
+      status:awaitingFunds ? "AWAITING_FUNDS" : "AWAITING_PROVIDER_CONFIRMATION",
       ref:shipment.cartId || shipment.packageId || null,
-      error:`ConectEnvios criou o carrinho; aguardando etiquetas/rastreios dos volumes (${shipment.volumes.length}/${storedVolumes.length}).`
+      error:awaitingFunds
+        ? "Envio criado na ConectEnvios e aguardando pagamento/saldo da carteira."
+        : `ConectEnvios criou o carrinho; aguardando etiquetas/rastreios dos volumes (${shipment.volumes.length}/${storedVolumes.length}).`
     });
     await db.addOrderEvent(
       order.id,
-      "PROVIDER_PAYMENT_PENDING",
-      "Aguardando liberação da ConectEnvios",
-      storedVolumes.length > 1
-        ? `Envio com ${storedVolumes.length} volumes criado no provedor e aguardando todas as etiquetas.`
-        : "O pedido foi criado no provedor, mas a etiqueta/rastreio ainda não foram liberados."
+      awaitingFunds ? "PROVIDER_AWAITING_FUNDS" : "PROVIDER_PAYMENT_PENDING",
+      awaitingFunds ? "Aguardando saldo ConectEnvios" : "Aguardando liberação da ConectEnvios",
+      awaitingFunds
+        ? "O cliente já pagou a Postal; a etiqueta aguarda saldo/pagamento na carteira ConectEnvios."
+        : (storedVolumes.length > 1
+            ? `Envio com ${storedVolumes.length} volumes criado no provedor e aguardando todas as etiquetas.`
+            : "O pedido foi criado no provedor, mas a etiqueta/rastreio ainda não foram liberados.")
     );
     return shipment;
   }
