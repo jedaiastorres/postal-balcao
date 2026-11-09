@@ -1,4 +1,8 @@
-const ASAAS_API_KEY = String(process.env.ASAAS_API_KEY || "").trim();
+const ASAAS_API_KEY = String(
+  process.env.ASAAS_PRODUCTION_API_KEY ||
+  process.env.ASAAS_API_KEY ||
+  ""
+).trim();
 const CONFIGURED_API_URL = String(process.env.ASAAS_API_URL || "").trim().replace(/\/$/, "");
 function resolveApiUrl() {
   if (/^\$aact_hmlg_/i.test(ASAAS_API_KEY)) return "https://api-sandbox.asaas.com/v3";
