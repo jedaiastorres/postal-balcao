@@ -771,7 +771,18 @@ async function refreshShipmentFromProvider(order) {
   const cart = payload.data || payload;
   const expected = Number(order.package_count || order.package_data?.volumes?.length || 1);
   const shipment = shipmentFromProviderCart(cart, expected);
-  const awaitingFunds = shipment.providerPaid === false || /aguardando pagamento|awaiting payment|unpaid/i.test(shipment.providerStatus || "");
+  const awaitingFunds =
+    String(order.provider_payment_status || "").toUpperCase() === "AWAITING_FUNDS" ||
+    shipment.providerPaid === false ||
+    /aguardando pagamento|awaiting payment|unpaid/i.test(shipment.providerStatus || "");
+  console.log("CONECTENVIOS_CART_STATE", order.id, JSON.stringify({
+    cartId: shipment.cartId || order.conect_cart_id || null,
+    providerPaymentStatus: order.provider_payment_status || null,
+    providerPaid: shipment.providerPaid,
+    providerStatus: shipment.providerStatus || null,
+    ready: shipment.ready,
+    attempts: Number(order.provider_payment_attempts || 0)
+  }));
 
   // Recuperação controlada: um carrinho criado sem saldo não se paga sozinho após a recarga.
   // Faz no máximo uma nova tentativa usando explicitamente a carteira, sem repetir indefinidamente.
