@@ -784,13 +784,24 @@ async function refreshShipmentFromProvider(order) {
     attempts: Number(order.provider_payment_attempts || 0)
   }));
 
-  // Recuperação controlada: um carrinho criado sem saldo não se paga sozinho após a recarga.
-  // Faz no máximo uma nova tentativa usando explicitamente a carteira, sem repetir indefinidamente.
+  // Recuperação controlada: carrinhos antigos sem etiqueta e sem estado de pagamento
+  // podem ter sido criados antes da carteira ter saldo. Faz somente uma nova tentativa.
+  const providerUpdatedAt = new Date(
+    order.provider_payment_updated_at || order.updated_at || order.created_at || 0
+  ).getTime();
+  const staleUnknownPayment =
+    !shipment.ready &&
+    shipment.providerPaid == null &&
+    !shipment.providerStatus &&
+    String(order.provider_payment_status || "").toUpperCase() === "AWAITING_PROVIDER_CONFIRMATION" &&
+    Number.isFinite(providerUpdatedAt) &&
+    Date.now() - providerUpdatedAt > 2 * 60 * 1000;
+
   if (!shipment.ready &&
-      awaitingFunds &&
+      (awaitingFunds || staleUnknownPayment) &&
       CONECTENVIOS_PAYMENT_MODE === "WALLET" &&
       Number(order.provider_payment_attempts || 0) < 5) {
-    console.log("CONECTENVIOS_WALLET_RECOVERY", order.id, order.conect_cart_id);
+    console.log("CONECTENVIOS_WALLET_RECOVERY", order.id, order.conect_cart_id, staleUnknownPayment ? "stale_unknown" : "awaiting_funds");
     return createShipmentFromOrderUnlocked({
       ...order,
       conect_cart_id: null,
