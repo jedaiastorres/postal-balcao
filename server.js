@@ -771,6 +771,22 @@ async function refreshShipmentFromProvider(order) {
   const cart = payload.data || payload;
   const expected = Number(order.package_count || order.package_data?.volumes?.length || 1);
   const shipment = shipmentFromProviderCart(cart, expected);
+  const awaitingFunds = shipment.providerPaid === false || /aguardando pagamento|awaiting payment|unpaid/i.test(shipment.providerStatus || "");
+
+  // Recuperação controlada: um carrinho criado sem saldo não se paga sozinho após a recarga.
+  // Faz no máximo uma nova tentativa usando explicitamente a carteira, sem repetir indefinidamente.
+  if (!shipment.ready &&
+      awaitingFunds &&
+      CONECTENVIOS_PAYMENT_MODE === "WALLET" &&
+      Number(order.provider_payment_attempts || 0) < 5) {
+    console.log("CONECTENVIOS_WALLET_RECOVERY", order.id, order.conect_cart_id);
+    return createShipmentFromOrderUnlocked({
+      ...order,
+      conect_cart_id: null,
+      conect_package_id: null,
+      __forceWalletPayment: true
+    });
+  }
 
   if (shipment.ready) {
     await db.saveShipment(order.id, shipment);
@@ -778,7 +794,6 @@ async function refreshShipmentFromProvider(order) {
       expected > 1 ? `${expected} volumes liberados pela ConectEnvios.` : "Etiqueta liberada pela ConectEnvios.");
   } else {
     await db.saveProviderPendingShipment(order.id, shipment);
-    const awaitingFunds = shipment.providerPaid === false || /aguardando pagamento|awaiting payment|unpaid/i.test(shipment.providerStatus || "");
     await db.updateProviderPayment(order.id,{
       status:awaitingFunds ? "AWAITING_FUNDS" : "AWAITING_PROVIDER_CONFIRMATION",
       ref:shipment.cartId || shipment.packageId || null,
@@ -1027,11 +1042,16 @@ async function createShipmentFromOrderUnlocked(order) {
     incrementAttempt:true
   });
 
+  const cartPayload = { package: packageItems };
+  if (order.__forceWalletPayment) {
+    cartPayload.payment_mode = CONECTENVIOS_PAYMENT_MODE;
+  }
+
   let result;
   try {
     result = await providerFetch("/cart", {
       method: "POST",
-      body: JSON.stringify({ package: packageItems }),
+      body: JSON.stringify(cartPayload),
       timeout: 45000
     });
   } catch (error) {
