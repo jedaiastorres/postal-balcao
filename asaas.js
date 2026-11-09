@@ -195,7 +195,12 @@ async function createCheckout({
       name: customerData.name,
       cpfCnpj: String(customerData.cpfCnpj).replace(/\D/g, ""),
       email: customerData.email || undefined,
-      phone: String(customerData.phone || "").replace(/\D/g, "") || undefined
+      phone: String(customerData.phone || "").replace(/\D/g, "") || undefined,
+      address: customerData.address || undefined,
+      addressNumber: customerData.addressNumber || undefined,
+      complement: customerData.complement || undefined,
+      postalCode: String(customerData.postalCode || "").replace(/\D/g, "") || undefined,
+      province: customerData.province || undefined
     };
   }
 
