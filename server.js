@@ -816,6 +816,64 @@ async function probeConectEnviosMultiVolumeQuote() {
   console.log("CONECTENVIO_MULTI_QUOTE_PROBE","aggregate","OK","commonServices="+commonOptions.length);
 }
 
+async function resolveCartServiceCode(order, packageData, storedVolumes) {
+  const storedCode = String(packageData?.serviceCode || "").trim();
+  if (storedCode) return storedCode;
+
+  const first = storedVolumes?.[0];
+  if (!first) return String(order?.service_name || "").trim();
+
+  try {
+    const providerCepFrom = cleanDigits(packageData?.providerCepFrom || order?.sender?.cep);
+    const cepTo = cleanDigits(order?.recipient?.cep);
+    if (providerCepFrom.length !== 8 || cepTo.length !== 8) return String(order?.service_name || "").trim();
+
+    const result = await providerFetch("/package/shipping", {
+      method:"POST",
+      body:JSON.stringify({
+        type:"box",
+        weight:Number(first.weightGrams || 0),
+        width:Number(first.width || 0),
+        height:Number(first.height || 0),
+        length:Number(first.length || 0),
+        cep_from:providerCepFrom,
+        cep_to:cepTo,
+        addr_from_cep:providerCepFrom,
+        addr_to_cep:cepTo
+      }),
+      timeout:25000
+    });
+
+    const options = normalizeQuote(result.data, 0);
+    const normalizeName = value => String(value || "")
+      .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+      .toUpperCase().replace(/[^A-Z0-9]+/g," ").trim();
+
+    const targetName = normalizeName(order?.service_name);
+    const targetCarrier = normalizeName(order?.carrier);
+    const sameCompany = options.filter(option =>
+      Number(option.postalCompanyId || 0) === Number(order?.postal_company_id || 0)
+    );
+    const pool = sameCompany.length ? sameCompany : options;
+    const matched = pool.find(option => {
+      const product = normalizeName(option.produto);
+      const carrier = normalizeName(option.transportadora);
+      const nameMatches = product === targetName || product.includes(targetName) || targetName.includes(product);
+      const carrierMatches = !targetCarrier || carrier.includes(targetCarrier) || targetCarrier.includes(carrier);
+      return nameMatches && carrierMatches;
+    }) || (pool.length === 1 ? pool[0] : null);
+
+    if (matched?.codigoServico) {
+      console.log("CONECTENVIOS_SERVICE_RESOLVED", order.id, matched.codigoServico, matched.produto);
+      return String(matched.codigoServico);
+    }
+  } catch (error) {
+    console.warn("CONECTENVIOS_SERVICE_RESOLVE_FAIL", order?.id || "", providerFailureText(error));
+  }
+
+  return String(order?.service_name || "").trim();
+}
+
 async function createShipmentFromOrder(order) {
   if (!order?.id) throw new Error("Pedido não encontrado.");
   const running = shipmentCreationLocks.get(order.id);
@@ -884,6 +942,7 @@ async function createShipmentFromOrderUnlocked(order) {
       }];
 
   const declaredSum = storedVolumes.reduce((sum,v)=>sum + Math.max(0,Number(v.declaredValue || 0)),0);
+  const providerServiceCode = await resolveCartServiceCode(order, packageData, storedVolumes);
   const packageItems = storedVolumes.map((volume,index)=>{
     const fallbackDeclared = declaredSum > 0
       ? 0
@@ -897,7 +956,6 @@ async function createShipmentFromOrderUnlocked(order) {
       length: Number(volume.length || 0),
       extra_notify: true,
       extra_in_hand: false,
-      extra_declared_value: round2(Math.max(0, Number(volume.declaredValue || fallbackDeclared))),
       addr_from_document: cleanDigits(sender.document),
       addr_from_phone: cleanDigits(sender.phone),
       addr_from_name: String(sender.name || "").trim(),
@@ -914,7 +972,7 @@ async function createShipmentFromOrderUnlocked(order) {
       addr_to_address: String(recipient.address || "").trim(),
       addr_to_neighborhood: String(recipient.neighborhood || "").trim(),
       addr_to_complement: String(recipient.complement || "").trim(),
-      postal_service_name: String(order.service_name || ""),
+      postal_service_name: String(providerServiceCode || order.service_name || ""),
       postal_company_id: Number(order.postal_company_id || 0)
     };
 
@@ -2974,6 +3032,7 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
           cepTo,
           providerCepFrom,
           declaredValue:totalDeclaredValue,
+          serviceCode: String(option.codigoServico || ""),
           volumeCount:volumes.length,
           volumes
         }
