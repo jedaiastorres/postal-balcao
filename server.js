@@ -3494,7 +3494,12 @@ app.post("/api/orders", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CL
         name: sender.name,
         cpfCnpj: sender.document,
         email: sender.email,
-        phone: sender.phone
+        phone: sender.phone,
+        address: sender.address,
+        addressNumber: sender.number,
+        complement: sender.complement || undefined,
+        postalCode: cleanDigits(sender.cep),
+        province: sender.neighborhood
       }
     });
 
