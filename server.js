@@ -2903,7 +2903,7 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
     const quoteOrigin = await resolveOperationalQuoteOrigin(req.user, cepFrom);
     const providerCepFrom = quoteOrigin.providerCepFrom;
 
-    let partnerCommissionRate = req.user.role === "CLIENT" ? 0 : PARTNER_COMMISSION;
+    let partnerCommissionRate = (req.user.role === "CLIENT" || (req.user.role === "ADMIN" && !req.user.storeId)) ? 0 : PARTNER_COMMISSION;
     if (req.user.role !== "CLIENT" && req.user.storeId) {
       const store = await db.getStore(req.user.storeId);
       if (store?.commission_percent != null) {
@@ -3470,7 +3470,7 @@ app.post("/api/orders", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CL
       });
     }
 
-    if (!partnerWalletId) {
+    if (!partnerWalletId && Number(financials.pointRevenueTotal || 0) > 0) {
       const pending = await db.updateStatus(order.id, "PARTNER_FINANCIAL_SETUP_REQUIRED", "PENDING");
       const complete = await db.getOrder(pending.id, scopeForUser(req.user));
       return res.status(201).json({
