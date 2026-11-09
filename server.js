@@ -844,6 +844,7 @@ async function resolveCartServiceCode(order, packageData, storedVolumes) {
       timeout:25000
     });
 
+    const rawOptions = extractShippingItems(result.data);
     const options = normalizeQuote(result.data, 0);
     const normalizeName = value => String(value || "")
       .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
@@ -863,9 +864,24 @@ async function resolveCartServiceCode(order, packageData, storedVolumes) {
       return nameMatches && carrierMatches;
     }) || (pool.length === 1 ? pool[0] : null);
 
-    if (matched?.codigoServico) {
-      console.log("CONECTENVIOS_SERVICE_RESOLVED", order.id, matched.codigoServico, matched.produto);
-      return String(matched.codigoServico);
+    if (matched) {
+      const rawMatched = rawOptions.find(item =>
+        String(item.code || "") === String(matched.codigoServico || "") ||
+        normalizeName(item.name || item.service_name || item.postal_service_name || item.service) === normalizeName(matched.produto)
+      );
+      if (rawMatched) {
+        console.log("CONECTENVIOS_SERVICE_RAW", order.id, JSON.stringify(rawMatched));
+      }
+      const serviceIdentifier = String(
+        rawMatched?.postal_service_name ||
+        rawMatched?.service_name ||
+        rawMatched?.service ||
+        matched.codigoServico ||
+        matched.produto ||
+        ""
+      ).trim();
+      console.log("CONECTENVIOS_SERVICE_RESOLVED", order.id, serviceIdentifier, matched.produto);
+      if (serviceIdentifier) return serviceIdentifier;
     }
   } catch (error) {
     console.warn("CONECTENVIOS_SERVICE_RESOLVE_FAIL", order?.id || "", providerFailureText(error));
