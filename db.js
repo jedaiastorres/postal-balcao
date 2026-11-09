@@ -535,11 +535,12 @@ async function listProviderPaymentRetryCandidates(limit = 20) {
     `SELECT f.*
        FROM freight_orders f
       WHERE f.payment_status='PAID'
-        AND f.provider_payment_status='AWAITING_FUNDS'
+        AND f.status IN ('PAID_WAITING_SHIPMENT','PAYMENT_CONFIRMED','SHIPMENT_ERROR','PROVIDER_PAYMENT_PENDING')
+        AND f.provider_payment_status IN ('PENDING','AWAITING_FUNDS','ERROR')
         AND f.conect_cart_id IS NULL
         AND f.conect_package_id IS NULL
         AND f.provider_payment_attempts < 20
-        AND COALESCE(f.provider_payment_updated_at,f.updated_at,f.created_at) < NOW() - INTERVAL '2 minutes'
+        AND COALESCE(f.provider_payment_updated_at,f.updated_at,f.created_at) < NOW() - INTERVAL '20 seconds'
       ORDER BY COALESCE(f.provider_payment_updated_at,f.updated_at,f.created_at) ASC
       LIMIT $1`,
     [Math.max(1, Math.min(100, Number(limit) || 20))]
