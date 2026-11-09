@@ -464,8 +464,15 @@ function providerFailureText(error) {
     if (Array.isArray(data.errors)) {
       for (const item of data.errors) candidates.push(item?.message || item?.description || item?.error || item?.code);
     }
-    const text = candidates.filter(Boolean).map(String).join(" | ");
-    if (text) return text;
+    const text = candidates.filter(Boolean).map(item => {
+      if (typeof item === "string") return item;
+      try { return JSON.stringify(item); } catch { return String(item); }
+    }).join(" | ");
+    if (text && !/^\[object Object\](\s*\|\s*(true|false))?$/i.test(text)) return text;
+    try {
+      const serialized = JSON.stringify(data);
+      if (serialized && serialized !== "{}") return serialized;
+    } catch {}
   }
   return String(error?.message || "");
 }
