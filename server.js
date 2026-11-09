@@ -3961,6 +3961,10 @@ async function start() {
     processPendingAsaasEvents().catch(error => console.error("webhook worker error:", error.message));
   }, 10000).unref();
 
+  setImmediate(() => {
+    processPendingProviderPayments().catch(error => console.error("provider payment startup recovery error:", error.message));
+  });
+
   setInterval(() => {
     processPendingProviderPayments().catch(error => console.error("provider payment worker error:", error.message));
   }, 5 * 60 * 1000).unref();
