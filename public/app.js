@@ -307,14 +307,18 @@ function invalidateQuoteSelection() {
   $("#selectionSummary")?.classList.add("hidden");
 }
 
+function primaryVolumeData() {
+  return {
+    peso:Number($("#peso").value || 0),
+    comprimento:Number($("#comprimento").value || 0),
+    largura:Number($("#largura").value || 0),
+    altura:Number($("#altura").value || 0),
+    vlDeclarado:Number($("#vlDeclarado").value || 0)
+  };
+}
+
 function quoteVolumePayloads() {
-  const volumes = [{
-    peso: Number($("#peso").value || 0),
-    comprimento: Number($("#comprimento").value || 0),
-    largura: Number($("#largura").value || 0),
-    altura: Number($("#altura").value || 0),
-    vlDeclarado: Number($("#vlDeclarado").value || 0)
-  }];
+  const volumes = [primaryVolumeData()];
 
   document.querySelectorAll("#extraQuoteVolumes .extra-volume-card").forEach(card => {
     volumes.push({
@@ -352,7 +356,10 @@ function addQuoteVolume(data = {}) {
   card.innerHTML=`
     <div class="extra-volume-head">
       <div><span data-volume-title>VOLUME ${number}</span><strong>Caixa</strong></div>
-      <button class="ghost compact remove-volume-btn" type="button">Remover volume</button>
+      <div class="quote-volume-actions">
+        <button class="ghost compact duplicate-volume-btn" type="button">Duplicar</button>
+        <button class="ghost compact remove-volume-btn" type="button">Remover</button>
+      </div>
     </div>
     <div class="extra-volume-grid">
       <label><span>PESO*</span><div class="inline-input"><input data-field="peso" type="number" min="0.01" step="0.01" value="${Number(data.peso ?? 1)}" required /><em>kg</em></div></label>
@@ -361,6 +368,15 @@ function addQuoteVolume(data = {}) {
       <label><span>COMPRIMENTO*</span><div class="inline-input"><input data-field="comprimento" type="number" min="1" step="0.1" value="${Number(data.comprimento ?? 20)}" required /><em>cm</em></div></label>
       <label><span>VALOR DECLARADO*</span><div class="inline-input"><em>R$</em><input data-field="vlDeclarado" type="number" min="0" step="0.01" value="${Number(data.vlDeclarado ?? 0)}" required /></div></label>
     </div>`;
+  card.querySelector(".duplicate-volume-btn").addEventListener("click",()=>{
+    addQuoteVolume({
+      peso:Number(card.querySelector('[data-field="peso"]').value || 0),
+      comprimento:Number(card.querySelector('[data-field="comprimento"]').value || 0),
+      largura:Number(card.querySelector('[data-field="largura"]').value || 0),
+      altura:Number(card.querySelector('[data-field="altura"]').value || 0),
+      vlDeclarado:Number(card.querySelector('[data-field="vlDeclarado"]').value || 0)
+    });
+  });
   card.querySelector(".remove-volume-btn").addEventListener("click",()=>{
     card.remove();
     updateQuoteVolumeUi();
@@ -372,6 +388,7 @@ function addQuoteVolume(data = {}) {
   invalidateQuoteSelection();
 }
 
+$("#duplicatePrimaryVolumeBtn")?.addEventListener("click",()=>addQuoteVolume(primaryVolumeData()));
 $("#addQuoteVolumeBtn")?.addEventListener("click",()=>addQuoteVolume());
 ["peso","altura","largura","comprimento","vlDeclarado"].forEach(id=>{
   $("#"+id)?.addEventListener("input",invalidateQuoteSelection);
@@ -430,7 +447,10 @@ $("#quoteForm").addEventListener("submit", async (event) => {
 });
 
 function renderResults(result, payload) {
-  $("#resultsInfo").textContent = `${result.options.length} opção(ões) • ${result.volumeCount || payload.volumes?.length || 1} volume(s) • ordenadas por menor preço`;
+  const speedInfo = Number.isFinite(Number(result.quoteElapsedMs))
+    ? ` • ${(Number(result.quoteElapsedMs)/1000).toFixed(1).replace(".",",")}s${Number(result.cacheHits||0)>0?` • ${Number(result.cacheHits)} em cache`:""}`
+    : "";
+  $("#resultsInfo").textContent = `${result.options.length} opção(ões) • ${result.volumeCount || payload.volumes?.length || 1} volume(s) • menor preço primeiro${speedInfo}`;
   const list = $("#resultsList");
   list.innerHTML = "";
   $("#selectionSummary")?.classList.add("hidden");
