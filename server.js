@@ -453,96 +453,6 @@ async function providerFetch(pathname, options = {}) {
   return { response, data, contentType: type };
 }
 
-async function probeConectEnviosIssueRoutes() {
-  if (!TOKEN) return;
-  const candidates = [
-    "/",
-    "/openapi.json",
-    "/swagger.json",
-    "/docs",
-    "/cart/187287",
-    "/cart/187287/pay",
-    "/cart/187287/payment",
-    "/cart/187287/checkout",
-    "/cart/187287/purchase",
-    "/cart/187287/issue",
-    "/cart/187287/label",
-    "/cart/187287/print",
-    "/cart/187287/finish",
-    "/package/267344",
-    "/package/267344/pay",
-    "/package/267344/payment",
-    "/package/267344/issue",
-    "/package/267344/label",
-    "/package/267344/print",
-    "/shipment/267344/issue",
-    "/shipment/267344/label",
-    "/label/267344"
-  ];
-  for (const pathname of candidates) {
-    try {
-      const response = await fetch(`${API_URL}${pathname}`, {
-        method: "OPTIONS",
-        headers: providerHeaders(),
-        signal: AbortSignal.timeout(12000)
-      });
-      const allow = response.headers.get("allow") || "";
-      const type = response.headers.get("content-type") || "";
-      let body = "";
-      try { body = (await response.text()).slice(0, 240).replace(/\s+/g, " "); } catch {}
-      console.log("CONECTENVIOS_ROUTE_PROBE", pathname, "status="+response.status, "allow="+allow, "type="+type, "body="+body);
-    } catch (error) {
-      console.log("CONECTENVIOS_ROUTE_PROBE", pathname, "ERROR", String(error?.message || error));
-    }
-  }
-
-  for (const pathname of ["/cart/187287", "/package/267344"]) {
-    try {
-      const response = await fetch(`${API_URL}${pathname}`, {
-        method: "GET",
-        headers: providerHeaders(),
-        signal: AbortSignal.timeout(12000)
-      });
-      const type = response.headers.get("content-type") || "";
-      let body = "";
-      try { body = (await response.text()).slice(0, 6000).replace(/\s+/g, " "); } catch {}
-      console.log("CONECTENVIOS_ROUTE_GET", pathname, "status="+response.status, "type="+type, "body="+body);
-    } catch (error) {
-      console.log("CONECTENVIOS_ROUTE_GET", pathname, "ERROR", String(error?.message || error));
-    }
-  }
-}
-
-
-async function probePaidPackagePrint() {
-  if (!TOKEN) return;
-  try {
-    const packageResult = await providerFetch("/package/267344", { method:"GET", timeout:15000 });
-    const pkg = packageResult?.data?.data || packageResult?.data || {};
-    const printUrl = String(pkg.api_print_url || "");
-    if (!printUrl) {
-      console.log("CONECTENVIOS_PRINT_PROBE", "NO_PRINT_URL");
-      return;
-    }
-    const response = await fetch(printUrl, {
-      method:"GET",
-      headers: providerHeaders(),
-      redirect:"follow",
-      signal: AbortSignal.timeout(30000)
-    });
-    console.log(
-      "CONECTENVIOS_PRINT_PROBE",
-      "status="+response.status,
-      "type="+(response.headers.get("content-type") || ""),
-      "length="+(response.headers.get("content-length") || ""),
-      "final="+response.url
-    );
-    try { await response.arrayBuffer(); } catch {}
-  } catch (error) {
-    console.log("CONECTENVIOS_PRINT_PROBE", "ERROR", String(error?.message || error));
-  }
-}
-
 function providerFailureText(error) {
   const data = error?.providerData;
   if (typeof data === "string") return data;
@@ -858,9 +768,41 @@ async function refreshShipmentFromProvider(order) {
     timeout:30000
   });
   const payload = result.data || {};
-  const cart = payload.data || payload;
+  let cart = payload.data || payload;
   const expected = Number(order.package_count || order.package_data?.volumes?.length || 1);
-  const shipment = shipmentFromProviderCart(cart, expected);
+  let shipment = shipmentFromProviderCart(cart, expected);
+
+  // A ConectEnvios libera uma URL assinada de impressão antes de preencher o rastreio.
+  // Ao abrir essa URL para um envio já pago, a plataforma materializa a etiqueta e
+  // grava o código de rastreio. Se ainda não estiver pago, a chamada não retorna PDF
+  // e o pedido permanece pendente, sem criar outro carrinho.
+  if (!shipment.ready && shipment.labelA4Url) {
+    try {
+      const printResponse = await fetch(shipment.labelA4Url, {
+        method:"GET",
+        headers:providerHeaders(),
+        redirect:"follow",
+        signal:AbortSignal.timeout(30000)
+      });
+      const printType = String(printResponse.headers.get("content-type") || "").toLowerCase();
+      if (printResponse.ok && printType.includes("application/pdf")) {
+        try { await printResponse.arrayBuffer(); } catch {}
+        const refreshed = await providerFetch("/cart/" + encodeURIComponent(order.conect_cart_id), {
+          method:"GET",
+          timeout:30000
+        });
+        const refreshedPayload = refreshed.data || {};
+        cart = refreshedPayload.data || refreshedPayload;
+        shipment = shipmentFromProviderCart(cart, expected);
+        console.log("CONECTENVIOS_LABEL_MATERIALIZED", order.id, shipment.trackingCode || "tracking_pending");
+      } else {
+        try { await printResponse.arrayBuffer(); } catch {}
+      }
+    } catch (error) {
+      console.warn("CONECTENVIOS_LABEL_MATERIALIZE_PENDING", order.id, String(error?.message || error));
+    }
+  }
+
   const awaitingFunds =
     String(order.provider_payment_status || "").toUpperCase() === "AWAITING_FUNDS" ||
     shipment.providerPaid === false ||
@@ -4087,8 +4029,6 @@ async function start() {
   if (CONECTENVIO_MULTI_QUOTE_PROBE) {
     await probeConectEnviosMultiVolumeQuote();
   }
-  await probeConectEnviosIssueRoutes();
-  await probePaidPackagePrint();
 
   if (asaas.configured()) {
     const envInfo = asaas.environmentInfo();
