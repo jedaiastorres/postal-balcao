@@ -453,6 +453,50 @@ async function providerFetch(pathname, options = {}) {
   return { response, data, contentType: type };
 }
 
+async function probeConectEnviosIssueRoutes() {
+  if (!TOKEN) return;
+  const candidates = [
+    "/",
+    "/openapi.json",
+    "/swagger.json",
+    "/docs",
+    "/cart/187287",
+    "/cart/187287/pay",
+    "/cart/187287/payment",
+    "/cart/187287/checkout",
+    "/cart/187287/purchase",
+    "/cart/187287/issue",
+    "/cart/187287/label",
+    "/cart/187287/print",
+    "/cart/187287/finish",
+    "/package/267344",
+    "/package/267344/pay",
+    "/package/267344/payment",
+    "/package/267344/issue",
+    "/package/267344/label",
+    "/package/267344/print",
+    "/shipment/267344/issue",
+    "/shipment/267344/label",
+    "/label/267344"
+  ];
+  for (const pathname of candidates) {
+    try {
+      const response = await fetch(`${API_URL}${pathname}`, {
+        method: "OPTIONS",
+        headers: providerHeaders(),
+        signal: AbortSignal.timeout(12000)
+      });
+      const allow = response.headers.get("allow") || "";
+      const type = response.headers.get("content-type") || "";
+      let body = "";
+      try { body = (await response.text()).slice(0, 240).replace(/\s+/g, " "); } catch {}
+      console.log("CONECTENVIOS_ROUTE_PROBE", pathname, "status="+response.status, "allow="+allow, "type="+type, "body="+body);
+    } catch (error) {
+      console.log("CONECTENVIOS_ROUTE_PROBE", pathname, "ERROR", String(error?.message || error));
+    }
+  }
+}
+
 function providerFailureText(error) {
   const data = error?.providerData;
   if (typeof data === "string") return data;
@@ -3997,6 +4041,7 @@ async function start() {
   if (CONECTENVIO_MULTI_QUOTE_PROBE) {
     await probeConectEnviosMultiVolumeQuote();
   }
+  await probeConectEnviosIssueRoutes();
 
   if (asaas.configured()) {
     const envInfo = asaas.environmentInfo();
