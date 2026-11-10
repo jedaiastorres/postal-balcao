@@ -513,6 +513,36 @@ async function probeConectEnviosIssueRoutes() {
   }
 }
 
+
+async function probePaidPackagePrint() {
+  if (!TOKEN) return;
+  try {
+    const packageResult = await providerFetch("/package/267344", { method:"GET", timeout:15000 });
+    const pkg = packageResult?.data?.data || packageResult?.data || {};
+    const printUrl = String(pkg.api_print_url || "");
+    if (!printUrl) {
+      console.log("CONECTENVIOS_PRINT_PROBE", "NO_PRINT_URL");
+      return;
+    }
+    const response = await fetch(printUrl, {
+      method:"GET",
+      headers: providerHeaders(),
+      redirect:"follow",
+      signal: AbortSignal.timeout(30000)
+    });
+    console.log(
+      "CONECTENVIOS_PRINT_PROBE",
+      "status="+response.status,
+      "type="+(response.headers.get("content-type") || ""),
+      "length="+(response.headers.get("content-length") || ""),
+      "final="+response.url
+    );
+    try { await response.arrayBuffer(); } catch {}
+  } catch (error) {
+    console.log("CONECTENVIOS_PRINT_PROBE", "ERROR", String(error?.message || error));
+  }
+}
+
 function providerFailureText(error) {
   const data = error?.providerData;
   if (typeof data === "string") return data;
@@ -4058,6 +4088,7 @@ async function start() {
     await probeConectEnviosMultiVolumeQuote();
   }
   await probeConectEnviosIssueRoutes();
+  await probePaidPackagePrint();
 
   if (asaas.configured()) {
     const envInfo = asaas.environmentInfo();
