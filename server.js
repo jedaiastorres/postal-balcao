@@ -495,6 +495,22 @@ async function probeConectEnviosIssueRoutes() {
       console.log("CONECTENVIOS_ROUTE_PROBE", pathname, "ERROR", String(error?.message || error));
     }
   }
+
+  for (const pathname of ["/cart/187287", "/package/267344"]) {
+    try {
+      const response = await fetch(`${API_URL}${pathname}`, {
+        method: "GET",
+        headers: providerHeaders(),
+        signal: AbortSignal.timeout(12000)
+      });
+      const type = response.headers.get("content-type") || "";
+      let body = "";
+      try { body = (await response.text()).slice(0, 6000).replace(/\s+/g, " "); } catch {}
+      console.log("CONECTENVIOS_ROUTE_GET", pathname, "status="+response.status, "type="+type, "body="+body);
+    } catch (error) {
+      console.log("CONECTENVIOS_ROUTE_GET", pathname, "ERROR", String(error?.message || error));
+    }
+  }
 }
 
 function providerFailureText(error) {
