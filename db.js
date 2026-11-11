@@ -465,6 +465,28 @@ async function getOrderByCheckoutId(checkoutId) {
   return rows[0] || null;
 }
 
+async function findOrderByTrackingCode(trackingCode) {
+  const db = requireDb();
+  const code = String(trackingCode || "").trim();
+  if (!code) return null;
+  const { rows } = await db.query(
+    `SELECT f.*,s.name AS store_name,s.code AS store_code
+       FROM freight_orders f
+       LEFT JOIN stores s ON s.id=f.store_id
+      WHERE f.tracking_code=$1
+         OR EXISTS (
+           SELECT 1
+             FROM jsonb_array_elements(COALESCE(f.shipment_volumes,'[]'::jsonb)) AS v
+            WHERE COALESCE(v->>'trackingCode',v->>'tracking_code')=$1
+         )
+      ORDER BY f.created_at DESC
+      LIMIT 1`,
+    [code]
+  );
+  return rows[0] || null;
+}
+
+
 async function setCheckout(id, { checkoutId, checkoutUrl, paymentAmount, surcharge, status = "PAYMENT_PENDING", paymentStatus = "PENDING" }) {
   const db = requireDb();
   const { rows } = await db.query(
@@ -1383,6 +1405,7 @@ module.exports = {
   listOrders,
   getOrder,
   getOrderByCheckoutId,
+  findOrderByTrackingCode,
   setCheckout,
   markPaid,
   updateStatus,
