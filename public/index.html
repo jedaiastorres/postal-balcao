@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#d7083b" />
   <title>Postal Serviços | Balcão Parceiro</title>
-  <link rel="stylesheet" href="/styles.css?v=1.9.0" />
+  <link rel="stylesheet" href="/styles.css?v=1.10.0" />
 </head>
 <body>
   <div id="toast" class="toast" aria-live="polite"></div>
@@ -82,6 +82,7 @@
       <div class="nav-section">FINANCEIRO</div>
       <nav>
         <button class="nav-item" data-view="cash"><span>R$</span> Meu Caixa</button>
+        <button class="nav-item owner-finance-only hidden" data-view="financial"><span>◎</span> Recebimentos Asaas</button>
         <button class="nav-item" data-view="inventory"><span>▤</span> Produtos & Estoque</button>
         <button class="nav-item" data-view="credit"><span>₿</span> Crédito no Balcão</button>
         <button class="nav-item" data-view="clients"><span>♙</span> Clientes</button>
@@ -289,6 +290,48 @@
             <div class="selection-detail"><span>Total</span><strong id="selectedPrice">—</strong></div>
             <button id="continueShipmentBtn" class="primary" type="button">Continuar</button>
           </div>
+        </div>
+      </section>
+
+      <section id="financialView" class="view hidden owner-finance-only">
+        <div class="orders-head">
+          <div>
+            <div class="eyebrow">RECEBIMENTOS DO PONTO</div>
+            <h1>Conta Asaas para receber sua parte</h1>
+            <p>Vincule a Wallet ID da sua conta Asaas. O sistema usa esse identificador no split dos pagamentos elegíveis do ponto.</p>
+          </div>
+          <span id="asaasWalletStatus" class="order-status warning">Verificando</span>
+        </div>
+
+        <div class="panel-grid">
+          <article class="form-panel">
+            <div class="form-panel-head">
+              <span class="step-number">R$</span>
+              <div>
+                <h3>Carteira Asaas</h3>
+                <p>Use a Wallet ID da conta Asaas que receberá a comissão deste ponto.</p>
+              </div>
+            </div>
+            <form id="storeFinancialForm" class="inventory-form">
+              <label>Wallet ID Asaas*
+                <input id="storeAsaasWalletId" autocomplete="off" placeholder="Cole aqui o identificador da carteira Asaas" required />
+              </label>
+              <div class="payment-method-note">
+                O Wallet ID é o identificador da carteira usada pelo Asaas para split. Não informe senha, token de API ou código de acesso da conta.
+              </div>
+              <button class="primary" type="submit">Salvar conta de recebimento</button>
+            </form>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head"><div><span class="eyebrow">PONTO PARCEIRO</span><h3>Dados vinculados</h3></div></div>
+            <div id="storeFinancialSummary" class="inventory-list">
+              <div class="empty-state">Carregando dados financeiros...</div>
+            </div>
+            <div class="payment-method-note">
+              A comissão do frete vendido no balcão é enviada pelo split do pagamento quando a carteira está vinculada. Ganhos de coleta continuam registrados no módulo de coletas para liquidação financeira.
+            </div>
+          </article>
         </div>
       </section>
 
@@ -953,7 +996,7 @@
     </div>
   </div>
 
-  <script src="/app.js?v=1.9.0"></script>
-  <script src="/client.js?v=1.9.0"></script>
+  <script src="/app.js?v=1.10.0"></script>
+  <script src="/client.js?v=1.10.0"></script>
 </body>
 </html>
