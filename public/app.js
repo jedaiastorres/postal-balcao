@@ -1836,8 +1836,8 @@ async function loadCashAnalytics(){
   const data=await api("/api/analytics/overview?"+params.toString());
   state.analytics.cashData=data;
   appendSelectOptions("#cashAnalyticsCarrier",data.filters?.carriers||[]);
-  const revenueKey=state.user?.role==="STORE_OWNER"?"pointRevenue":"postalRevenue";
-  const revenueLabel=state.user?.role==="STORE_OWNER"?"Receita do ponto":"Receita Postal";
+  const revenueKey="pointRevenue";
+  const revenueLabel=state.user?.role==="STORE_OWNER"?"Receita do ponto":"Receita dos pontos";
   drawLineChart($("#cashRevenueChart"),data.timeline,[
     {key:"grossSales",label:"Faturamento"},
     {key:revenueKey,label:revenueLabel}
@@ -1934,8 +1934,8 @@ $("#cashAnalyticsPeriod")?.addEventListener("change",()=>{toggleCustomDates("cas
 window.addEventListener("resize",()=>{
   if(state.analytics.dashboardData) drawLineChart($("#dashboardRevenueChart"),state.analytics.dashboardData.timeline,[{key:"grossSales",label:"Faturamento"}]);
   if(state.analytics.cashData){
-    const key=state.user?.role==="STORE_OWNER"?"pointRevenue":"postalRevenue";
-    drawLineChart($("#cashRevenueChart"),state.analytics.cashData.timeline,[{key:"grossSales",label:"Faturamento"},{key,label:key==="pointRevenue"?"Receita do ponto":"Receita Postal"}]);
+    const key="pointRevenue";
+    drawLineChart($("#cashRevenueChart"),state.analytics.cashData.timeline,[{key:"grossSales",label:"Faturamento"},{key,label:state.user?.role==="STORE_OWNER"?"Receita do ponto":"Receita dos pontos"}]);
   }
 });
 
