@@ -597,7 +597,7 @@
       <div><span>Solicitado</span><strong>${new Date(x.requested_at).toLocaleDateString("pt-BR")}</strong></div></div>
       <div class="order-actions"></div>`;
     const actions=div.querySelector(".order-actions");
-    if(role==="ADMIN"){
+    if(["ADMIN","SUPERVISOR"].includes(role)){
       const sel=document.createElement("select"); sel.className="compact-select";
       sel.innerHTML='<option value="">Atribuir ponto...</option>'+client.adminStores.filter(s=>s.active).map(s=>`<option value="${s.id}" ${s.id===x.assigned_store_id?"selected":""}>${escapeHtml(s.name)}</option>`).join("");
       const btn=document.createElement("button");btn.className="primary";btn.textContent="Direcionar";btn.onclick=async()=>{
@@ -620,12 +620,12 @@
     }
     let d;
     if(role==="CLIENT") d=await api("/api/client/collections");
-    else if(role==="ADMIN"){
+    else if(["ADMIN","SUPERVISOR"].includes(role)){
       const [cols,stores]=await Promise.all([api("/api/admin/collections"),api("/api/admin/stores")]);
       d=cols;client.adminStores=stores.stores||[];
     }else d=await api("/api/store/collections");
     client.collections=d.collections||[];
-    $("#collectionsSubtitle").textContent=role==="CLIENT"?"Acompanhe a coleta no seu endereço ou a postagem no ponto escolhido.":role==="ADMIN"?"Direcione coletas para a rede de pontos Postal.":"Veja as coletas direcionadas ao seu ponto.";
+    $("#collectionsSubtitle").textContent=role==="CLIENT"?"Acompanhe a coleta no seu endereço ou a postagem no ponto escolhido.":["ADMIN","SUPERVISOR"].includes(role)?"Direcione coletas para a rede de pontos Postal.":"Veja as coletas direcionadas ao seu ponto.";
     const host=$("#collectionsList");host.innerHTML="";
     if(!client.collections.length){host.innerHTML='<div class="empty-state">Nenhuma coleta pendente.</div>';return;}
     client.collections.forEach(x=>host.appendChild(renderCollectionCard(x,role)));
