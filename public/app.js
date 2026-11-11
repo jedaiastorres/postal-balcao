@@ -28,6 +28,7 @@ const viewMap = {
   inventory: { el: "#inventoryView", title: "Produtos & Estoque" },
   credit: { el: "#creditView", title: "Crédito no Balcão" },
   master: { el: "#masterView", title: "Painel Master" },
+  supervisor: { el: "#supervisorView", title: "Supervisão da Rede" },
   clientHome: { el: "#clientHomeView", title: "Minha Postal" },
   clientOrders: { el: "#clientOrdersView", title: "Pedidos" },
   wallet: { el: "#walletView", title: "Saldo" },
@@ -38,7 +39,7 @@ const viewMap = {
   returns: { placeholder: ["Devolução", "Fluxo de logística reversa e devoluções ficará centralizado nesta área."] },
   financial: { el: "#financialView", title: "Recebimentos Asaas" },
   storeUsers: { el: "#storeUsersView", title: "Usuários do ponto" },
-  cash: { placeholder: ["Meu Caixa", "Extrato de comissões, saldo, fechamento diário e solicitação de saque serão exibidos aqui."] },
+  cash: { el: "#cashView", title: "Meu Caixa" },
   clients: { placeholder: ["Clientes", "Cadastro rápido de remetentes frequentes para acelerar o atendimento no balcão."] }
 };
 
@@ -101,12 +102,14 @@ function showApp(user) {
   $("#loginView").classList.add("hidden");
   $("#appView").classList.remove("hidden");
   $("#partnerEmail").textContent = user?.storeName || user?.name || user?.email || "parceiro";
-  $("#adminNavSection")?.classList.toggle("hidden", user?.role !== "ADMIN");
+  $("#adminNavSection")?.classList.toggle("hidden", !["ADMIN","SUPERVISOR"].includes(user?.role));
+  document.querySelectorAll(".master-only").forEach(el=>el.classList.toggle("hidden",user?.role!=="ADMIN"));
+  document.querySelectorAll(".supervisor-only").forEach(el=>el.classList.toggle("hidden",user?.role!=="SUPERVISOR"));
 
   const canSell = ["ADMIN","STORE_OWNER","STORE_CLERK","CLIENT"].includes(user?.role);
   const canManageStock = ["ADMIN","STORE_OWNER","OPS"].includes(user?.role);
   const canUseCredit = ["ADMIN","STORE_OWNER"].includes(user?.role);
-  const ownerFinance = ["ADMIN","STORE_OWNER"].includes(user?.role);
+  const ownerFinance = ["ADMIN","SUPERVISOR","STORE_OWNER"].includes(user?.role);
 
   document.querySelector('[data-view="quote"]')?.classList.toggle("hidden", !canSell);
   document.querySelector('[data-view="credit"]')?.classList.toggle("hidden", !canUseCredit);
@@ -248,6 +251,10 @@ function navigate(name) {
     toast("Área exclusiva da administração Postal.", "error");
     return;
   }
+  if (name === "supervisor" && !["ADMIN","SUPERVISOR"].includes(state.user?.role)) {
+    toast("Área exclusiva da supervisão da rede.", "error");
+    return;
+  }
   if (state.user?.role === "STORE_CLERK" && !["quote","shipment","orders"].includes(name)) {
     toast("Este usuário possui acesso somente às postagens do ponto.", "error");
     return;
@@ -276,7 +283,7 @@ function navigate(name) {
     toast("Área disponível para pontos parceiros.", "error");
     return;
   }
-  if (name === "collections" && !["ADMIN","STORE_OWNER","OPS","CLIENT"].includes(state.user?.role)) {
+  if (name === "collections" && !["ADMIN","SUPERVISOR","STORE_OWNER","OPS","CLIENT"].includes(state.user?.role)) {
     toast("Perfil sem acesso ao painel de coletas.", "error");
     return;
   }
@@ -299,6 +306,8 @@ function navigate(name) {
   if (name === "inventory") loadInventory();
   if (name === "financial") loadStoreFinancialSettings();
   if (name === "storeUsers") loadStoreUsers();
+  if (name === "cash") loadCash();
+  if (name === "supervisor") loadSupervisor();
   if (name === "credit") loadCredit();
   if (name === "master" && state.user?.role === "ADMIN") loadMaster();
   if (name === "clientHome") window.PostalClient?.loadClientHome?.();
@@ -1710,11 +1719,11 @@ async function loadMaster() {
         const user=state.admin.users.find(u=>u.id===btn.dataset.editUser);
         if(!user) return;
         const active=window.confirm("OK = usuário ativo. Cancelar = desativar o usuário.");
-        const roleInput=window.prompt("Perfil: ADMIN, STORE_OWNER, STORE_CLERK ou OPS",user.role);
+        const roleInput=window.prompt("Perfil: ADMIN, SUPERVISOR, STORE_OWNER, STORE_CLERK ou OPS",user.role);
         if(roleInput==null) return;
         const role=String(roleInput).trim().toUpperCase();
         let storeId=user.store_id||null;
-        if(role!=="ADMIN"){
+        if(!["ADMIN","SUPERVISOR"].includes(role)){
           const storeCode=window.prompt("Código do ponto:",user.store_code||"");
           if(storeCode==null) return;
           const store=state.admin.stores.find(s=>s.code.toLowerCase()===String(storeCode).trim().toLowerCase());
@@ -1819,14 +1828,14 @@ $("#adminUserForm")?.addEventListener("submit",async event=>{
   try{
     await api("/api/admin/users",{method:"POST",body:JSON.stringify({
       name:$("#adminUserName").value.trim(),email:$("#adminUserEmail").value.trim(),
-      password:$("#adminUserPassword").value,role,storeId:role==="ADMIN"?null:$("#adminUserStore").value
+      password:$("#adminUserPassword").value,role,storeId:["ADMIN","SUPERVISOR"].includes(role)?null:$("#adminUserStore").value
     })});
     event.currentTarget.reset(); toast("Usuário criado."); await loadMaster();
   }catch(err){toast(err.message,"error");}finally{btn.disabled=false;}
 });
 
 $("#adminUserRole")?.addEventListener("change",()=>{
-  $("#adminUserStore").disabled=$("#adminUserRole").value==="ADMIN";
+  $("#adminUserStore").disabled=["ADMIN","SUPERVISOR"].includes($("#adminUserRole").value);
 });
 
 $("#adminCatalogForm")?.addEventListener("submit",async event=>{
