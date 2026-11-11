@@ -115,6 +115,7 @@ function showApp(user) {
   document.querySelectorAll(".management-analytics-only").forEach(el=>el.classList.toggle("hidden",!managementAnalytics));
   document.querySelectorAll(".local-dashboard-only").forEach(el=>el.classList.toggle("hidden",managementAnalytics));
   document.querySelectorAll(".analytics-global-filter").forEach(el=>el.classList.toggle("hidden",!["ADMIN","SUPERVISOR"].includes(user?.role)));
+  document.querySelectorAll(".analytics-network-only").forEach(el=>el.classList.toggle("hidden",!["ADMIN","SUPERVISOR"].includes(user?.role)));
 
   document.querySelector('[data-view="quote"]')?.classList.toggle("hidden", !canSell);
   document.querySelector('[data-view="credit"]')?.classList.toggle("hidden", !canUseCredit);
@@ -1822,6 +1823,18 @@ async function loadManagementAnalytics(){
       title:item.label||"Pagamento",
       subtitle:Number(item.orders||0)+" pagamento(s)",
       value:money(item.grossSales||0),
+      detail:""
+    }));
+    rankRows("#analyticsStoresList",data.stores,item=>({
+      title:item.name||"Ponto",
+      subtitle:Number(item.orders||0)+" postagem(ns) · "+Number(item.packages||0)+" pacote(s)",
+      value:money(item.grossSales||0),
+      detail:"Receita do ponto: "+money(item.pointRevenue||0)
+    }));
+    rankRows("#analyticsStatusesList",data.statuses,item=>({
+      title:String(item.label||"Status").replaceAll("_"," "),
+      subtitle:"Situação operacional",
+      value:Number(item.orders||0)+" envio(s)",
       detail:""
     }));
   }catch(err){
