@@ -3394,23 +3394,30 @@ app.post("/api/prazo", requireAuth, async (req, res) => {
 app.get("/api/catalog", requireAuth, async (req, res) => {
   try {
     const items = await db.getPartnerCatalog(inventoryOwner(req.user));
+    const salesOnly = req.user.role === "STORE_CLERK";
     res.json({
-      items: items.map(item => ({
-        code: item.code,
-        itemType: item.item_type,
-        category: item.category,
-        name: item.name,
-        description: item.description || "",
-        unitPrice: Number(item.effective_unit_price ?? item.unit_price ?? 0),
-        trackStock: Boolean(item.track_stock),
-        stockQuantity: Number(item.stock_quantity || 0),
-        reservedQuantity: Number(item.reserved_quantity || 0),
-        availableQuantity: Number(item.available_quantity || 0),
-        minQuantity: Number(item.min_quantity || 0),
-        averageCost: Number(item.average_cost || 0),
-        externalProvider: item.external_provider || "",
-        metadata: item.metadata || {}
-      }))
+      items: items.map(item => {
+        const saleItem = {
+          code: item.code,
+          itemType: item.item_type,
+          category: item.category,
+          name: item.name,
+          description: item.description || "",
+          unitPrice: Number(item.effective_unit_price ?? item.unit_price ?? 0),
+          trackStock: Boolean(item.track_stock),
+          availableQuantity: Number(item.available_quantity || 0)
+        };
+        if (salesOnly) return saleItem;
+        return {
+          ...saleItem,
+          stockQuantity: Number(item.stock_quantity || 0),
+          reservedQuantity: Number(item.reserved_quantity || 0),
+          minQuantity: Number(item.min_quantity || 0),
+          averageCost: Number(item.average_cost || 0),
+          externalProvider: item.external_provider || "",
+          metadata: item.metadata || {}
+        };
+      })
     });
   } catch (error) {
     console.error("catalog error:", error.message);
