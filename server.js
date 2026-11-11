@@ -2524,6 +2524,89 @@ app.patch("/api/store/financial-settings", requireAuth, requireRole("STORE_OWNER
   }
 });
 
+app.get("/api/store/users", requireAuth, requireRole("STORE_OWNER"), async (req,res)=>{
+  try{
+    if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
+    const users=await db.listStoreUsers(req.user.storeId);
+    res.json({users:users.map(user=>({
+      id:user.id,
+      email:user.email,
+      name:user.name,
+      role:user.role,
+      active:Boolean(user.active),
+      lastLoginAt:user.last_login_at,
+      createdAt:user.created_at
+    }))});
+  }catch(error){
+    console.error("store users list error:",error.message);
+    res.status(500).json({error:"Não foi possível carregar os usuários do ponto."});
+  }
+});
+
+app.post("/api/store/users", requireAuth, requireRole("STORE_OWNER"), async (req,res)=>{
+  try{
+    if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
+    const email=String(req.body.email||"").trim().toLowerCase();
+    const name=String(req.body.name||"").trim();
+    const password=String(req.body.password||"");
+    if(!email||!name||password.length<10){
+      return res.status(400).json({error:"Nome, e-mail e senha com ao menos 10 caracteres são obrigatórios."});
+    }
+    if(await db.findUserByEmail(email)){
+      return res.status(409).json({error:"Já existe uma conta com este e-mail."});
+    }
+    const user=await db.createUser({
+      storeId:req.user.storeId,
+      email,
+      name,
+      passwordHash:hashPassword(password),
+      role:"STORE_CLERK",
+      active:true
+    });
+    await audit(req,"CREATE_STORE_CLERK","USER",user.id,{email,storeId:req.user.storeId});
+    res.status(201).json({
+      user:{id:user.id,email:user.email,name:user.name,role:user.role,active:Boolean(user.active)}
+    });
+  }catch(error){
+    console.error("store user create error:",error.message);
+    if(String(error.message).includes("duplicate key")){
+      return res.status(409).json({error:"Já existe uma conta com este e-mail."});
+    }
+    res.status(500).json({error:"Não foi possível criar o usuário do ponto."});
+  }
+});
+
+app.patch("/api/store/users/:id", requireAuth, requireRole("STORE_OWNER"), async (req,res)=>{
+  try{
+    if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
+    const current=await db.getUserById(req.params.id);
+    if(!current || String(current.store_id)!==String(req.user.storeId) || current.role!=="STORE_CLERK"){
+      return res.status(404).json({error:"Usuário do ponto não encontrado."});
+    }
+    const password=req.body.password?String(req.body.password):"";
+    if(password && password.length<10){
+      return res.status(400).json({error:"A nova senha precisa ter ao menos 10 caracteres."});
+    }
+    const user=await db.updateUser(current.id,{
+      storeId:req.user.storeId,
+      name:req.body.name===undefined?undefined:String(req.body.name||"").trim(),
+      passwordHash:password?hashPassword(password):undefined,
+      role:"STORE_CLERK",
+      active:req.body.active===undefined?undefined:Boolean(req.body.active)
+    });
+    await audit(req,"UPDATE_STORE_CLERK","USER",user.id,{
+      active:Boolean(user.active),
+      storeId:req.user.storeId
+    });
+    res.json({user:{
+      id:user.id,email:user.email,name:user.name,role:user.role,active:Boolean(user.active)
+    }});
+  }catch(error){
+    console.error("store user update error:",error.message);
+    res.status(500).json({error:"Não foi possível atualizar o usuário do ponto."});
+  }
+});
+
 app.get("/api/store/referral", requireAuth, requireRole("STORE_OWNER"), async (req,res)=>{
   try{
     if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
