@@ -1132,23 +1132,35 @@ function paymentMethodLabel(method) {
 
 function receiptPayloadFromOrder(order) {
   const p = order.packageData || {};
-  const volumes = Array.isArray(p.volumes) && p.volumes.length ? p.volumes : [];
+  const volumes = Array.isArray(p.volumes) && p.volumes.length ? p.volumes : [{
+    weightGrams: Number(p.weightGrams || 0),
+    length: p.length, width: p.width, height: p.height, declaredValue: Number(p.declaredValue || 0)
+  }];
   const shipmentVolumes = Array.isArray(order.shipmentVolumes) ? order.shipmentVolumes : [];
-  const trackingCodes = shipmentVolumes.map(v=>v.trackingCode).filter(Boolean);
-  const totalWeightKg = volumes.length
-    ? volumes.reduce((sum,v)=>sum+Number(v.weightGrams||0),0)/1000
-    : Number(p.weightGrams || 0)/1000;
-  const dimensions = volumes.length > 1
-    ? volumes.map((v,index)=>`V${index+1}: ${v.length||"-"} x ${v.width||"-"} x ${v.height||"-"} cm`).join(" · ")
-    : `${p.length || volumes[0]?.length || "-"} x ${p.width || volumes[0]?.width || "-"} x ${p.height || volumes[0]?.height || "-"} cm`;
+  const trackingCodes = shipmentVolumes.map(v => v.trackingCode).filter(Boolean);
+  const totalWeightKg = volumes.reduce((sum,v) => sum + Number(v.weightGrams || 0), 0) / 1000;
+  const declaredValue = Number(p.declaredValue || volumes.reduce((sum,v) => sum + Number(v.declaredValue || 0), 0) || 0);
+  const volumeDetails = volumes.map((v,index) => ({
+    index: index + 1,
+    weightKg: Number((Number(v.weightGrams || 0) / 1000).toFixed(3)),
+    dimensions: `${v.length || "-"} x ${v.width || "-"} x ${v.height || "-"} cm`,
+    declaredValue: Number(v.declaredValue || 0),
+    trackingCode: shipmentVolumes[index]?.trackingCode || (index === 0 ? order.trackingCode || "" : "")
+  }));
+  const dimensions = volumeDetails.length > 1
+    ? volumeDetails.map(v => `V${v.index}: ${v.dimensions}`).join(" · ")
+    : (volumeDetails[0]?.dimensions || "-");
   return {
     preview: false,
-    createdAt: order.shippedAt || order.paidAt || order.createdAt || new Date().toISOString(),
+    orderId: order.id || "",
+    storeName: order.storeName || state.user?.storeName || "",
+    createdAt: order.paidAt || order.shippedAt || order.createdAt || new Date().toISOString(),
+    paidAt: order.paidAt || "",
+    paymentStatus: order.paymentStatus || "",
     trackingCode: order.trackingCode || trackingCodes[0] || "",
     trackingCodes,
     publicTrackingUrl: order.publicTrackingUrl || "",
-    cartId: "",
-    packageId: "",
+    cartId: "", packageId: "",
     carrier: order.carrier || "",
     service: order.serviceName || "",
     deadline: order.deadline || 0,
@@ -1157,13 +1169,12 @@ function receiptPayloadFromOrder(order) {
     addonsTotal: order.addonsTotal || 0,
     paymentFee: order.paymentSurcharge || 0,
     addons: (order.addons || []).map(addon => ({
-      name: addon.itemName,
-      quantity: addon.quantity,
-      totalPrice: addon.totalPrice
+      name: addon.itemName, quantity: addon.quantity, totalPrice: addon.totalPrice
     })),
-    declaredValue: Number(p.declaredValue || volumes.reduce((sum,v)=>sum+Number(v.declaredValue||0),0) || 0),
+    declaredValue,
     weightKg: Number(totalWeightKg.toFixed(3)),
     dimensions,
+    volumes: volumeDetails,
     volumeCount: Number(order.packageCount || volumes.length || 1),
     invoiceNumber: order.invoiceNumber || "",
     paymentMethod: paymentMethodLabel(order.paymentMethod),
