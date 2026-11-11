@@ -1623,6 +1623,78 @@ async function loadCredit() {
   }
 }
 
+
+async function loadCash() {
+  if (!["ADMIN","SUPERVISOR","STORE_OWNER"].includes(state.user?.role)) return;
+  const summaryHost=$("#cashSummaryList");
+  const movementsHost=$("#cashMovementsList");
+  if(summaryHost) summaryHost.innerHTML='<div class="empty-state">Carregando caixa...</div>';
+  if(movementsHost) movementsHost.innerHTML='<div class="empty-state">Carregando movimentações...</div>';
+  try{
+    const data=await api("/api/store/cash");
+    const s=data.summary||{};
+    $("#cashTotalEarnings").textContent=money(s.totalEarnings||0);
+    $("#cashSalesEarnings").textContent=money(s.salesEarnings||0);
+    $("#cashExtraEarnings").textContent=money(s.extraEarnings||0);
+    $("#cashPendingRemittance").textContent=money(s.pendingRemittance||0);
+    if(summaryHost){
+      summaryHost.innerHTML=
+        '<div class="inventory-row"><div><span class="addon-type">HOJE</span><strong>Ganhos do dia</strong></div><div><strong>'+money(s.todayEarnings||0)+'</strong></div></div>'+
+        '<div class="inventory-row"><div><span class="addon-type">VENDAS</span><strong>Pedidos pagos</strong></div><div><strong>'+Number(s.paidOrders||0)+'</strong><small>Clientes pagaram '+money(s.customerReceived||0)+'</small></div></div>'+
+        '<div class="inventory-row"><div><span class="addon-type">COLETAS</span><strong>Remuneração por coleta</strong></div><div><strong>'+money(s.pickupEarnings||0)+'</strong></div></div>'+
+        '<div class="inventory-row"><div><span class="addon-type">POSTAGEM</span><strong>Recebimento no ponto</strong></div><div><strong>'+money(s.dropoffEarnings||0)+'</strong></div></div>'+
+        '<div class="inventory-row"><div><span class="addon-type">INDICAÇÃO</span><strong>Clientes indicados</strong></div><div><strong>'+money(s.referralEarnings||0)+'</strong></div></div>';
+    }
+    if(movementsHost){
+      const movements=Array.isArray(data.movements)?data.movements:[];
+      movementsHost.innerHTML=movements.length?movements.map(function(m){
+        return '<div class="inventory-row">'+
+          '<div><span class="addon-type">'+escapeHtml(m.type==="SALE"?"VENDA":"GANHO")+'</span><strong>'+escapeHtml(m.description||"Movimentação")+'</strong><small>'+escapeHtml(m.storeName||"")+' · '+new Date(m.createdAt).toLocaleString("pt-BR")+'</small></div>'+
+          '<div><span>Status</span><strong>'+escapeHtml(m.status||"")+'</strong></div>'+
+          '<div><span>Valor do ponto</span><strong>'+money(m.amount||0)+'</strong></div>'+
+        '</div>';
+      }).join(""):'<div class="empty-state">Ainda não há movimentações registradas.</div>';
+    }
+  }catch(err){
+    if(summaryHost) summaryHost.innerHTML='<div class="empty-state">'+escapeHtml(err.message)+'</div>';
+    if(movementsHost) movementsHost.innerHTML='<div class="empty-state">Não foi possível carregar o extrato.</div>';
+  }
+}
+
+async function loadSupervisor() {
+  if (state.user?.role !== "SUPERVISOR") return;
+  try{
+    const results=await Promise.all([
+      api("/api/admin/overview"),
+      api("/api/admin/stores"),
+      api("/api/admin/users")
+    ]);
+    const overview=results[0]||{};
+    const allStores=results[1].stores||[];
+    const allUsers=results[2].users||[];
+    $("#supervisorStores").textContent=Number(overview.activeStores||0);
+    $("#supervisorUsers").textContent=Number(overview.activeUsers||0);
+    $("#supervisorOrders").textContent=Number(overview.totalOrders||0);
+    $("#supervisorGross").textContent=money(overview.grossSales||0);
+    const host=$("#supervisorStoresList");
+    host.innerHTML=allStores.length?allStores.map(function(store){
+      return '<div class="admin-row">'+
+        '<div><strong>'+escapeHtml(store.name)+'</strong><span>'+escapeHtml(store.code)+' · '+(store.active?"Ativo":"Inativo")+'</span></div>'+
+        '<div><span>Usuários ativos</span><strong>'+Number(store.activeUsers||0)+'</strong></div>'+
+        '<div><span>Fretes</span><strong>'+Number(store.totalOrders||0)+'</strong></div>'+
+        '<div><span>Venda bruta</span><strong>'+money(store.grossSales||0)+'</strong></div>'+
+        '<div><span>Equipe cadastrada</span><strong>'+allUsers.filter(function(u){return u.store_id===store.id&&u.active;}).length+'</strong></div>'+
+      '</div>';
+    }).join(""):'<div class="empty-state">Nenhum ponto cadastrado.</div>';
+  }catch(err){
+    const host=$("#supervisorStoresList");
+    if(host) host.innerHTML='<div class="empty-state">'+escapeHtml(err.message)+'</div>';
+  }
+}
+
+$("#refreshCashBtn")?.addEventListener("click",loadCash);
+$("#refreshSupervisorBtn")?.addEventListener("click",loadSupervisor);
+
 async function loadMaster() {
   if (state.user?.role !== "ADMIN") return;
   try {
