@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#d7083b" />
   <title>Postal Serviços | Balcão Parceiro</title>
-  <link rel="stylesheet" href="/styles.css?v=1.12.0" />
+  <link rel="stylesheet" href="/styles.css?v=1.13.0" />
 </head>
 <body>
   <div id="toast" class="toast" aria-live="polite"></div>
@@ -165,6 +165,70 @@
           </article>
         </div>
 
+        <section id="dashboardAnalytics" class="management-analytics-only hidden analytics-section">
+          <div class="analytics-toolbar panel">
+            <div class="analytics-toolbar-head">
+              <div><span class="eyebrow">GESTÃO</span><h3>Desempenho comercial e operacional</h3></div>
+              <button id="refreshAnalyticsBtn" class="ghost" type="button">Atualizar indicadores</button>
+            </div>
+            <div class="analytics-filters">
+              <label>Período
+                <select id="analyticsPeriod">
+                  <option value="today">Hoje</option>
+                  <option value="7d">Últimos 7 dias</option>
+                  <option value="30d" selected>Últimos 30 dias</option>
+                  <option value="90d">Últimos 90 dias</option>
+                  <option value="month">Mês atual</option>
+                  <option value="year">Ano atual</option>
+                  <option value="custom">Personalizado</option>
+                </select>
+              </label>
+              <label class="analytics-custom-date hidden">De<input id="analyticsFrom" type="date" /></label>
+              <label class="analytics-custom-date hidden">Até<input id="analyticsTo" type="date" /></label>
+              <label class="analytics-global-filter hidden">Ponto<select id="analyticsStore"><option value="">Todos os pontos</option></select></label>
+              <label>Transportadora<select id="analyticsCarrier"><option value="">Todas</option></select></label>
+              <label>Serviço<select id="analyticsService"><option value="">Todos</option></select></label>
+              <label>Pagamento<select id="analyticsPayment"><option value="">Todos</option><option value="PIX">PIX</option><option value="CARTAO">Cartão</option><option value="DINHEIRO">Dinheiro</option></select></label>
+            </div>
+          </div>
+
+          <div class="analytics-kpis">
+            <article class="metric-card"><span>Faturamento</span><strong id="analyticsGross">R$ 0,00</strong><small>Vendas pagas no período</small></article>
+            <article class="metric-card"><span>Postagens</span><strong id="analyticsOrders">0</strong><small id="analyticsPackagesCaption">0 pacotes</small></article>
+            <article class="metric-card"><span>Ticket médio</span><strong id="analyticsTicket">R$ 0,00</strong><small>Valor médio por postagem</small></article>
+            <article class="metric-card"><span>Clientes ativos</span><strong id="analyticsCustomers">0</strong><small>Remetentes únicos</small></article>
+            <article class="metric-card"><span>Receita Postal</span><strong id="analyticsPostalRevenue">R$ 0,00</strong><small>Parcela Postal nas vendas</small></article>
+            <article class="metric-card"><span>Receita do ponto</span><strong id="analyticsPointRevenue">R$ 0,00</strong><small>Comissões e participação</small></article>
+          </div>
+
+          <div class="analytics-grid">
+            <article class="panel analytics-chart-panel">
+              <div class="panel-head"><div><span class="eyebrow">EVOLUÇÃO</span><h3>Faturamento ao longo do tempo</h3></div></div>
+              <div class="chart-wrap"><canvas id="dashboardRevenueChart"></canvas></div>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><div><span class="eyebrow">TRANSPORTADORAS</span><h3>Participação no faturamento</h3></div></div>
+              <div id="analyticsCarriersList" class="analytics-bars"><div class="empty-state">Carregando...</div></div>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><div><span class="eyebrow">CLIENTES</span><h3>Quem mais postou</h3></div></div>
+              <div id="analyticsTopCustomers" class="analytics-ranking"><div class="empty-state">Carregando...</div></div>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><div><span class="eyebrow">DESTINOS</span><h3>Cidades com mais envios</h3></div></div>
+              <div id="analyticsDestinations" class="analytics-ranking"><div class="empty-state">Carregando...</div></div>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><div><span class="eyebrow">SERVIÇOS</span><h3>Serviços mais vendidos</h3></div></div>
+              <div id="analyticsServicesList" class="analytics-ranking"><div class="empty-state">Carregando...</div></div>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><div><span class="eyebrow">PAGAMENTOS</span><h3>Meios de pagamento</h3></div></div>
+              <div id="analyticsPaymentsList" class="analytics-ranking"><div class="empty-state">Carregando...</div></div>
+            </article>
+          </div>
+        </section>
+
         <div class="panel-grid">
           <article class="panel">
             <div class="panel-head">
@@ -304,11 +368,41 @@
           </div>
           <button id="refreshCashBtn" class="ghost" type="button">Atualizar caixa</button>
         </div>
+        <div class="analytics-toolbar panel cash-analytics-toolbar">
+          <div class="analytics-filters">
+            <label>Período
+              <select id="cashAnalyticsPeriod">
+                <option value="today">Hoje</option>
+                <option value="7d">Últimos 7 dias</option>
+                <option value="30d" selected>Últimos 30 dias</option>
+                <option value="90d">Últimos 90 dias</option>
+                <option value="month">Mês atual</option>
+                <option value="year">Ano atual</option>
+                <option value="custom">Personalizado</option>
+              </select>
+            </label>
+            <label class="cash-custom-date hidden">De<input id="cashAnalyticsFrom" type="date" /></label>
+            <label class="cash-custom-date hidden">Até<input id="cashAnalyticsTo" type="date" /></label>
+            <label class="analytics-global-filter hidden">Ponto<select id="cashAnalyticsStore"><option value="">Toda a rede</option></select></label>
+            <label>Transportadora<select id="cashAnalyticsCarrier"><option value="">Todas</option></select></label>
+            <label>Pagamento<select id="cashAnalyticsPayment"><option value="">Todos</option><option value="PIX">PIX</option><option value="CARTAO">Cartão</option><option value="DINHEIRO">Dinheiro</option></select></label>
+          </div>
+        </div>
         <div class="cards-4">
           <article class="metric-card"><span>Ganhos totais</span><strong id="cashTotalEarnings">R$ 0,00</strong><small>Fretes + produtos + serviços + ganhos extras</small></article>
           <article class="metric-card"><span>Ganhos em vendas</span><strong id="cashSalesEarnings">R$ 0,00</strong><small>Receita do ponto nas vendas pagas</small></article>
           <article class="metric-card"><span>Coletas e indicações</span><strong id="cashExtraEarnings">R$ 0,00</strong><small>Ganhos adicionais registrados</small></article>
           <article class="metric-card"><span>Repasse pendente</span><strong id="cashPendingRemittance">R$ 0,00</strong><small>Valores em dinheiro aguardando regularização</small></article>
+        </div>
+        <div class="analytics-grid cash-chart-grid">
+          <article class="panel analytics-chart-panel">
+            <div class="panel-head"><div><span class="eyebrow">EVOLUÇÃO</span><h3>Faturamento e ganhos no período</h3></div></div>
+            <div class="chart-wrap"><canvas id="cashRevenueChart"></canvas></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><span class="eyebrow">COMPOSIÇÃO</span><h3>Meios de pagamento</h3></div></div>
+            <div id="cashPaymentBreakdown" class="analytics-bars"><div class="empty-state">Carregando...</div></div>
+          </article>
         </div>
         <div class="panel-grid">
           <article class="panel">
@@ -1082,7 +1176,7 @@
     </div>
   </div>
 
-  <script src="/app.js?v=1.12.0"></script>
-  <script src="/client.js?v=1.12.0"></script>
+  <script src="/app.js?v=1.13.0"></script>
+  <script src="/client.js?v=1.13.0"></script>
 </body>
 </html>
