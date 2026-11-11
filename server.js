@@ -2503,6 +2503,210 @@ app.patch("/api/store/pickup-settings", requireAuth, requireRole("STORE_OWNER"),
   }catch(error){res.status(500).json({error:"Não foi possível atualizar a opção de coletas."});}
 });
 
+
+function analyticsDateRange(query={}) {
+  const now=new Date();
+  const end=new Date(now);
+  let start=new Date(now);
+  const period=String(query.period||"30d").toLowerCase();
+  if(period==="today"){
+    start=new Date(now); start.setHours(0,0,0,0);
+  }else if(period==="7d"){
+    start=new Date(now.getTime()-6*86400000); start.setHours(0,0,0,0);
+  }else if(period==="90d"){
+    start=new Date(now.getTime()-89*86400000); start.setHours(0,0,0,0);
+  }else if(period==="month"){
+    start=new Date(now.getFullYear(),now.getMonth(),1);
+  }else if(period==="year"){
+    start=new Date(now.getFullYear(),0,1);
+  }else if(period==="custom" && /^\d{4}-\d{2}-\d{2}$/.test(String(query.from||""))){
+    start=new Date(String(query.from)+"T00:00:00");
+    if(/^\d{4}-\d{2}-\d{2}$/.test(String(query.to||""))){
+      end.setTime(new Date(String(query.to)+"T23:59:59.999").getTime());
+    }
+  }else{
+    start=new Date(now.getTime()-29*86400000); start.setHours(0,0,0,0);
+  }
+  if(start>end){ const tmp=start; start=end; end=tmp; }
+  return {start,end,period};
+}
+
+app.get("/api/analytics/overview", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER"), async (req,res)=>{
+  try{
+    const range=analyticsDateRange(req.query||{});
+    const params=[range.start.toISOString(),range.end.toISOString()];
+    const where=["f.created_at >= $1::timestamptz","f.created_at <= $2::timestamptz","f.is_simulation=FALSE"];
+    const globalRole=["ADMIN","SUPERVISOR"].includes(req.user.role);
+    const storeId=req.user.role==="STORE_OWNER" ? req.user.storeId : String(req.query.storeId||"").trim();
+    if(req.user.role==="STORE_OWNER" && !storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
+    if(storeId){
+      params.push(storeId); where.push("f.store_id=$"+params.length);
+    }
+    const carrier=String(req.query.carrier||"").trim();
+    if(carrier){
+      params.push(carrier); where.push("LOWER(f.carrier)=LOWER($"+params.length+")");
+    }
+    const service=String(req.query.service||"").trim();
+    if(service){
+      params.push(service); where.push("LOWER(f.service_name)=LOWER($"+params.length+")");
+    }
+    const paymentMethod=String(req.query.paymentMethod||"").trim().toUpperCase();
+    if(paymentMethod){
+      params.push(paymentMethod); where.push("UPPER(f.payment_method)=$"+params.length);
+    }
+    const paidWhere=where.concat(["f.payment_status='PAID'"]);
+    const whereSql=where.join(" AND ");
+    const paidWhereSql=paidWhere.join(" AND ");
+    const rangeDays=Math.max(1,Math.ceil((range.end-range.start)/86400000)+1);
+    const bucket=rangeDays<=45?"day":(rangeDays<=210?"week":"month");
+    const bucketFormat=bucket==="day"?"DD/MM":(bucket==="week"?"DD/MM":"MM/YYYY");
+
+    const [
+      summaryResult,timelineResult,carrierResult,serviceResult,paymentResult,
+      clientsResult,destinationsResult,statusResult,storesResult,filterCarrierResult,filterServiceResult
+    ]=await Promise.all([
+      db.pool.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE f.payment_status='PAID')::int AS paid_orders,
+           COALESCE(SUM(f.package_count) FILTER (WHERE f.payment_status='PAID'),0)::int AS packages,
+           COALESCE(SUM(f.customer_subtotal+f.payment_surcharge) FILTER (WHERE f.payment_status='PAID'),0) AS gross_sales,
+           COALESCE(SUM(f.point_revenue_total) FILTER (WHERE f.payment_status='PAID'),0) AS point_revenue,
+           COALESCE(SUM(f.postal_revenue_total) FILTER (WHERE f.payment_status='PAID'),0) AS postal_revenue,
+           COALESCE(SUM(f.provider_revenue_total) FILTER (WHERE f.payment_status='PAID'),0) AS provider_cost,
+           COALESCE(AVG(f.customer_subtotal+f.payment_surcharge) FILTER (WHERE f.payment_status='PAID'),0) AS avg_ticket,
+           COUNT(DISTINCT COALESCE(NULLIF(f.sender->>'document',''),NULLIF(LOWER(f.sender->>'name'),''))) FILTER (WHERE f.payment_status='PAID')::int AS unique_customers
+         FROM freight_orders f
+         WHERE ${whereSql}`,
+        params
+      ),
+      db.pool.query(
+        `SELECT date_trunc('${bucket}',f.created_at) AS bucket,
+                to_char(date_trunc('${bucket}',f.created_at),'${bucketFormat}') AS label,
+                COUNT(*)::int AS orders,
+                COALESCE(SUM(f.package_count),0)::int AS packages,
+                COALESCE(SUM(f.customer_subtotal+f.payment_surcharge),0) AS gross_sales,
+                COALESCE(SUM(f.point_revenue_total),0) AS point_revenue,
+                COALESCE(SUM(f.postal_revenue_total),0) AS postal_revenue
+           FROM freight_orders f
+          WHERE ${paidWhereSql}
+          GROUP BY 1,2 ORDER BY 1`,
+        params
+      ),
+      db.pool.query(
+        `SELECT COALESCE(NULLIF(f.carrier,''),'Não informado') AS label,
+                COUNT(*)::int AS orders,
+                COALESCE(SUM(f.package_count),0)::int AS packages,
+                COALESCE(SUM(f.customer_subtotal+f.payment_surcharge),0) AS gross_sales
+           FROM freight_orders f WHERE ${paidWhereSql}
+          GROUP BY 1 ORDER BY gross_sales DESC LIMIT 12`,
+        params
+      ),
+      db.pool.query(
+        `SELECT COALESCE(NULLIF(f.service_name,''),'Não informado') AS label,
+                COUNT(*)::int AS orders,
+                COALESCE(SUM(f.customer_subtotal+f.payment_surcharge),0) AS gross_sales
+           FROM freight_orders f WHERE ${paidWhereSql}
+          GROUP BY 1 ORDER BY gross_sales DESC LIMIT 12`,
+        params
+      ),
+      db.pool.query(
+        `SELECT COALESCE(NULLIF(f.payment_method,''),'Não informado') AS label,
+                COUNT(*)::int AS orders,
+                COALESCE(SUM(f.customer_subtotal+f.payment_surcharge),0) AS gross_sales
+           FROM freight_orders f WHERE ${paidWhereSql}
+          GROUP BY 1 ORDER BY gross_sales DESC`,
+        params
+      ),
+      db.pool.query(
+        `SELECT
+           COALESCE(NULLIF(MAX(f.sender->>'name'),''),'Cliente não identificado') AS name,
+           COALESCE(NULLIF(MAX(f.sender->>'document'),''),'') AS document,
+           COUNT(*)::int AS shipments,
+           COALESCE(SUM(f.package_count),0)::int AS packages,
+           COALESCE(SUM(f.customer_subtotal+f.payment_surcharge),0) AS gross_sales,
+           MAX(f.created_at) AS last_shipment
+         FROM freight_orders f
+         WHERE ${paidWhereSql}
+           AND COALESCE(NULLIF(f.sender->>'document',''),NULLIF(LOWER(f.sender->>'name'),'')) IS NOT NULL
+         GROUP BY COALESCE(NULLIF(f.sender->>'document',''),NULLIF(LOWER(f.sender->>'name'),''))
+         ORDER BY shipments DESC,gross_sales DESC LIMIT 15`,
+        params
+      ),
+      db.pool.query(
+        `SELECT COALESCE(NULLIF(f.recipient->>'city',''),'Não informado') AS city,
+                COUNT(*)::int AS shipments,
+                COALESCE(SUM(f.package_count),0)::int AS packages,
+                COALESCE(SUM(f.customer_subtotal+f.payment_surcharge),0) AS gross_sales
+           FROM freight_orders f WHERE ${paidWhereSql}
+          GROUP BY 1 ORDER BY shipments DESC,gross_sales DESC LIMIT 12`,
+        params
+      ),
+      db.pool.query(
+        `SELECT COALESCE(NULLIF(f.status,''),'Não informado') AS label,COUNT(*)::int AS orders
+           FROM freight_orders f WHERE ${whereSql}
+          GROUP BY 1 ORDER BY orders DESC LIMIT 15`,
+        params
+      ),
+      globalRole ? db.pool.query(
+        `SELECT COALESCE(s.name,'Sem ponto') AS name,s.id,
+                COUNT(f.id) FILTER (WHERE f.payment_status='PAID')::int AS orders,
+                COALESCE(SUM(f.package_count) FILTER (WHERE f.payment_status='PAID'),0)::int AS packages,
+                COALESCE(SUM(f.customer_subtotal+f.payment_surcharge) FILTER (WHERE f.payment_status='PAID'),0) AS gross_sales,
+                COALESCE(SUM(f.point_revenue_total) FILTER (WHERE f.payment_status='PAID'),0) AS point_revenue
+           FROM freight_orders f LEFT JOIN stores s ON s.id=f.store_id
+          WHERE ${whereSql}
+          GROUP BY s.id,s.name ORDER BY gross_sales DESC LIMIT 30`,
+        params
+      ) : Promise.resolve({rows:[]}),
+      db.pool.query(
+        `SELECT DISTINCT f.carrier AS value FROM freight_orders f
+          WHERE ${whereSql} AND NULLIF(f.carrier,'') IS NOT NULL ORDER BY 1`,
+        params
+      ),
+      db.pool.query(
+        `SELECT DISTINCT f.service_name AS value FROM freight_orders f
+          WHERE ${whereSql} AND NULLIF(f.service_name,'') IS NOT NULL ORDER BY 1`,
+        params
+      )
+    ]);
+
+    const s=summaryResult.rows[0]||{};
+    res.json({
+      range:{from:range.start.toISOString(),to:range.end.toISOString(),period:range.period,bucket},
+      scope:{global:globalRole,storeId:storeId||null},
+      summary:{
+        paidOrders:Number(s.paid_orders||0),
+        packages:Number(s.packages||0),
+        grossSales:Number(s.gross_sales||0),
+        pointRevenue:Number(s.point_revenue||0),
+        postalRevenue:Number(s.postal_revenue||0),
+        providerCost:Number(s.provider_cost||0),
+        avgTicket:Number(s.avg_ticket||0),
+        uniqueCustomers:Number(s.unique_customers||0)
+      },
+      timeline:timelineResult.rows.map(r=>({
+        label:r.label,orders:Number(r.orders||0),packages:Number(r.packages||0),
+        grossSales:Number(r.gross_sales||0),pointRevenue:Number(r.point_revenue||0),postalRevenue:Number(r.postal_revenue||0)
+      })),
+      carriers:carrierResult.rows.map(r=>({label:r.label,orders:Number(r.orders||0),packages:Number(r.packages||0),grossSales:Number(r.gross_sales||0)})),
+      services:serviceResult.rows.map(r=>({label:r.label,orders:Number(r.orders||0),grossSales:Number(r.gross_sales||0)})),
+      paymentMethods:paymentResult.rows.map(r=>({label:r.label,orders:Number(r.orders||0),grossSales:Number(r.gross_sales||0)})),
+      topCustomers:clientsResult.rows.map(r=>({name:r.name,document:r.document,shipments:Number(r.shipments||0),packages:Number(r.packages||0),grossSales:Number(r.gross_sales||0),lastShipment:r.last_shipment})),
+      topDestinations:destinationsResult.rows.map(r=>({city:r.city,shipments:Number(r.shipments||0),packages:Number(r.packages||0),grossSales:Number(r.gross_sales||0)})),
+      statuses:statusResult.rows.map(r=>({label:r.label,orders:Number(r.orders||0)})),
+      stores:storesResult.rows.map(r=>({id:r.id,name:r.name,orders:Number(r.orders||0),packages:Number(r.packages||0),grossSales:Number(r.gross_sales||0),pointRevenue:Number(r.point_revenue||0)})),
+      filters:{
+        carriers:filterCarrierResult.rows.map(r=>r.value),
+        services:filterServiceResult.rows.map(r=>r.value),
+        paymentMethods:["PIX","CARTAO","DINHEIRO"]
+      }
+    });
+  }catch(error){
+    console.error("analytics overview error:",error.message);
+    res.status(500).json({error:"Não foi possível carregar os indicadores gerenciais."});
+  }
+});
+
 app.get("/api/store/cash", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER"), async (req,res)=>{
   try{
     const storeId=req.user.role==="STORE_OWNER" ? req.user.storeId : (req.query.storeId||null);
