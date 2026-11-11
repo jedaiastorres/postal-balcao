@@ -2602,6 +2602,7 @@ app.get("/api/analytics/overview", requireAuth, requireRole("ADMIN","SUPERVISOR"
            COALESCE(SUM(f.customer_subtotal+f.payment_surcharge) FILTER (WHERE f.payment_status='PAID'),0) AS gross_sales,
            COALESCE(SUM(f.point_revenue_total) FILTER (WHERE f.payment_status='PAID'),0) AS point_revenue,
            COALESCE(SUM(f.postal_revenue_total) FILTER (WHERE f.payment_status='PAID'),0) AS postal_revenue,
+           COALESCE(SUM(f.hub_transfer_total) FILTER (WHERE f.payment_status='PAID'),0) AS hub_transfer_revenue,
            COALESCE(SUM(f.provider_revenue_total) FILTER (WHERE f.payment_status='PAID'),0) AS provider_cost,
            COALESCE(AVG(f.customer_subtotal+f.payment_surcharge) FILTER (WHERE f.payment_status='PAID'),0) AS avg_ticket,
            COUNT(DISTINCT COALESCE(NULLIF(f.sender->>'document',''),NULLIF(LOWER(f.sender->>'name'),''))) FILTER (WHERE f.payment_status='PAID')::int AS unique_customers
@@ -2616,7 +2617,8 @@ app.get("/api/analytics/overview", requireAuth, requireRole("ADMIN","SUPERVISOR"
                 COALESCE(SUM(f.package_count),0)::int AS packages,
                 COALESCE(SUM(f.customer_subtotal+f.payment_surcharge),0) AS gross_sales,
                 COALESCE(SUM(f.point_revenue_total),0) AS point_revenue,
-                COALESCE(SUM(f.postal_revenue_total),0) AS postal_revenue
+                COALESCE(SUM(f.postal_revenue_total),0) AS postal_revenue,
+                COALESCE(SUM(f.hub_transfer_total),0) AS hub_transfer_revenue
            FROM freight_orders f
           WHERE ${paidWhereSql}
           GROUP BY 1,2 ORDER BY 1`,
@@ -2682,7 +2684,8 @@ app.get("/api/analytics/overview", requireAuth, requireRole("ADMIN","SUPERVISOR"
                 COUNT(f.id) FILTER (WHERE f.payment_status='PAID')::int AS orders,
                 COALESCE(SUM(f.package_count) FILTER (WHERE f.payment_status='PAID'),0)::int AS packages,
                 COALESCE(SUM(f.customer_subtotal+f.payment_surcharge) FILTER (WHERE f.payment_status='PAID'),0) AS gross_sales,
-                COALESCE(SUM(f.point_revenue_total) FILTER (WHERE f.payment_status='PAID'),0) AS point_revenue
+                COALESCE(SUM(f.point_revenue_total) FILTER (WHERE f.payment_status='PAID'),0) AS point_revenue,
+                COALESCE(SUM(f.hub_transfer_total) FILTER (WHERE f.payment_status='PAID'),0) AS hub_transfer_revenue
            FROM freight_orders f LEFT JOIN stores s ON s.id=f.store_id
           WHERE ${whereSql}
           GROUP BY s.id,s.name ORDER BY gross_sales DESC LIMIT 30`,
@@ -2710,13 +2713,14 @@ app.get("/api/analytics/overview", requireAuth, requireRole("ADMIN","SUPERVISOR"
         grossSales:Number(s.gross_sales||0),
         pointRevenue:Number(s.point_revenue||0),
         postalRevenue:Number(s.postal_revenue||0),
+        hubTransferRevenue:Number(s.hub_transfer_revenue||0),
         providerCost:Number(s.provider_cost||0),
         avgTicket:Number(s.avg_ticket||0),
         uniqueCustomers:Number(s.unique_customers||0)
       },
       timeline:timelineResult.rows.map(r=>({
         label:r.label,orders:Number(r.orders||0),packages:Number(r.packages||0),
-        grossSales:Number(r.gross_sales||0),pointRevenue:Number(r.point_revenue||0),postalRevenue:Number(r.postal_revenue||0)
+        grossSales:Number(r.gross_sales||0),pointRevenue:Number(r.point_revenue||0),postalRevenue:Number(r.postal_revenue||0),hubTransferRevenue:Number(r.hub_transfer_revenue||0)
       })),
       carriers:carrierResult.rows.map(r=>({label:r.label,orders:Number(r.orders||0),packages:Number(r.packages||0),grossSales:Number(r.gross_sales||0)})),
       services:serviceResult.rows.map(r=>({label:r.label,orders:Number(r.orders||0),grossSales:Number(r.gross_sales||0)})),
@@ -2724,7 +2728,7 @@ app.get("/api/analytics/overview", requireAuth, requireRole("ADMIN","SUPERVISOR"
       topCustomers:clientsResult.rows.map(r=>({name:r.name,document:r.document,shipments:Number(r.shipments||0),packages:Number(r.packages||0),grossSales:Number(r.gross_sales||0),lastShipment:r.last_shipment})),
       topDestinations:destinationsResult.rows.map(r=>({city:r.city,shipments:Number(r.shipments||0),packages:Number(r.packages||0),grossSales:Number(r.gross_sales||0)})),
       statuses:statusResult.rows.map(r=>({label:r.label,orders:Number(r.orders||0)})),
-      stores:storesResult.rows.map(r=>({id:r.id,name:r.name,orders:Number(r.orders||0),packages:Number(r.packages||0),grossSales:Number(r.gross_sales||0),pointRevenue:Number(r.point_revenue||0)})),
+      stores:storesResult.rows.map(r=>({id:r.id,name:r.name,orders:Number(r.orders||0),packages:Number(r.packages||0),grossSales:Number(r.gross_sales||0),pointRevenue:Number(r.point_revenue||0),hubTransferRevenue:Number(r.hub_transfer_revenue||0)})),
       filters:{
         carriers:filterCarrierResult.rows.map(r=>r.value),
         services:filterServiceResult.rows.map(r=>r.value),
