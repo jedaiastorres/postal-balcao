@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#d7083b" />
   <title>Postal Serviços | Balcão Parceiro</title>
-  <link rel="stylesheet" href="/styles.css?v=1.14.0" />
+  <link rel="stylesheet" href="/styles.css?v=1.15.0" />
 </head>
 <body>
   <div id="toast" class="toast" aria-live="polite"></div>
@@ -74,8 +74,6 @@
         <button class="nav-item active" data-view="dashboard"><span>▦</span> Dashboard</button>
         <button class="nav-item" data-view="quote"><span>ϟ</span> Simular Frete</button>
         <button class="nav-item" data-view="orders"><span>□</span> Meus Fretes</button>
-        <button class="nav-item" data-view="receive"><span>⇩</span> Receber Pacote</button>
-        <button class="nav-item" data-view="returns"><span>↻</span> Devolução</button>
         <button class="nav-item" data-view="collections"><span>⌖</span> Coletas</button>
       </nav>
 
@@ -85,7 +83,6 @@
         <button class="nav-item owner-finance-only hidden" data-view="financial"><span>◎</span> Recebimentos Asaas</button>
         <button class="nav-item owner-finance-only hidden" data-view="storeUsers"><span>♙</span> Usuários do ponto</button>
         <button class="nav-item" data-view="inventory"><span>▤</span> Produtos & Estoque</button>
-        <button class="nav-item" data-view="credit"><span>₿</span> Crédito no Balcão</button>
         <button class="nav-item" data-view="clients"><span>♙</span> Clientes</button>
         <button class="nav-item" data-view="referrals"><span>↗</span> Indique & Ganhe</button>
       </nav>
@@ -654,6 +651,38 @@
           <div><div class="eyebrow">PRIMEIRA MILHA</div><h1>Coletas</h1><p id="collectionsSubtitle">Acompanhe solicitações de coleta e postagem em pontos Postal.</p></div>
           <button id="refreshCollectionsBtn" class="ghost" type="button">Atualizar</button>
         </div>
+        <div id="pointCollectionCreateCard" class="form-panel hidden">
+          <div class="form-panel-head">
+            <span class="step-number">+</span>
+            <div>
+              <h3>Nova ordem de coleta</h3>
+              <p>Use quando o cliente ligar ou solicitar a retirada diretamente ao ponto. Não é necessário o cliente possuir login ou e-mail.</p>
+            </div>
+          </div>
+          <form id="pointCollectionForm" class="inventory-form">
+            <div class="form-grid">
+              <label>Nome do cliente*<input id="pointCollectionName" required /></label>
+              <label>Telefone*<input id="pointCollectionPhone" inputmode="tel" required /></label>
+              <label>CPF/CNPJ<input id="pointCollectionDocument" inputmode="numeric" /></label>
+              <label>Quantidade de pacotes*<input id="pointCollectionPackages" type="number" min="1" max="200" value="1" required /></label>
+              <label class="span-2">Endereço da coleta*<input id="pointCollectionAddress" required /></label>
+              <label>Número*<input id="pointCollectionNumber" required /></label>
+              <label>Complemento<input id="pointCollectionComplement" /></label>
+              <label>Bairro<input id="pointCollectionNeighborhood" /></label>
+              <label>CEP*<input id="pointCollectionCep" inputmode="numeric" maxlength="9" required /></label>
+              <label>Cidade*<input id="pointCollectionCity" required /></label>
+              <label>UF<input id="pointCollectionUf" maxlength="2" /></label>
+              <label>Agendar para<input id="pointCollectionScheduledFor" type="datetime-local" /></label>
+              <label class="span-2">Observações<input id="pointCollectionNotes" placeholder="Ex.: retirar na recepção, ligar antes, volumes grandes..." /></label>
+            </div>
+            <div class="collection-create-summary">
+              <div><span>Taxa padrão</span><strong>R$ 5,00 / pacote</strong></div>
+              <div><span>Total previsto</span><strong id="pointCollectionTotal">R$ 5,00</strong></div>
+              <button class="primary" type="submit">Criar ordem de coleta</button>
+            </div>
+          </form>
+        </div>
+
         <div id="pickupSettingsCard" class="form-panel hidden">
           <div class="form-panel-head"><span class="step-number">✓</span><div><h3>Quero realizar coletas</h3><p>Ao aderir, a Postal poderá direcionar coletas próximas ao seu ponto. A remuneração padrão é R$ 3,00 por pacote coletado.</p></div></div>
           <form id="pickupSettingsForm" class="inventory-form">
@@ -1184,7 +1213,7 @@
     </div>
   </div>
 
-  <script src="/app.js?v=1.14.0"></script>
-  <script src="/client.js?v=1.14.0"></script>
+  <script src="/app.js?v=1.15.0"></script>
+  <script src="/client.js?v=1.15.0"></script>
 </body>
 </html>
