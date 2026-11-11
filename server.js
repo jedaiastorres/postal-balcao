@@ -1555,7 +1555,7 @@ app.get("/api/public-config", (_req, res) => {
     paymentsOperational: paymentOperational(),
     paymentsEnvironment: paymentRuntime.environment?.keyEnvironment || "unknown",
     databaseConfigured: Boolean(process.env.DATABASE_URL),
-    version: "1.9.2",
+    version: "1.10.0",
     paymentSimulatorEnabled: PAYMENT_SIMULATOR_ENABLED && !asaas.configured(),
     clientPickupFeePerPackage: CLIENT_PICKUP_FEE_PER_PACKAGE,
     pointPickupEarningPerPackage: POINT_PICKUP_EARNING_PER_PACKAGE,
@@ -2470,6 +2470,58 @@ app.patch("/api/store/pickup-settings", requireAuth, requireRole("STORE_OWNER"),
       latitude:store.latitude==null?null:Number(store.latitude),longitude:store.longitude==null?null:Number(store.longitude)
     }});
   }catch(error){res.status(500).json({error:"Não foi possível atualizar a opção de coletas."});}
+});
+
+app.get("/api/store/financial-settings", requireAuth, requireRole("STORE_OWNER"), async (req,res)=>{
+  try{
+    if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
+    const store=await db.getStore(req.user.storeId);
+    if(!store) return res.status(404).json({error:"Ponto não encontrado."});
+    res.json({
+      store:{
+        id:store.id,
+        name:store.name||"",
+        legalName:store.legal_name||"",
+        cnpj:store.cnpj||"",
+        email:store.email||"",
+        phone:store.phone||""
+      },
+      asaas:{
+        walletId:store.asaas_wallet_id||"",
+        configured:Boolean(String(store.asaas_wallet_id||"").trim())
+      }
+    });
+  }catch(error){
+    console.error("store financial settings error:",error.message);
+    res.status(500).json({error:"Não foi possível carregar os dados financeiros do ponto."});
+  }
+});
+
+app.patch("/api/store/financial-settings", requireAuth, requireRole("STORE_OWNER"), async (req,res)=>{
+  try{
+    if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
+    const walletId=String(req.body.asaasWalletId||"").trim();
+    if(walletId && !/^[A-Za-z0-9_-]{8,120}$/.test(walletId)){
+      return res.status(400).json({error:"Wallet ID do Asaas inválido. Copie o identificador exatamente como aparece na sua conta Asaas."});
+    }
+    const store=await db.updateStore(req.user.storeId,{asaasWalletId:walletId||null});
+    if(!store) return res.status(404).json({error:"Ponto não encontrado."});
+    await audit(req,"UPDATE_STORE_ASAAS_WALLET","STORE",req.user.storeId,{
+      configured:Boolean(walletId),
+      walletSuffix:walletId ? walletId.slice(-6) : ""
+    });
+    res.json({
+      ok:true,
+      configured:Boolean(walletId),
+      walletId:store.asaas_wallet_id||"",
+      message:walletId
+        ?"Carteira Asaas vinculada. Os próximos pagamentos elegíveis poderão usar o split automático do ponto."
+        :"Carteira Asaas removida. Pagamentos com comissão ficarão bloqueados até nova vinculação."
+    });
+  }catch(error){
+    console.error("store financial settings update error:",error.message);
+    res.status(500).json({error:"Não foi possível salvar a carteira Asaas do ponto."});
+  }
 });
 
 app.get("/api/store/referral", requireAuth, requireRole("STORE_OWNER","STORE_CLERK"), async (req,res)=>{
