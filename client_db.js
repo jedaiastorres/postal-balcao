@@ -16,17 +16,9 @@ async function initClientDb() {
     ALTER TABLE app_users DROP CONSTRAINT IF EXISTS app_users_role_check_v2;
     ALTER TABLE app_users DROP CONSTRAINT IF EXISTS app_users_role_check_v3;
 
-    DO $
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint
-        WHERE conrelid='app_users'::regclass AND conname='app_users_role_check_v3'
-      ) THEN
-        ALTER TABLE app_users
-        ADD CONSTRAINT app_users_role_check_v3
-        CHECK (role IN ('ADMIN','SUPERVISOR','STORE_OWNER','STORE_CLERK','OPS','CLIENT'));
-      END IF;
-    END $;
+    ALTER TABLE app_users
+      ADD CONSTRAINT app_users_role_check_v3
+      CHECK (role IN ('ADMIN','SUPERVISOR','STORE_OWNER','STORE_CLERK','OPS','CLIENT'));
 
     ALTER TABLE stores ADD COLUMN IF NOT EXISTS pickup_enabled BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE stores ADD COLUMN IF NOT EXISTS pickup_radius_km NUMERIC(8,2) NOT NULL DEFAULT 10;
