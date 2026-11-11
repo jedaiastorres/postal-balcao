@@ -4013,7 +4013,74 @@ app.get("/api/envios/:id", requireAuth, async (req, res) => {
   }
 });
 
-// Rastreamento público com marca Postal. A ConectEnvios fica somente no backend.
+// Rastreamento público com marca Postal. Provedores e transportadoras ficam somente no backend.
+function trackingEventsFromPayload(payload) {
+  const candidates=[];
+  const seen=new Set();
+  const isEventLike=value=>{
+    if(!value || typeof value!=="object" || Array.isArray(value)) return false;
+    return Boolean(
+      value.date || value.datetime || value.created_at || value.createdAt ||
+      value.description || value.label || value.status_label || value.status ||
+      value.city || value.uf || value.state || value.type
+    );
+  };
+  const walk=(value,depth=0)=>{
+    if(value==null || depth>7) return;
+    if(typeof value==="object"){
+      if(seen.has(value)) return;
+      seen.add(value);
+    }
+    if(Array.isArray(value)){
+      if(value.length && value.some(isEventLike)) candidates.push(value.filter(isEventLike));
+      value.forEach(item=>walk(item,depth+1));
+      return;
+    }
+    if(typeof value!=="object") return;
+    for(const key of ["events","eventos","history","historico","tracking","trackings","occurrences","ocorrencias","movements","movimentacoes","checkpoints","statuses"]){
+      if(Array.isArray(value[key]) && value[key].some(isEventLike)) candidates.push(value[key].filter(isEventLike));
+    }
+    Object.values(value).forEach(child=>walk(child,depth+1));
+  };
+  walk(payload);
+  candidates.sort((a,b)=>b.length-a.length);
+  return candidates[0]||[];
+}
+
+function trackingFieldFromPayload(payload,keys) {
+  const seen=new Set();
+  const walk=(value,depth=0)=>{
+    if(value==null || depth>6 || typeof value!=="object") return null;
+    if(seen.has(value)) return null;
+    seen.add(value);
+    for(const key of keys){
+      const field=value[key];
+      if(field!==undefined && field!==null && !Array.isArray(field) && typeof field!=="object" && String(field).trim()){
+        return field;
+      }
+    }
+    const preferred=["data","result","package","shipment","tracking","track"];
+    for(const key of preferred){
+      if(value[key] && typeof value[key]==="object"){
+        const found=walk(value[key],depth+1);
+        if(found!==null) return found;
+      }
+    }
+    return null;
+  };
+  return walk(payload);
+}
+
+function postalServiceLabel(rawService) {
+  const value=String(rawService||"").toUpperCase();
+  if(value.includes("ECON")) return "Econômico";
+  if(value.includes("EXPRESS") || value.includes("EXPRESSO")) return "Expresso";
+  if(value.includes("SEDEX")) return "Expresso";
+  if(value.includes("PAC")) return "Econômico";
+  if(value.includes("STANDARD") || value.includes("PADR")) return "Padrão";
+  return value ? "Entrega Postal" : "Entrega";
+}
+
 app.get("/api/public/rastreio/:stamp", async (req,res)=>{
   if(!TOKEN) return res.status(503).json({error:"Rastreamento temporariamente indisponível."});
   const stamp=String(req.params.stamp||"").trim();
@@ -4025,17 +4092,90 @@ app.get("/api/public/rastreio/:stamp", async (req,res)=>{
     if(!order){
       return res.status(404).json({error:"Código não encontrado na rede Postal."});
     }
-    const result=await providerFetch(`/package/track/stamp/${encodeURIComponent(stamp)}`,{method:"GET",timeout:30000});
-    const raw=result.data||{};
-    const data=raw.data||raw;
-    const events=Array.isArray(data.events)?data.events:[];
+
+    const volumes=Array.isArray(order.shipment_volumes)?order.shipment_volumes:[];
+    const matchingVolume=volumes.find(v=>String(v?.trackingCode||v?.tracking_code||"").trim()===stamp);
+    const packageIds=[matchingVolume?.packageId,matchingVolume?.package_id,order.conect_package_id]
+      .filter(Boolean)
+      .map(String)
+      .filter((value,index,array)=>array.indexOf(value)===index);
+
+    const payloads=[];
+    for(const packageId of packageIds){
+      try{
+        const byId=await providerFetch(`/package/track/${encodeURIComponent(packageId)}`,{method:"GET",timeout:30000});
+        payloads.push(byId.data);
+      }catch(error){
+        console.warn("public tracking by id fallback",packageId,error.status||"",error.message);
+      }
+    }
+    try{
+      const byStamp=await providerFetch(`/package/track/stamp/${encodeURIComponent(stamp)}`,{method:"GET",timeout:30000});
+      payloads.push(byStamp.data);
+    }catch(error){
+      console.warn("public tracking by stamp fallback",stamp,error.status||"",error.message);
+    }
+
+    let bestPayload={};
+    let bestEvents=[];
+    for(const payload of payloads){
+      const events=trackingEventsFromPayload(payload);
+      if(events.length>bestEvents.length){
+        bestEvents=events;
+        bestPayload=payload||{};
+      }
+    }
+    if(!bestEvents.length && payloads.length) bestPayload=payloads[0]||{};
+
+    const normalizedEvents=bestEvents.slice(0,30).map(event=>({
+      date:event.date||event.datetime||event.created_at||event.createdAt||event.timestamp||null,
+      description:String(
+        event.description||event.message||event.label||event.status_label||event.statusLabel||
+        event.status||event.title||"Atualização do envio"
+      ),
+      city:event.city||event.location?.city||event.local?.city||null,
+      uf:event.uf||event.state||event.location?.uf||event.location?.state||null,
+      type:event.type||event.code||event.status_code||null
+    }));
+
+    const rawPackage=order.package_data&&typeof order.package_data==="object"?order.package_data:{};
+    const packageVolumes=Array.isArray(rawPackage.volumes)&&rawPackage.volumes.length
+      ? rawPackage.volumes
+      : [{
+          weightGrams:Number(rawPackage.weightGrams||0),
+          length:Number(rawPackage.length||0),
+          width:Number(rawPackage.width||0),
+          height:Number(rawPackage.height||0),
+          declaredValue:Number(rawPackage.declaredValue||0)
+        }];
+    const totalWeightGrams=packageVolumes.reduce((sum,v)=>sum+Number(v.weightGrams||0),0);
+    const totalDeclared=Number(rawPackage.declaredValue||packageVolumes.reduce((sum,v)=>sum+Number(v.declaredValue||0),0)||0);
     const sender=order.sender||{};
     const recipient=order.recipient||{};
+    const status=trackingFieldFromPayload(bestPayload,["status_label","statusLabel","current_status_label","currentStatus","status"])||
+      (normalizedEvents[0]?.description||"Em acompanhamento");
+    const updatedAt=trackingFieldFromPayload(bestPayload,["updated_at","updatedAt","last_update","lastUpdate"])||
+      normalizedEvents[0]?.date||null;
+
     res.json({
       trackingCode:stamp,
-      statusLabel:String(data.status_label||data.statusLabel||"Em acompanhamento"),
-      carrier:String(order.carrier||""),
-      service:String(order.service_name||""),
+      statusLabel:String(status),
+      operator:"Postal Serviços",
+      service:postalServiceLabel(order.service_name),
+      sender:{
+        name:String(sender.name||""),
+        city:String(sender.city||""),
+        cep:String(sender.cep||"").replace(/\D/g,"")
+      },
+      recipient:{
+        name:String(recipient.name||""),
+        address:String(recipient.address||""),
+        number:String(recipient.number||""),
+        complement:String(recipient.complement||""),
+        neighborhood:String(recipient.neighborhood||""),
+        city:String(recipient.city||""),
+        cep:String(recipient.cep||"").replace(/\D/g,"")
+      },
       origin:{
         city:String(sender.city||""),
         cep:String(sender.cep||"").replace(/\D/g,"")
@@ -4044,19 +4184,27 @@ app.get("/api/public/rastreio/:stamp", async (req,res)=>{
         city:String(recipient.city||""),
         cep:String(recipient.cep||"").replace(/\D/g,"")
       },
-      events:events.slice(0,30).map(event=>({
-        date:event.date||event.created_at||event.createdAt||null,
-        description:String(event.description||event.label||event.status_label||event.status||"Atualização do envio"),
-        city:event.city||null,
-        uf:event.uf||event.state||null,
-        type:event.type||null
-      })),
-      updatedAt:data.updated_at||data.updatedAt||null
+      package:{
+        volumeCount:Number(order.package_count||packageVolumes.length||1),
+        weightKg:Number((totalWeightGrams/1000).toFixed(3)),
+        declaredValue:Number(totalDeclared||0),
+        volumes:packageVolumes.map((v,index)=>({
+          index:index+1,
+          weightKg:Number((Number(v.weightGrams||0)/1000).toFixed(3)),
+          dimensions:{
+            length:Number(v.length||0),
+            width:Number(v.width||0),
+            height:Number(v.height||0)
+          },
+          declaredValue:Number(v.declaredValue||0)
+        }))
+      },
+      events:normalizedEvents,
+      updatedAt
     });
   }catch(error){
     console.error("public tracking error:",error.status,error.message);
-    const status=Number(error.status)||502;
-    res.status(status===404?404:502).json({error:"Não foi possível atualizar o rastreio agora. Tente novamente em alguns instantes."});
+    res.status(502).json({error:"Não foi possível atualizar o rastreio agora. Tente novamente em alguns instantes."});
   }
 });
 
