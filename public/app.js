@@ -37,6 +37,7 @@ const viewMap = {
   receive: { placeholder: ["Receber Pacote", "Aqui o atendente fará a leitura do código e confirmará que a encomenda entrou fisicamente no ponto Postal."] },
   returns: { placeholder: ["Devolução", "Fluxo de logística reversa e devoluções ficará centralizado nesta área."] },
   financial: { el: "#financialView", title: "Recebimentos Asaas" },
+  storeUsers: { el: "#storeUsersView", title: "Usuários do ponto" },
   cash: { placeholder: ["Meu Caixa", "Extrato de comissões, saldo, fechamento diário e solicitação de saque serão exibidos aqui."] },
   clients: { placeholder: ["Clientes", "Cadastro rápido de remetentes frequentes para acelerar o atendimento no balcão."] }
 };
@@ -104,7 +105,7 @@ function showApp(user) {
 
   const canSell = ["ADMIN","STORE_OWNER","STORE_CLERK","CLIENT"].includes(user?.role);
   const canManageStock = ["ADMIN","STORE_OWNER","OPS"].includes(user?.role);
-  const canUseCredit = ["ADMIN","STORE_OWNER","STORE_CLERK"].includes(user?.role);
+  const canUseCredit = ["ADMIN","STORE_OWNER"].includes(user?.role);
   const ownerFinance = ["ADMIN","STORE_OWNER"].includes(user?.role);
 
   document.querySelector('[data-view="quote"]')?.classList.toggle("hidden", !canSell);
@@ -112,10 +113,25 @@ function showApp(user) {
   document.querySelector('[data-view="inventory"]')?.classList.toggle("hidden", !canManageStock);
   document.querySelector('[data-view="cash"]')?.classList.toggle("hidden", !ownerFinance);
   document.querySelectorAll(".owner-finance-only").forEach(el => el.classList.toggle("hidden", user?.role !== "STORE_OWNER"));
+
+  const clerkPostingOnly = user?.role === "STORE_CLERK";
+  const clerkAllowedViews = new Set(["dashboard","quote","orders"]);
+  document.querySelectorAll(".sidebar .nav-item").forEach(btn => {
+    if (clerkPostingOnly && !clerkAllowedViews.has(btn.dataset.view)) {
+      btn.dataset.clerkHidden = "1";
+      btn.classList.add("hidden");
+    } else if (!clerkPostingOnly && btn.dataset.clerkHidden === "1") {
+      delete btn.dataset.clerkHidden;
+      btn.classList.remove("hidden");
+    }
+  });
+  $("#metricCommission")?.closest(".metric-card")?.classList.toggle("hidden", clerkPostingOnly);
+  $("#commissionBig")?.closest(".accent-panel")?.classList.toggle("hidden", clerkPostingOnly);
+
   window.PostalClient?.onShowApp?.(user);
   $("#inventorySalePrice")?.toggleAttribute("disabled", user?.role !== "ADMIN");
 
-  if (user?.storeCommissionPercent != null) {
+  if (user?.storeCommissionPercent != null && user?.role !== "STORE_CLERK") {
     const pct = Number(user.storeCommissionPercent).toFixed(1).replace(".0","");
     $("#commissionCaption").textContent = pct + "% sobre o preço final";
     $("#commissionBig").textContent = pct + "%";
@@ -229,7 +245,11 @@ function navigate(name) {
     toast("Área exclusiva da administração Postal.", "error");
     return;
   }
-  if (name === "credit" && !["ADMIN","STORE_OWNER","STORE_CLERK"].includes(state.user?.role)) {
+  if (state.user?.role === "STORE_CLERK" && !["dashboard","quote","shipment","orders"].includes(name)) {
+    toast("Este usuário possui acesso somente às postagens do ponto.", "error");
+    return;
+  }
+  if (name === "credit" && !["ADMIN","STORE_OWNER"].includes(state.user?.role)) {
     toast("Este perfil não possui acesso ao crédito no balcão.", "error");
     return;
   }
@@ -241,7 +261,7 @@ function navigate(name) {
     toast("Este perfil não possui permissão para gerenciar estoque.", "error");
     return;
   }
-  if (name === "financial" && state.user?.role !== "STORE_OWNER") {
+  if (["financial","storeUsers"].includes(name) && state.user?.role !== "STORE_OWNER") {
     toast("A conta de recebimento só pode ser alterada pelo dono do ponto.", "error");
     return;
   }
@@ -249,11 +269,11 @@ function navigate(name) {
     toast("Área exclusiva para clientes Postal.", "error");
     return;
   }
-  if (name === "referrals" && !["STORE_OWNER","STORE_CLERK"].includes(state.user?.role)) {
+  if (name === "referrals" && state.user?.role !== "STORE_OWNER") {
     toast("Área disponível para pontos parceiros.", "error");
     return;
   }
-  if (name === "collections" && !["ADMIN","STORE_OWNER","STORE_CLERK","OPS","CLIENT"].includes(state.user?.role)) {
+  if (name === "collections" && !["ADMIN","STORE_OWNER","OPS","CLIENT"].includes(state.user?.role)) {
     toast("Perfil sem acesso ao painel de coletas.", "error");
     return;
   }
@@ -275,6 +295,7 @@ function navigate(name) {
   if (name === "orders") loadOrders();
   if (name === "inventory") loadInventory();
   if (name === "financial") loadStoreFinancialSettings();
+  if (name === "storeUsers") loadStoreUsers();
   if (name === "credit") loadCredit();
   if (name === "master" && state.user?.role === "ADMIN") loadMaster();
   if (name === "clientHome") window.PostalClient?.loadClientHome?.();
