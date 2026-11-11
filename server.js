@@ -4116,6 +4116,10 @@ app.get("/api/public/rastreio/:stamp", async (req,res)=>{
       console.warn("public tracking by stamp fallback",stamp,error.status||"",error.message);
     }
 
+    if(stamp==="Y5WKHY6H"){
+      console.log("TRACK_DEBUG_PAYLOADS",JSON.stringify(payloads).slice(0,12000));
+    }
+
     let bestPayload={};
     let bestEvents=[];
     for(const payload of payloads){
