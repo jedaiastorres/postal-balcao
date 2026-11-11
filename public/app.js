@@ -36,6 +36,7 @@ const viewMap = {
   referrals: { el: "#referralsView", title: "Indique & Ganhe" },
   receive: { placeholder: ["Receber Pacote", "Aqui o atendente fará a leitura do código e confirmará que a encomenda entrou fisicamente no ponto Postal."] },
   returns: { placeholder: ["Devolução", "Fluxo de logística reversa e devoluções ficará centralizado nesta área."] },
+  financial: { el: "#financialView", title: "Recebimentos Asaas" },
   cash: { placeholder: ["Meu Caixa", "Extrato de comissões, saldo, fechamento diário e solicitação de saque serão exibidos aqui."] },
   clients: { placeholder: ["Clientes", "Cadastro rápido de remetentes frequentes para acelerar o atendimento no balcão."] }
 };
@@ -110,6 +111,7 @@ function showApp(user) {
   document.querySelector('[data-view="credit"]')?.classList.toggle("hidden", !canUseCredit);
   document.querySelector('[data-view="inventory"]')?.classList.toggle("hidden", !canManageStock);
   document.querySelector('[data-view="cash"]')?.classList.toggle("hidden", !ownerFinance);
+  document.querySelectorAll(".owner-finance-only").forEach(el => el.classList.toggle("hidden", user?.role !== "STORE_OWNER"));
   window.PostalClient?.onShowApp?.(user);
   $("#inventorySalePrice")?.toggleAttribute("disabled", user?.role !== "ADMIN");
 
@@ -239,6 +241,10 @@ function navigate(name) {
     toast("Este perfil não possui permissão para gerenciar estoque.", "error");
     return;
   }
+  if (name === "financial" && state.user?.role !== "STORE_OWNER") {
+    toast("A conta de recebimento só pode ser alterada pelo dono do ponto.", "error");
+    return;
+  }
   if (["clientHome","clientOrders","wallet","connections"].includes(name) && state.user?.role !== "CLIENT") {
     toast("Área exclusiva para clientes Postal.", "error");
     return;
@@ -268,6 +274,7 @@ function navigate(name) {
   $(".sidebar").classList.remove("open");
   if (name === "orders") loadOrders();
   if (name === "inventory") loadInventory();
+  if (name === "financial") loadStoreFinancialSettings();
   if (name === "credit") loadCredit();
   if (name === "master" && state.user?.role === "ADMIN") loadMaster();
   if (name === "clientHome") window.PostalClient?.loadClientHome?.();
