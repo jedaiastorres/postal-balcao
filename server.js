@@ -1532,7 +1532,7 @@ app.get("/api/public-config", (_req, res) => {
     paymentsOperational: paymentOperational(),
     paymentsEnvironment: paymentRuntime.environment?.keyEnvironment || "unknown",
     databaseConfigured: Boolean(process.env.DATABASE_URL),
-    version: "1.9.0",
+    version: "1.9.1",
     paymentSimulatorEnabled: PAYMENT_SIMULATOR_ENABLED && !asaas.configured(),
     clientPickupFeePerPackage: CLIENT_PICKUP_FEE_PER_PACKAGE,
     pointPickupEarningPerPackage: POINT_PICKUP_EARNING_PER_PACKAGE,
