@@ -165,6 +165,12 @@ async function initClientDb() {
     CREATE INDEX IF NOT EXISTS collection_requests_client_idx
       ON collection_requests(client_user_id,requested_at DESC);
 
+    ALTER TABLE collection_requests ALTER COLUMN client_user_id DROP NOT NULL;
+    ALTER TABLE collection_requests ADD COLUMN IF NOT EXISTS requester_name TEXT;
+    ALTER TABLE collection_requests ADD COLUMN IF NOT EXISTS requester_phone TEXT;
+    ALTER TABLE collection_requests ADD COLUMN IF NOT EXISTS requester_document TEXT;
+    ALTER TABLE collection_requests ADD COLUMN IF NOT EXISTS created_by_user_id UUID REFERENCES app_users(id) ON DELETE SET NULL;
+
     CREATE INDEX IF NOT EXISTS collection_requests_store_idx
       ON collection_requests(assigned_store_id,status,requested_at DESC);
 
@@ -585,15 +591,17 @@ async function createCollectionRequest(request){
     `INSERT INTO collection_requests(
       id,client_user_id,freight_order_id,service_type,status,package_count,
       fee_per_package,total_fee,assigned_store_id,point_rate,point_compensation,postal_compensation,
-      address,latitude,longitude,scheduled_for,notes,assigned_at
+      address,latitude,longitude,scheduled_for,notes,assigned_at,
+      requester_name,requester_phone,requester_document,created_by_user_id
     ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16,$17,
-      CASE WHEN $9::uuid IS NULL THEN NULL ELSE NOW() END)
+      CASE WHEN $9::uuid IS NULL THEN NULL ELSE NOW() END,$18,$19,$20,$21)
     RETURNING *`,
     [
-      id(),request.clientUserId,request.freightOrderId||null,request.serviceType,request.status,request.packageCount,
+      id(),request.clientUserId||null,request.freightOrderId||null,request.serviceType,request.status,request.packageCount,
       request.feePerPackage,request.totalFee,request.assignedStoreId||null,request.pointRate||0,
       request.pointCompensation||0,request.postalCompensation||0,JSON.stringify(request.address||{}),
-      request.latitude||null,request.longitude||null,request.scheduledFor||null,request.notes||""
+      request.latitude||null,request.longitude||null,request.scheduledFor||null,request.notes||"",
+      request.requesterName||"",request.requesterPhone||"",request.requesterDocument||"",request.createdByUserId||null
     ]
   ); return rows[0];
 }
@@ -604,9 +612,12 @@ async function listCollections({clientUserId=null,storeId=null,all=false}={},lim
   if(!all&&storeId){params.push(storeId);where.push("c.assigned_store_id=$"+params.length);}
   params.push(Math.max(1,Math.min(250,Number(limit)||100)));
   const {rows}=await db.query(
-    `SELECT c.*,u.name AS client_name,u.email AS client_email,s.name AS store_name,s.code AS store_code
+    `SELECT c.*,COALESCE(NULLIF(c.requester_name,''),u.name,'Cliente') AS client_name,
+            u.email AS client_email,COALESCE(NULLIF(c.requester_phone,''),'') AS client_phone,
+            COALESCE(NULLIF(c.requester_document,''),'') AS client_document,
+            s.name AS store_name,s.code AS store_code
        FROM collection_requests c
-       JOIN app_users u ON u.id=c.client_user_id
+       LEFT JOIN app_users u ON u.id=c.client_user_id
        LEFT JOIN stores s ON s.id=c.assigned_store_id
        ${where.length?"WHERE "+where.join(" AND "):""}
       ORDER BY c.requested_at DESC LIMIT $${params.length}`,params
@@ -616,8 +627,11 @@ async function listCollections({clientUserId=null,storeId=null,all=false}={},lim
 async function getCollection(collectionId){
   const db=database();
   const {rows}=await db.query(
-    `SELECT c.*,u.name AS client_name,u.email AS client_email,s.name AS store_name,s.code AS store_code
-       FROM collection_requests c JOIN app_users u ON u.id=c.client_user_id
+    `SELECT c.*,COALESCE(NULLIF(c.requester_name,''),u.name,'Cliente') AS client_name,
+            u.email AS client_email,COALESCE(NULLIF(c.requester_phone,''),'') AS client_phone,
+            COALESCE(NULLIF(c.requester_document,''),'') AS client_document,
+            s.name AS store_name,s.code AS store_code
+       FROM collection_requests c LEFT JOIN app_users u ON u.id=c.client_user_id
        LEFT JOIN stores s ON s.id=c.assigned_store_id WHERE c.id=$1 LIMIT 1`,
     [collectionId]
   ); return rows[0]||null;
