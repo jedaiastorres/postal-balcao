@@ -27,7 +27,6 @@ const viewMap = {
   shipment: { el: "#shipmentView", title: "Nova Postagem" },
   orders: { el: "#ordersView", title: "Meus Fretes" },
   inventory: { el: "#inventoryView", title: "Produtos & Estoque" },
-  credit: { el: "#creditView", title: "Crédito no Balcão" },
   master: { el: "#masterView", title: "Painel Master" },
   supervisor: { el: "#supervisorView", title: "Supervisão da Rede" },
   clientHome: { el: "#clientHomeView", title: "Minha Postal" },
@@ -36,8 +35,6 @@ const viewMap = {
   connections: { el: "#connectionsView", title: "Integrações" },
   collections: { el: "#collectionsView", title: "Coletas" },
   referrals: { el: "#referralsView", title: "Indique & Ganhe" },
-  receive: { placeholder: ["Receber Pacote", "Aqui o atendente fará a leitura do código e confirmará que a encomenda entrou fisicamente no ponto Postal."] },
-  returns: { placeholder: ["Devolução", "Fluxo de logística reversa e devoluções ficará centralizado nesta área."] },
   financial: { el: "#financialView", title: "Recebimentos Asaas" },
   storeUsers: { el: "#storeUsersView", title: "Usuários do ponto" },
   cash: { el: "#cashView", title: "Meu Caixa" },
@@ -109,7 +106,6 @@ function showApp(user) {
 
   const canSell = ["ADMIN","STORE_OWNER","STORE_CLERK","CLIENT"].includes(user?.role);
   const canManageStock = ["ADMIN","STORE_OWNER","OPS"].includes(user?.role);
-  const canUseCredit = ["ADMIN","STORE_OWNER"].includes(user?.role);
   const ownerFinance = ["ADMIN","SUPERVISOR","STORE_OWNER"].includes(user?.role);
   const managementAnalytics = ["ADMIN","SUPERVISOR","STORE_OWNER"].includes(user?.role);
   document.querySelectorAll(".management-analytics-only").forEach(el=>el.classList.toggle("hidden",!managementAnalytics));
@@ -118,13 +114,12 @@ function showApp(user) {
   document.querySelectorAll(".analytics-network-only").forEach(el=>el.classList.toggle("hidden",!["ADMIN","SUPERVISOR"].includes(user?.role)));
 
   document.querySelector('[data-view="quote"]')?.classList.toggle("hidden", !canSell);
-  document.querySelector('[data-view="credit"]')?.classList.toggle("hidden", !canUseCredit);
   document.querySelector('[data-view="inventory"]')?.classList.toggle("hidden", !canManageStock);
   document.querySelector('[data-view="cash"]')?.classList.toggle("hidden", !ownerFinance);
   document.querySelectorAll(".owner-finance-only").forEach(el => el.classList.toggle("hidden", user?.role !== "STORE_OWNER"));
 
   const clerkPostingOnly = user?.role === "STORE_CLERK";
-  const clerkAllowedViews = new Set(["quote","orders"]);
+  const clerkAllowedViews = new Set(["quote","orders","collections"]);
   document.querySelectorAll(".sidebar .nav-item").forEach(btn => {
     if (clerkPostingOnly && !clerkAllowedViews.has(btn.dataset.view)) {
       btn.dataset.clerkHidden = "1";
@@ -265,12 +260,8 @@ function navigate(name) {
     toast("Área exclusiva da supervisão da rede.", "error");
     return;
   }
-  if (state.user?.role === "STORE_CLERK" && !["quote","shipment","orders"].includes(name)) {
-    toast("Este usuário possui acesso somente às postagens do ponto.", "error");
-    return;
-  }
-  if (name === "credit" && !["ADMIN","STORE_OWNER"].includes(state.user?.role)) {
-    toast("Este perfil não possui acesso ao crédito no balcão.", "error");
+  if (state.user?.role === "STORE_CLERK" && !["quote","shipment","orders","collections"].includes(name)) {
+    toast("Este usuário possui acesso às postagens e coletas do ponto.", "error");
     return;
   }
   if (["quote","shipment"].includes(name) && !["ADMIN","STORE_OWNER","STORE_CLERK","CLIENT"].includes(state.user?.role)) {
@@ -293,7 +284,7 @@ function navigate(name) {
     toast("Área disponível para pontos parceiros.", "error");
     return;
   }
-  if (name === "collections" && !["ADMIN","SUPERVISOR","STORE_OWNER","OPS","CLIENT"].includes(state.user?.role)) {
+  if (name === "collections" && !["ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS","CLIENT"].includes(state.user?.role)) {
     toast("Perfil sem acesso ao painel de coletas.", "error");
     return;
   }
@@ -319,7 +310,6 @@ function navigate(name) {
   if (name === "storeUsers") loadStoreUsers();
   if (name === "cash") loadCash();
   if (name === "supervisor") loadSupervisor();
-  if (name === "credit") loadCredit();
   if (name === "master" && state.user?.role === "ADMIN") loadMaster();
   if (name === "clientHome") window.PostalClient?.loadClientHome?.();
   if (name === "clientOrders") window.PostalClient?.loadOperations?.();
