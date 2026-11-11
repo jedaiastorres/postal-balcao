@@ -959,7 +959,8 @@ function receiptPayload(preview = false) {
     service: o.produto || r.service || "",
     deadline: o.prazoEntrega || r.deadline || "",
     salePrice: state.paymentPreview?.total || o.precoVenda || r.salePrice || 0,
-    freightPrice: state.paymentPreview?.freightPrice || o.precoVenda || r.salePrice || 0,
+    freightPrice: (state.paymentPreview?.freightPrice || o.precoVenda || r.salePrice || 0) - Number(state.paymentPreview?.hubTransferTotal ?? o.hubTransferTotal ?? r.hubTransferTotal ?? 0),
+    hubTransferTotal: Number(state.paymentPreview?.hubTransferTotal ?? o.hubTransferTotal ?? r.hubTransferTotal ?? 0),
     addonsTotal: state.paymentPreview?.addonsTotal || 0,
     paymentFee: state.paymentPreview?.paymentFee || 0,
     addons: selectedAddonPayload().map(selected => {
@@ -1038,6 +1039,7 @@ function buildReceiptHtml(data) {
   ${extras ? `<div class="dash"></div><div class="section">PRODUTOS / SERVIÇOS</div>${extras}` : ""}
   <div class="dash"></div><div class="section">PAGAMENTO</div>
   <div class="row"><span>Frete</span><b>${money(data.freightPrice || data.salePrice)}</b></div>
+  ${Number(data.hubTransferTotal || 0) ? `<div class="row"><span>Transferência ao hub</span><b>${money(data.hubTransferTotal)}</b></div>` : ""}
   ${Number(data.addonsTotal || 0) ? `<div class="row"><span>Adicionais</span><b>${money(data.addonsTotal)}</b></div>` : ""}
   ${Number(data.paymentFee || 0) ? `<div class="row"><span>Taxa pagamento</span><b>${money(data.paymentFee)}</b></div>` : ""}
   <div class="row total"><span>TOTAL PAGO</span><b>${money(data.salePrice)}</b></div><div class="row"><span>Forma</span><b>${escapeHtml(data.paymentMethod || "-")}</b></div><div class="row"><span>Status</span><b>${escapeHtml(paidLabel)}</b></div>${ids}
@@ -1826,7 +1828,7 @@ async function loadManagementAnalytics(){
       title:item.name||"Ponto",
       subtitle:Number(item.orders||0)+" postagem(ns) · "+Number(item.packages||0)+" pacote(s)",
       value:money(item.grossSales||0),
-      detail:"Receita do ponto: "+money(item.pointRevenue||0)
+      detail:"Receita do ponto: "+money(item.pointRevenue||0)+(Number(item.hubTransferRevenue||0)>0?" · Hub: "+money(item.hubTransferRevenue):"")
     }));
     rankRows("#analyticsStatusesList",data.statuses,item=>({
       title:String(item.label||"Status").replaceAll("_"," "),
