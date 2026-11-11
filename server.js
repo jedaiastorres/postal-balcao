@@ -776,30 +776,53 @@ async function refreshShipmentFromProvider(order) {
   // Ao abrir essa URL para um envio já pago, a plataforma materializa a etiqueta e
   // grava o código de rastreio. Se ainda não estiver pago, a chamada não retorna PDF
   // e o pedido permanece pendente, sem criar outro carrinho.
-  if (!shipment.ready && shipment.labelA4Url) {
-    try {
-      const printResponse = await fetch(shipment.labelA4Url, {
-        method:"GET",
-        headers:providerHeaders(),
-        redirect:"follow",
-        signal:AbortSignal.timeout(30000)
-      });
-      const printType = String(printResponse.headers.get("content-type") || "").toLowerCase();
-      if (printResponse.ok && printType.includes("application/pdf")) {
-        try { await printResponse.arrayBuffer(); } catch {}
-        const refreshed = await providerFetch("/cart/" + encodeURIComponent(order.conect_cart_id), {
-          method:"GET",
-          timeout:30000
-        });
-        const refreshedPayload = refreshed.data || {};
-        cart = refreshedPayload.data || refreshedPayload;
-        shipment = shipmentFromProviderCart(cart, expected);
-        console.log("CONECTENVIOS_LABEL_MATERIALIZED", order.id, shipment.trackingCode || "tracking_pending");
-      } else {
-        try { await printResponse.arrayBuffer(); } catch {}
+  if (!shipment.ready) {
+    const printUrls = [...new Set(
+      (shipment.volumes || [])
+        .map(volume => String(volume.labelA4Url || ""))
+        .filter(Boolean)
+    )];
+
+    if (printUrls.length) {
+      let materialized = 0;
+      for (const printUrl of printUrls) {
+        try {
+          const printResponse = await fetch(printUrl, {
+            method:"GET",
+            headers:providerHeaders(),
+            redirect:"follow",
+            signal:AbortSignal.timeout(30000)
+          });
+          const printType = String(printResponse.headers.get("content-type") || "").toLowerCase();
+          if (printResponse.ok && printType.includes("application/pdf")) {
+            materialized++;
+          }
+          try { await printResponse.arrayBuffer(); } catch {}
+        } catch (error) {
+          console.warn("CONECTENVIOS_LABEL_MATERIALIZE_VOLUME_PENDING", order.id, String(error?.message || error));
+        }
       }
-    } catch (error) {
-      console.warn("CONECTENVIOS_LABEL_MATERIALIZE_PENDING", order.id, String(error?.message || error));
+
+      if (materialized > 0) {
+        try {
+          const refreshed = await providerFetch("/cart/" + encodeURIComponent(order.conect_cart_id), {
+            method:"GET",
+            timeout:30000
+          });
+          const refreshedPayload = refreshed.data || {};
+          cart = refreshedPayload.data || refreshedPayload;
+          shipment = shipmentFromProviderCart(cart, expected);
+          console.log(
+            "CONECTENVIOS_LABELS_MATERIALIZED",
+            order.id,
+            "pdfs="+materialized,
+            "volumes="+(shipment.volumes || []).length,
+            "ready="+shipment.ready
+          );
+        } catch (error) {
+          console.warn("CONECTENVIOS_LABEL_REFRESH_PENDING", order.id, String(error?.message || error));
+        }
+      }
     }
   }
 
