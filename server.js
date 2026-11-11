@@ -2503,6 +2503,115 @@ app.patch("/api/store/pickup-settings", requireAuth, requireRole("STORE_OWNER"),
   }catch(error){res.status(500).json({error:"Não foi possível atualizar a opção de coletas."});}
 });
 
+app.get("/api/store/cash", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER"), async (req,res)=>{
+  try{
+    const storeId=req.user.role==="STORE_OWNER" ? req.user.storeId : (req.query.storeId||null);
+    if(req.user.role==="STORE_OWNER" && !storeId){
+      return res.status(400).json({error:"Usuário sem ponto vinculado."});
+    }
+
+    const params=[];
+    const orderWhere=["f.is_simulation=FALSE"];
+    const earningWhere=["pe.status IN ('EARNED','PAID')"];
+    if(storeId){
+      params.push(storeId);
+      orderWhere.push("f.store_id=$1");
+      earningWhere.push("pe.store_id=$1");
+    }
+
+    const [ordersResult,earningsResult,movementsResult]=await Promise.all([
+      db.pool.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE f.payment_status='PAID')::int AS paid_orders,
+           COALESCE(SUM(f.payment_amount) FILTER (WHERE f.payment_status='PAID'),0) AS customer_received,
+           COALESCE(SUM(f.point_revenue_total) FILTER (WHERE f.payment_status='PAID'),0) AS sales_earnings,
+           COALESCE(SUM(f.cash_remittance_amount) FILTER (
+             WHERE f.status IN ('CASH_REMITTANCE_PENDING','CASH_REMITTANCE_PAYMENT_PENDING')
+           ),0) AS pending_remittance,
+           COALESCE(SUM(f.point_revenue_total) FILTER (
+             WHERE f.payment_status='PAID' AND f.created_at>=date_trunc('day',NOW())
+           ),0) AS today_sales_earnings
+         FROM freight_orders f
+         WHERE ${orderWhere.join(" AND ")}`,
+        params
+      ),
+      db.pool.query(
+        `SELECT
+           COALESCE(SUM(pe.amount),0) AS extra_earnings,
+           COALESCE(SUM(pe.amount) FILTER (WHERE pe.earning_type='PICKUP'),0) AS pickup_earnings,
+           COALESCE(SUM(pe.amount) FILTER (WHERE pe.earning_type='DROPOFF'),0) AS dropoff_earnings,
+           COALESCE(SUM(pe.amount) FILTER (WHERE pe.earning_type='REFERRAL'),0) AS referral_earnings,
+           COALESCE(SUM(pe.amount) FILTER (WHERE pe.paid_at IS NULL),0) AS unpaid_extra_earnings
+         FROM point_earnings pe
+         WHERE ${earningWhere.join(" AND ")}`,
+        params
+      ),
+      db.pool.query(
+        `SELECT * FROM (
+           SELECT f.id::text AS id,f.created_at AS created_at,'SALE'::text AS type,
+                  COALESCE(s.name,'Postal Serviços') AS store_name,
+                  ('Frete '||COALESCE(f.tracking_code,LEFT(f.id::text,8))) AS description,
+                  CASE WHEN f.payment_status='PAID' THEN f.point_revenue_total ELSE 0 END AS amount,
+                  f.payment_status AS status
+             FROM freight_orders f
+             LEFT JOIN stores s ON s.id=f.store_id
+            WHERE ${orderWhere.join(" AND ")}
+           UNION ALL
+           SELECT pe.id::text,pe.created_at,'EARNING',COALESCE(s.name,'Postal Serviços'),
+                  CASE pe.earning_type
+                    WHEN 'PICKUP' THEN 'Remuneração de coleta'
+                    WHEN 'DROPOFF' THEN 'Remuneração de postagem/recebimento'
+                    WHEN 'REFERRAL' THEN 'Comissão por cliente indicado'
+                    ELSE 'Ganho do ponto'
+                  END,
+                  pe.amount,pe.status
+             FROM point_earnings pe
+             LEFT JOIN stores s ON s.id=pe.store_id
+            WHERE ${earningWhere.join(" AND ")}
+         ) x
+         ORDER BY created_at DESC
+         LIMIT 100`,
+        params
+      )
+    ]);
+
+    const sales=ordersResult.rows[0]||{};
+    const extras=earningsResult.rows[0]||{};
+    const salesEarnings=Number(sales.sales_earnings||0);
+    const extraEarnings=Number(extras.extra_earnings||0);
+
+    res.json({
+      scope:storeId?"STORE":"NETWORK",
+      storeId:storeId||null,
+      summary:{
+        paidOrders:Number(sales.paid_orders||0),
+        customerReceived:Number(sales.customer_received||0),
+        salesEarnings,
+        extraEarnings,
+        totalEarnings:round2(salesEarnings+extraEarnings),
+        todayEarnings:round2(Number(sales.today_sales_earnings||0)),
+        pickupEarnings:Number(extras.pickup_earnings||0),
+        dropoffEarnings:Number(extras.dropoff_earnings||0),
+        referralEarnings:Number(extras.referral_earnings||0),
+        unpaidExtraEarnings:Number(extras.unpaid_extra_earnings||0),
+        pendingRemittance:Number(sales.pending_remittance||0)
+      },
+      movements:movementsResult.rows.map(row=>({
+        id:row.id,
+        type:row.type,
+        storeName:row.store_name,
+        description:row.description,
+        amount:Number(row.amount||0),
+        status:row.status,
+        createdAt:row.created_at
+      }))
+    });
+  }catch(error){
+    console.error("store cash error:",error.message);
+    res.status(500).json({error:"Não foi possível carregar o Meu Caixa."});
+  }
+});
+
 app.get("/api/store/financial-settings", requireAuth, requireRole("STORE_OWNER"), async (req,res)=>{
   try{
     if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
