@@ -1378,6 +1378,52 @@ $("#clearOrderFilters")?.addEventListener("click", () => {
 $("#closeOrderDetailBtn")?.addEventListener("click",()=>$("#orderDetailModal")?.classList.add("hidden"));
 $("#orderDetailModal")?.addEventListener("click",event=>{if(event.target.id==="orderDetailModal") event.currentTarget.classList.add("hidden");});
 
+async function loadStoreFinancialSettings() {
+  if (state.user?.role !== "STORE_OWNER") return;
+  const summary = $("#storeFinancialSummary");
+  const status = $("#asaasWalletStatus");
+  try {
+    const result = await api("/api/store/financial-settings");
+    const wallet = String(result.asaas?.walletId || "");
+    $("#storeAsaasWalletId").value = wallet;
+    if (status) {
+      status.className = "order-status " + (result.asaas?.configured ? "success" : "warning");
+      status.textContent = result.asaas?.configured ? "Carteira vinculada" : "Configuração pendente";
+    }
+    if (summary) {
+      summary.innerHTML = `<div class="inventory-row">
+        <div><span class="addon-type">PONTO</span><strong>${escapeHtml(result.store?.name || state.user?.storeName || "")}</strong><small>${escapeHtml(result.store?.cnpj || "CNPJ não informado")}</small></div>
+        <div><span>Conta Asaas</span><strong>${wallet ? ("•••• " + escapeHtml(wallet.slice(-8))) : "Não vinculada"}</strong></div>
+      </div>`;
+    }
+  } catch (err) {
+    if (summary) summary.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+    if (status) { status.className = "order-status danger"; status.textContent = "Erro"; }
+  }
+}
+
+$("#storeFinancialForm")?.addEventListener("submit", async event => {
+  event.preventDefault();
+  const walletId = $("#storeAsaasWalletId").value.trim();
+  if (!walletId) return toast("Informe a Wallet ID da sua conta Asaas.", "error");
+  const btn = event.currentTarget.querySelector('button[type="submit"]');
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Salvando...";
+  try {
+    const result = await api("/api/store/financial-settings", {
+      method: "PATCH",
+      body: JSON.stringify({ asaasWalletId: walletId })
+    });
+    toast(result.message || "Conta Asaas salva.");
+    await loadStoreFinancialSettings();
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+});
 async function loadCredit() {
   try {
     const [productsResult, proposalsResult] = await Promise.all([
