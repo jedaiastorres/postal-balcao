@@ -2020,10 +2020,21 @@ async function loadMaster() {
         const quoteCep=window.prompt("CEP operacional para cotação/postagem (vazio = usar CEP real):",store.quoteOriginCep||"");
         if(quoteCep==null) return;
         const cleanQuoteCep=onlyDigits(quoteCep);
-        if(cleanQuoteCep && cleanQuoteCep.length!==8) return toast("CEP operacional inválido.","error");
+        if(cleanQuoteCep && cleanQuoteCep.length!==8) return toast("CEP máscara inválido.","error");
+        let operationalHub={};
+        if(cleanQuoteCep){
+          const currentHub=store.operationalHub||{};
+          const hubName=window.prompt("Nome do hub:",currentHub.name||"Hub Postal"); if(hubName==null) return;
+          const hubAddress=window.prompt("Endereço do hub:",currentHub.address||""); if(hubAddress==null) return;
+          const hubNumber=window.prompt("Número do hub:",currentHub.number||""); if(hubNumber==null) return;
+          const hubNeighborhood=window.prompt("Bairro do hub:",currentHub.neighborhood||""); if(hubNeighborhood==null) return;
+          const hubCity=window.prompt("Cidade do hub:",currentHub.city||""); if(hubCity==null) return;
+          const hubState=window.prompt("UF do hub:",currentHub.state||"PA"); if(hubState==null) return;
+          operationalHub={name:hubName.trim(),cep:cleanQuoteCep,address:hubAddress.trim(),number:hubNumber.trim(),neighborhood:hubNeighborhood.trim(),city:hubCity.trim(),state:hubState.trim().toUpperCase()};
+        }
         const active=window.confirm("OK = ponto ativo. Cancelar = desativar o ponto.");
         try{
-          await api(`/api/admin/stores/${store.id}`,{method:"PATCH",body:JSON.stringify({commissionPercent:Number(String(commission).replace(",",".")),asaasWalletId:wallet.trim(),quoteOriginCep:cleanQuoteCep,active})});
+          await api(`/api/admin/stores/${store.id}`,{method:"PATCH",body:JSON.stringify({commissionPercent:Number(String(commission).replace(",",".")),asaasWalletId:wallet.trim(),quoteOriginCep:cleanQuoteCep,operationalHub,active})});
           toast("Ponto atualizado."); await loadMaster();
         }catch(err){toast(err.message,"error");}
       }));
