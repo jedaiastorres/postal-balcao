@@ -3094,6 +3094,41 @@ app.patch("/api/admin/users/:id", requireAuth, requireRole("ADMIN"), async (req,
   } catch(error){ res.status(500).json({error:"Não foi possível atualizar o usuário."}); }
 });
 
+app.post("/api/admin/users/:id/reset-password", requireAuth, requireRole("ADMIN"), async (req,res)=>{
+  try{
+    if(String(req.params.id)===String(req.user.userId)){
+      return res.status(400).json({error:"Use 'Alterar minha senha' para trocar a senha do próprio MASTER."});
+    }
+    const current=await db.getUserById(req.params.id);
+    if(!current) return res.status(404).json({error:"Usuário não encontrado."});
+    const supplied=String(req.body.password||"").trim();
+    const temporaryPassword=supplied || ("Postal@"+crypto.randomBytes(5).toString("base64url"));
+    if(temporaryPassword.length<10) return res.status(400).json({error:"A senha precisa ter ao menos 10 caracteres."});
+    await db.updateUser(current.id,{passwordHash:hashPassword(temporaryPassword)});
+    await audit(req,"RESET_USER_PASSWORD","USER",current.id,{email:current.email,role:current.role});
+    res.json({ok:true,temporaryPassword,message:"Senha redefinida com sucesso."});
+  }catch(error){
+    console.error("admin reset user password error:",error.message);
+    res.status(500).json({error:"Não foi possível redefinir a senha."});
+  }
+});
+
+app.delete("/api/admin/users/:id", requireAuth, requireRole("ADMIN"), async (req,res)=>{
+  try{
+    if(String(req.params.id)===String(req.user.userId)){
+      return res.status(400).json({error:"O MASTER não pode excluir o próprio acesso enquanto estiver conectado."});
+    }
+    const current=await db.getUserById(req.params.id);
+    if(!current) return res.status(404).json({error:"Usuário não encontrado."});
+    const deleted=await db.deleteUser(current.id);
+    await audit(req,"DELETE_USER","USER",current.id,{email:current.email,role:current.role,storeId:current.store_id});
+    res.json({ok:true,user:{id:deleted.id,email:deleted.email,name:deleted.name,role:deleted.role}});
+  }catch(error){
+    console.error("admin delete user error:",error.message);
+    res.status(500).json({error:"Não foi possível excluir o usuário."});
+  }
+});
+
 app.get("/api/admin/export", requireAuth, requireRole("ADMIN"), async (req,res)=>{
   try {
     const snapshot=await db.exportOperationalSnapshot();
