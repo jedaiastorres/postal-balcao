@@ -1054,6 +1054,30 @@ async function createShipmentFromOrderUnlocked(order) {
 
   const declaredSum = storedVolumes.reduce((sum,v)=>sum + Math.max(0,Number(v.declaredValue || 0)),0);
   const providerServiceCode = await resolveCartServiceCode(order, packageData, storedVolumes);
+  const providerCepFrom=cleanDigits(packageData.providerCepFrom||sender.cep);
+  const senderCep=cleanDigits(sender.cep);
+  const usesOperationalHub=providerCepFrom.length===8 && senderCep.length===8 && providerCepFrom!==senderCep;
+  const operationalHub=packageData.operationalHub&&typeof packageData.operationalHub==="object"?packageData.operationalHub:{};
+  if(usesOperationalHub){
+    if(cleanDigits(operationalHub.cep||"")!==providerCepFrom ||
+       !String(operationalHub.address||"").trim() ||
+       !String(operationalHub.number||"").trim()){
+      throw new Error("O Hub / Origem Operacional deste ponto está incompleto. O MASTER deve corrigir o cadastro antes de emitir a postagem.");
+    }
+  }
+  const providerSender=usesOperationalHub?{
+    cep:providerCepFrom,
+    address:String(operationalHub.address||"").trim(),
+    number:String(operationalHub.number||"").trim(),
+    neighborhood:String(operationalHub.neighborhood||"").trim(),
+    complement:String(operationalHub.complement||"").trim()
+  }:{
+    cep:senderCep,
+    address:String(sender.address||"").trim(),
+    number:String(sender.number||"").trim(),
+    neighborhood:String(sender.neighborhood||"").trim(),
+    complement:String(sender.complement||"").trim()
+  };
   const packageItems = storedVolumes.map((volume,index)=>{
     const fallbackDeclared = declaredSum > 0
       ? 0
@@ -1070,11 +1094,11 @@ async function createShipmentFromOrderUnlocked(order) {
       addr_from_document: cleanDigits(sender.document),
       addr_from_phone: cleanDigits(sender.phone),
       addr_from_name: String(sender.name || "").trim(),
-      addr_from_cep: cleanDigits(packageData.providerCepFrom || sender.cep),
-      addr_from_number: String(sender.number || "").trim(),
-      addr_from_address: String(sender.address || "").trim(),
-      addr_from_neighborhood: String(sender.neighborhood || "").trim(),
-      addr_from_complement: String(sender.complement || "").trim(),
+      addr_from_cep: providerSender.cep,
+      addr_from_number: providerSender.number,
+      addr_from_address: providerSender.address,
+      addr_from_neighborhood: providerSender.neighborhood,
+      addr_from_complement: providerSender.complement,
       addr_to_document: cleanDigits(recipient.document),
       addr_to_phone: cleanDigits(recipient.phone),
       addr_to_name: String(recipient.name || "").trim(),
@@ -3409,6 +3433,7 @@ app.get("/api/admin/stores", requireAuth, requireRole("ADMIN","SUPERVISOR"), asy
       cnpj: store.cnpj || "", phone: store.phone || "", email: store.email || "",
       asaasWalletId: store.asaas_wallet_id || "",
       quoteOriginCep: store.quote_origin_cep || "",
+      operationalHub: store.operational_hub || {},
       address: store.address || {}, commissionPercent: Number(store.commission_percent || 0),
       active: Boolean(store.active), activeUsers: Number(store.active_users || 0),
       totalOrders: Number(store.total_orders || 0), grossSales: Number(store.gross_sales || 0)
@@ -3425,14 +3450,22 @@ app.post("/api/admin/stores", requireAuth, requireRole("ADMIN"), async (req, res
     const name = String(body.name || "").trim();
     const commissionPercent = Number(body.commissionPercent ?? 20);
     const quoteOriginCep = cleanDigits(body.quoteOriginCep || "");
+    const operationalHub = body.operationalHub && typeof body.operationalHub==="object" ? {...body.operationalHub} : {};
+    operationalHub.cep = cleanDigits(operationalHub.cep || quoteOriginCep || "");
     if (!code || !name) return res.status(400).json({ error: "Código e nome do ponto são obrigatórios." });
     if (quoteOriginCep && quoteOriginCep.length !== 8) return res.status(400).json({ error: "O CEP operacional deve ter 8 dígitos." });
+    if(quoteOriginCep){
+      if(operationalHub.cep!==quoteOriginCep) return res.status(400).json({error:"O CEP do hub deve ser igual ao CEP máscara."});
+      if(!String(operationalHub.address||"").trim()||!String(operationalHub.number||"").trim()||!String(operationalHub.city||"").trim()||!String(operationalHub.state||"").trim()){
+        return res.status(400).json({error:"Preencha endereço, número, cidade e UF do Hub / Origem Operacional."});
+      }
+    }
     if (!Number.isFinite(commissionPercent) || commissionPercent < 0 || commissionPercent > 50) {
       return res.status(400).json({ error: "A comissão do ponto deve estar entre 0% e 50%." });
     }
     const store = await db.createStore({
       code,name,legalName:body.legalName,cnpj:cleanDigits(body.cnpj),phone:body.phone,email:body.email,
-      asaasWalletId:body.asaasWalletId||null,quoteOriginCep:quoteOriginCep||null,address:body.address||{},commissionPercent,active:body.active!==false
+      asaasWalletId:body.asaasWalletId||null,quoteOriginCep:quoteOriginCep||null,operationalHub:quoteOriginCep?operationalHub:{},address:body.address||{},commissionPercent,active:body.active!==false
     });
     await audit(req,"CREATE_STORE","STORE",store.id,{code:store.code});
     res.status(201).json({ store });
@@ -3445,14 +3478,27 @@ app.post("/api/admin/stores", requireAuth, requireRole("ADMIN"), async (req, res
 app.patch("/api/admin/stores/:id", requireAuth, requireRole("ADMIN"), async (req, res) => {
   try {
     const commissionPercent = req.body.commissionPercent == null ? undefined : Number(req.body.commissionPercent);
+    const currentStore=await db.getStore(req.params.id);
+    if(!currentStore) return res.status(404).json({error:"Ponto não encontrado."});
     const quoteOriginCep = req.body.quoteOriginCep === undefined ? undefined : cleanDigits(req.body.quoteOriginCep || "");
+    const effectiveQuoteCep = quoteOriginCep===undefined ? cleanDigits(currentStore.quote_origin_cep||"") : quoteOriginCep;
+    const operationalHub = req.body.operationalHub===undefined
+      ? (currentStore.operational_hub||{})
+      : (req.body.operationalHub&&typeof req.body.operationalHub==="object"?{...req.body.operationalHub}:{});
+    if(effectiveQuoteCep) operationalHub.cep=cleanDigits(operationalHub.cep||effectiveQuoteCep);
     if (quoteOriginCep !== undefined && quoteOriginCep && quoteOriginCep.length !== 8) {
       return res.status(400).json({ error: "O CEP operacional deve ter 8 dígitos." });
+    }
+    if(effectiveQuoteCep){
+      if(cleanDigits(operationalHub.cep||"")!==effectiveQuoteCep) return res.status(400).json({error:"O CEP do hub deve ser igual ao CEP máscara."});
+      if(!String(operationalHub.address||"").trim()||!String(operationalHub.number||"").trim()||!String(operationalHub.city||"").trim()||!String(operationalHub.state||"").trim()){
+        return res.status(400).json({error:"Preencha endereço, número, cidade e UF do Hub / Origem Operacional."});
+      }
     }
     if (commissionPercent != null && (!Number.isFinite(commissionPercent) || commissionPercent < 0 || commissionPercent > 50)) {
       return res.status(400).json({ error: "Comissão inválida." });
     }
-    const store = await db.updateStore(req.params.id,{...req.body,commissionPercent,quoteOriginCep});
+    const store = await db.updateStore(req.params.id,{...req.body,commissionPercent,quoteOriginCep,operationalHub:effectiveQuoteCep?operationalHub:{}});
     if(!store) return res.status(404).json({error:"Ponto não encontrado."});
     await audit(req,"UPDATE_STORE","STORE",store.id,{active:store.active,commissionPercent:Number(store.commission_percent)});
     res.json({store});
