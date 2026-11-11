@@ -17,7 +17,8 @@ const state = {
   admin: { stores: [], users: [], catalog: [], creditPartners: [], creditProducts: [] },
   creditProducts: [],
   creditProposals: [],
-  inventoryMovements: []
+  inventoryMovements: [],
+  analytics: { stores: [], dashboardData: null, cashData: null }
 };
 
 const viewMap = {
@@ -110,6 +111,10 @@ function showApp(user) {
   const canManageStock = ["ADMIN","STORE_OWNER","OPS"].includes(user?.role);
   const canUseCredit = ["ADMIN","STORE_OWNER"].includes(user?.role);
   const ownerFinance = ["ADMIN","SUPERVISOR","STORE_OWNER"].includes(user?.role);
+  const managementAnalytics = ["ADMIN","SUPERVISOR","STORE_OWNER"].includes(user?.role);
+  document.querySelectorAll(".management-analytics-only").forEach(el=>el.classList.toggle("hidden",!managementAnalytics));
+  document.querySelectorAll(".local-dashboard-only").forEach(el=>el.classList.toggle("hidden",managementAnalytics));
+  document.querySelectorAll(".analytics-global-filter").forEach(el=>el.classList.toggle("hidden",!["ADMIN","SUPERVISOR"].includes(user?.role)));
 
   document.querySelector('[data-view="quote"]')?.classList.toggle("hidden", !canSell);
   document.querySelector('[data-view="credit"]')?.classList.toggle("hidden", !canUseCredit);
@@ -141,6 +146,7 @@ function showApp(user) {
   }
 
   refreshDashboard();
+  if (managementAnalytics) loadManagementAnalytics();
 
   const params = new URLSearchParams(window.location.search);
   if (!params.get("payment") && user?.role === "STORE_CLERK") {
@@ -305,6 +311,7 @@ function navigate(name) {
     $("#pageTitle").textContent = spec.placeholder[0];
   }
   $(".sidebar").classList.remove("open");
+  if (name === "dashboard" && ["ADMIN","SUPERVISOR","STORE_OWNER"].includes(state.user?.role)) loadManagementAnalytics();
   if (name === "orders") loadOrders();
   if (name === "inventory") loadInventory();
   if (name === "financial") loadStoreFinancialSettings();
@@ -1627,6 +1634,223 @@ async function loadCredit() {
 }
 
 
+
+function compactMoney(value){
+  const n=Number(value||0);
+  if(Math.abs(n)>=1000000) return "R$ "+(n/1000000).toFixed(1).replace(".",",")+" mi";
+  if(Math.abs(n)>=1000) return "R$ "+(n/1000).toFixed(1).replace(".",",")+" mil";
+  return money(n);
+}
+
+async function ensureAnalyticsStores(){
+  if(!["ADMIN","SUPERVISOR"].includes(state.user?.role)) return;
+  if(!state.analytics.stores.length){
+    const result=await api("/api/admin/stores");
+    state.analytics.stores=(result.stores||[]).filter(s=>s.active);
+  }
+  [["#analyticsStore","Todos os pontos"],["#cashAnalyticsStore","Toda a rede"]].forEach(([selector,label])=>{
+    const el=$(selector); if(!el) return;
+    const selected=el.value;
+    el.innerHTML='<option value="">'+label+'</option>'+
+      state.analytics.stores.map(s=>'<option value="'+escapeHtml(s.id)+'">'+escapeHtml(s.name)+' ('+escapeHtml(s.code)+')</option>').join("");
+    if([...el.options].some(o=>o.value===selected)) el.value=selected;
+  });
+}
+
+function appendSelectOptions(selector,values){
+  const el=$(selector); if(!el) return;
+  const current=el.value;
+  const existing=new Set([...el.options].map(o=>o.value));
+  (values||[]).filter(Boolean).forEach(value=>{
+    if(existing.has(String(value))) return;
+    const option=document.createElement("option");
+    option.value=String(value); option.textContent=String(value);
+    el.appendChild(option); existing.add(String(value));
+  });
+  if([...el.options].some(o=>o.value===current)) el.value=current;
+}
+
+function filterQuery(prefix){
+  const period=$("#"+prefix+"Period")?.value||"30d";
+  const params=new URLSearchParams({period});
+  const from=$("#"+prefix+"From")?.value||"";
+  const to=$("#"+prefix+"To")?.value||"";
+  const store=$("#"+prefix+"Store")?.value||"";
+  const carrier=$("#"+prefix+"Carrier")?.value||"";
+  const service=$("#"+prefix+"Service")?.value||"";
+  const payment=$("#"+prefix+"Payment")?.value||"";
+  if(period==="custom"&&from) params.set("from",from);
+  if(period==="custom"&&to) params.set("to",to);
+  if(store) params.set("storeId",store);
+  if(carrier) params.set("carrier",carrier);
+  if(service) params.set("service",service);
+  if(payment) params.set("paymentMethod",payment);
+  return params;
+}
+
+function drawLineChart(canvas,data,series){
+  if(!canvas) return;
+  const rows=Array.isArray(data)?data:[];
+  const rect=canvas.getBoundingClientRect();
+  const width=Math.max(320,Math.floor(rect.width||700));
+  const height=Math.max(220,Math.floor(rect.height||300));
+  const dpr=window.devicePixelRatio||1;
+  canvas.width=Math.floor(width*dpr); canvas.height=Math.floor(height*dpr);
+  const ctx=canvas.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,width,height);
+  const left=62,right=18,top=22,bottom=42;
+  const plotW=width-left-right,plotH=height-top-bottom;
+  ctx.font="10px Arial"; ctx.fillStyle="#7b808b"; ctx.strokeStyle="#e8e9ed"; ctx.lineWidth=1;
+
+  if(!rows.length){
+    ctx.textAlign="center"; ctx.fillText("Sem dados no período selecionado.",width/2,height/2); return;
+  }
+
+  const values=[];
+  series.forEach(s=>rows.forEach(r=>values.push(Number(r[s.key]||0))));
+  const max=Math.max(1,...values);
+  for(let i=0;i<=4;i++){
+    const y=top+(plotH*i/4);
+    ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(width-right,y);ctx.stroke();
+    ctx.textAlign="right";ctx.textBaseline="middle";
+    ctx.fillText(compactMoney(max*(1-i/4)).replace("R$ ",""),left-8,y);
+  }
+  const step=rows.length>1?plotW/(rows.length-1):plotW;
+  const labelEvery=Math.max(1,Math.ceil(rows.length/7));
+  rows.forEach((r,i)=>{
+    if(i%labelEvery!==0 && i!==rows.length-1) return;
+    const x=rows.length>1?left+i*step:left+plotW/2;
+    ctx.textAlign="center";ctx.textBaseline="top";ctx.fillStyle="#7b808b";
+    ctx.fillText(String(r.label||""),x,height-bottom+12);
+  });
+
+  const root=getComputedStyle(document.documentElement);
+  const defaultColors=[root.getPropertyValue("--postal").trim()||"#d9003d","#20242d","#7b808b"];
+  series.forEach((s,seriesIndex)=>{
+    ctx.strokeStyle=s.color||defaultColors[seriesIndex%defaultColors.length];
+    ctx.fillStyle=ctx.strokeStyle; ctx.lineWidth=2.5; ctx.beginPath();
+    rows.forEach((r,i)=>{
+      const x=rows.length>1?left+i*step:left+plotW/2;
+      const y=top+plotH-(Number(r[s.key]||0)/max)*plotH;
+      if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+    rows.forEach((r,i)=>{
+      const x=rows.length>1?left+i*step:left+plotW/2;
+      const y=top+plotH-(Number(r[s.key]||0)/max)*plotH;
+      ctx.beginPath();ctx.arc(x,y,2.8,0,Math.PI*2);ctx.fill();
+    });
+  });
+
+  if(series.length>1){
+    let x=left;
+    series.forEach((s,i)=>{
+      ctx.fillStyle=s.color||defaultColors[i%defaultColors.length];
+      ctx.fillRect(x,5,9,9); ctx.fillStyle="#555b66";ctx.textAlign="left";ctx.textBaseline="top";
+      ctx.fillText(s.label,x+14,4); x+=ctx.measureText(s.label).width+42;
+    });
+  }
+}
+
+function renderBars(selector,items,valueKey){
+  const host=$(selector); if(!host) return;
+  const rows=Array.isArray(items)?items:[];
+  if(!rows.length){host.innerHTML='<div class="empty-state">Sem dados no período.</div>';return;}
+  const max=Math.max(1,...rows.map(r=>Number(r[valueKey]||0)));
+  host.innerHTML=rows.map(r=>{
+    const pct=Math.max(2,(Number(r[valueKey]||0)/max)*100);
+    return '<div class="analytics-bar-row">'+
+      '<div class="analytics-bar-meta"><strong>'+escapeHtml(r.label||"Não informado")+'</strong><span>'+Number(r.orders||0)+' envios · '+money(r[valueKey]||0)+'</span></div>'+
+      '<div class="analytics-bar-track"><div class="analytics-bar-fill" style="width:'+pct.toFixed(1)+'%"></div></div>'+
+    '</div>';
+  }).join("");
+}
+
+function rankRows(selector,items,mapper){
+  const host=$(selector); if(!host) return;
+  const rows=Array.isArray(items)?items:[];
+  if(!rows.length){host.innerHTML='<div class="empty-state">Sem dados no período.</div>';return;}
+  host.innerHTML=rows.map((item,index)=>{
+    const row=mapper(item)||{};
+    return '<div class="analytics-rank-row">'+
+      '<div class="analytics-rank-index">'+(index+1)+'</div>'+
+      '<div class="analytics-rank-main"><strong>'+escapeHtml(row.title||"—")+'</strong><small>'+escapeHtml(row.subtitle||"")+'</small></div>'+
+      '<div class="analytics-rank-value"><strong>'+escapeHtml(row.value||"")+'</strong><small>'+escapeHtml(row.detail||"")+'</small></div>'+
+    '</div>';
+  }).join("");
+}
+
+async function loadManagementAnalytics(){
+  if(!["ADMIN","SUPERVISOR","STORE_OWNER"].includes(state.user?.role)) return;
+  try{
+    await ensureAnalyticsStores();
+    const data=await api("/api/analytics/overview?"+filterQuery("analytics").toString());
+    state.analytics.dashboardData=data;
+    const s=data.summary||{};
+    $("#analyticsGross").textContent=money(s.grossSales||0);
+    $("#analyticsOrders").textContent=Number(s.paidOrders||0);
+    $("#analyticsPackagesCaption").textContent=Number(s.packages||0)+" pacote(s)";
+    $("#analyticsTicket").textContent=money(s.avgTicket||0);
+    $("#analyticsCustomers").textContent=Number(s.uniqueCustomers||0);
+    $("#analyticsPostalRevenue").textContent=money(s.postalRevenue||0);
+    $("#analyticsPointRevenue").textContent=money(s.pointRevenue||0);
+
+    appendSelectOptions("#analyticsCarrier",data.filters?.carriers||[]);
+    appendSelectOptions("#analyticsService",data.filters?.services||[]);
+    drawLineChart($("#dashboardRevenueChart"),data.timeline,[{key:"grossSales",label:"Faturamento"}]);
+    renderBars("#analyticsCarriersList",data.carriers,"grossSales");
+
+    rankRows("#analyticsTopCustomers",data.topCustomers,item=>({
+      title:item.name||"Cliente",
+      subtitle:(item.document?item.document+" · ":"")+Number(item.packages||0)+" pacote(s)",
+      value:Number(item.shipments||0)+" postagem(ns)",
+      detail:money(item.grossSales||0)
+    }));
+    rankRows("#analyticsDestinations",data.topDestinations,item=>({
+      title:item.city||"Não informado",
+      subtitle:Number(item.packages||0)+" pacote(s)",
+      value:Number(item.shipments||0)+" envio(s)",
+      detail:money(item.grossSales||0)
+    }));
+    rankRows("#analyticsServicesList",data.services,item=>({
+      title:item.label||"Serviço",
+      subtitle:Number(item.orders||0)+" venda(s)",
+      value:money(item.grossSales||0),
+      detail:""
+    }));
+    rankRows("#analyticsPaymentsList",data.paymentMethods,item=>({
+      title:item.label||"Pagamento",
+      subtitle:Number(item.orders||0)+" pagamento(s)",
+      value:money(item.grossSales||0),
+      detail:""
+    }));
+  }catch(err){
+    toast(err.message,"error");
+  }
+}
+
+async function loadCashAnalytics(){
+  if(!["ADMIN","SUPERVISOR","STORE_OWNER"].includes(state.user?.role)) return null;
+  await ensureAnalyticsStores();
+  const params=filterQuery("cashAnalytics");
+  const data=await api("/api/analytics/overview?"+params.toString());
+  state.analytics.cashData=data;
+  appendSelectOptions("#cashAnalyticsCarrier",data.filters?.carriers||[]);
+  const revenueKey=state.user?.role==="STORE_OWNER"?"pointRevenue":"postalRevenue";
+  const revenueLabel=state.user?.role==="STORE_OWNER"?"Receita do ponto":"Receita Postal";
+  drawLineChart($("#cashRevenueChart"),data.timeline,[
+    {key:"grossSales",label:"Faturamento"},
+    {key:revenueKey,label:revenueLabel}
+  ]);
+  renderBars("#cashPaymentBreakdown",data.paymentMethods,"grossSales");
+  return data;
+}
+
+function toggleCustomDates(prefix,selector){
+  const custom=$("#"+prefix+"Period")?.value==="custom";
+  document.querySelectorAll(selector).forEach(el=>el.classList.toggle("hidden",!custom));
+}
+
 async function loadCash() {
   if (!["ADMIN","SUPERVISOR","STORE_OWNER"].includes(state.user?.role)) return;
   const summaryHost=$("#cashSummaryList");
@@ -1634,7 +1858,13 @@ async function loadCash() {
   if(summaryHost) summaryHost.innerHTML='<div class="empty-state">Carregando caixa...</div>';
   if(movementsHost) movementsHost.innerHTML='<div class="empty-state">Carregando movimentações...</div>';
   try{
-    const data=await api("/api/store/cash");
+    await ensureAnalyticsStores();
+    const params=filterQuery("cashAnalytics");
+    const results=await Promise.all([
+      api("/api/store/cash?"+params.toString()),
+      loadCashAnalytics()
+    ]);
+    const data=results[0];
     const s=data.summary||{};
     $("#cashTotalEarnings").textContent=money(s.totalEarnings||0);
     $("#cashSalesEarnings").textContent=money(s.salesEarnings||0);
@@ -1642,7 +1872,6 @@ async function loadCash() {
     $("#cashPendingRemittance").textContent=money(s.pendingRemittance||0);
     if(summaryHost){
       summaryHost.innerHTML=
-        '<div class="inventory-row"><div><span class="addon-type">HOJE</span><strong>Ganhos do dia</strong></div><div><strong>'+money(s.todayEarnings||0)+'</strong></div></div>'+
         '<div class="inventory-row"><div><span class="addon-type">VENDAS</span><strong>Pedidos pagos</strong></div><div><strong>'+Number(s.paidOrders||0)+'</strong><small>Clientes pagaram '+money(s.customerReceived||0)+'</small></div></div>'+
         '<div class="inventory-row"><div><span class="addon-type">COLETAS</span><strong>Remuneração por coleta</strong></div><div><strong>'+money(s.pickupEarnings||0)+'</strong></div></div>'+
         '<div class="inventory-row"><div><span class="addon-type">POSTAGEM</span><strong>Recebimento no ponto</strong></div><div><strong>'+money(s.dropoffEarnings||0)+'</strong></div></div>'+
@@ -1654,9 +1883,9 @@ async function loadCash() {
         return '<div class="inventory-row">'+
           '<div><span class="addon-type">'+escapeHtml(m.type==="SALE"?"VENDA":"GANHO")+'</span><strong>'+escapeHtml(m.description||"Movimentação")+'</strong><small>'+escapeHtml(m.storeName||"")+' · '+new Date(m.createdAt).toLocaleString("pt-BR")+'</small></div>'+
           '<div><span>Status</span><strong>'+escapeHtml(m.status||"")+'</strong></div>'+
-          '<div><span>Valor do ponto</span><strong>'+money(m.amount||0)+'</strong></div>'+
+          '<div><span>Valor</span><strong>'+money(m.amount||0)+'</strong></div>'+
         '</div>';
-      }).join(""):'<div class="empty-state">Ainda não há movimentações registradas.</div>';
+      }).join(""):'<div class="empty-state">Ainda não há movimentações no período selecionado.</div>';
     }
   }catch(err){
     if(summaryHost) summaryHost.innerHTML='<div class="empty-state">'+escapeHtml(err.message)+'</div>';
@@ -1697,6 +1926,18 @@ async function loadSupervisor() {
 
 $("#refreshCashBtn")?.addEventListener("click",loadCash);
 $("#refreshSupervisorBtn")?.addEventListener("click",loadSupervisor);
+$("#refreshAnalyticsBtn")?.addEventListener("click",loadManagementAnalytics);
+$("#analyticsPeriod")?.addEventListener("change",()=>{toggleCustomDates("analytics",".analytics-custom-date");if($("#analyticsPeriod").value!=="custom")loadManagementAnalytics();});
+["#analyticsFrom","#analyticsTo","#analyticsStore","#analyticsCarrier","#analyticsService","#analyticsPayment"].forEach(sel=>$(sel)?.addEventListener("change",loadManagementAnalytics));
+$("#cashAnalyticsPeriod")?.addEventListener("change",()=>{toggleCustomDates("cashAnalytics",".cash-custom-date");if($("#cashAnalyticsPeriod").value!=="custom")loadCash();});
+["#cashAnalyticsFrom","#cashAnalyticsTo","#cashAnalyticsStore","#cashAnalyticsCarrier","#cashAnalyticsPayment"].forEach(sel=>$(sel)?.addEventListener("change",loadCash));
+window.addEventListener("resize",()=>{
+  if(state.analytics.dashboardData) drawLineChart($("#dashboardRevenueChart"),state.analytics.dashboardData.timeline,[{key:"grossSales",label:"Faturamento"}]);
+  if(state.analytics.cashData){
+    const key=state.user?.role==="STORE_OWNER"?"pointRevenue":"postalRevenue";
+    drawLineChart($("#cashRevenueChart"),state.analytics.cashData.timeline,[{key:"grossSales",label:"Faturamento"},{key,label:key==="pointRevenue"?"Receita do ponto":"Receita Postal"}]);
+  }
+});
 
 async function loadMaster() {
   if (state.user?.role !== "ADMIN") return;
