@@ -4081,6 +4081,47 @@ function postalServiceLabel(rawService) {
   return value ? "Entrega Postal" : "Entrega";
 }
 
+function postalizeTrackingText(value) {
+  let text=String(value||"").trim();
+  if(!text) return "";
+  const brands=[
+    /conect\s*envios/gi,
+    /loggi/gi,
+    /jadlog/gi,
+    /correios/gi,
+    /azul\s*cargo(?:\s*express)?/gi,
+    /j\s*&\s*t(?:\s*express)?/gi,
+    /latam\s*cargo/gi,
+    /gol\s*log/gi
+  ];
+  for(const pattern of brands) text=text.replace(pattern,"Postal Serviços");
+  return text;
+}
+
+function postalTrackingEventDescription(event) {
+  const type=String(event?.correios_type||event?.type||event?.code||"").toLowerCase();
+  const status=String(event?.correios_status||event?.status||"").trim();
+  if(type==="1" || /adicionado no sistema/i.test(status)){
+    return "A etiqueta de envio já foi criada e o pacote está pronto para a coleta.";
+  }
+  if(type==="stamped") return "Etiqueta requisitada";
+  if(type==="created") return "Objeto criado";
+  return postalizeTrackingText(
+    event?.description||event?.correios_detail||event?.message||event?.label||
+    event?.status_label||event?.statusLabel||status||event?.title||"Atualização do envio"
+  );
+}
+
+function postalTrackingStatus(events,payload) {
+  const first=Array.isArray(events)&&events.length?events[0]:null;
+  const type=String(first?.type||"").toLowerCase();
+  if(type==="1") return "Pronto para coleta";
+  if(type==="stamped") return "Etiqueta requisitada";
+  if(type==="created") return "Objeto criado";
+  const raw=trackingFieldFromPayload(payload,["status_label","statusLabel","current_status_label","currentStatus","status"]);
+  return postalizeTrackingText(raw||first?.description||"Em acompanhamento");
+}
+
 app.get("/api/public/rastreio/:stamp", async (req,res)=>{
   if(!TOKEN) return res.status(503).json({error:"Rastreamento temporariamente indisponível."});
   const stamp=String(req.params.stamp||"").trim();
@@ -4116,10 +4157,6 @@ app.get("/api/public/rastreio/:stamp", async (req,res)=>{
       console.warn("public tracking by stamp fallback",stamp,error.status||"",error.message);
     }
 
-    if(stamp==="Y5WKHY6H"){
-      console.log("TRACK_DEBUG_PAYLOADS",JSON.stringify(payloads).slice(0,12000));
-    }
-
     let bestPayload={};
     let bestEvents=[];
     for(const payload of payloads){
@@ -4132,14 +4169,11 @@ app.get("/api/public/rastreio/:stamp", async (req,res)=>{
     if(!bestEvents.length && payloads.length) bestPayload=payloads[0]||{};
 
     const normalizedEvents=bestEvents.slice(0,30).map(event=>({
-      date:event.date||event.datetime||event.created_at||event.createdAt||event.timestamp||null,
-      description:String(
-        event.description||event.message||event.label||event.status_label||event.statusLabel||
-        event.status||event.title||"Atualização do envio"
-      ),
+      date:event.correios_date||event.date||event.datetime||event.created_at||event.createdAt||event.timestamp||null,
+      description:postalTrackingEventDescription(event),
       city:event.city||event.location?.city||event.local?.city||null,
       uf:event.uf||event.state||event.location?.uf||event.location?.state||null,
-      type:event.type||event.code||event.status_code||null
+      type:event.correios_type||event.type||event.code||event.status_code||null
     }));
 
     const rawPackage=order.package_data&&typeof order.package_data==="object"?order.package_data:{};
@@ -4156,8 +4190,7 @@ app.get("/api/public/rastreio/:stamp", async (req,res)=>{
     const totalDeclared=Number(rawPackage.declaredValue||packageVolumes.reduce((sum,v)=>sum+Number(v.declaredValue||0),0)||0);
     const sender=order.sender||{};
     const recipient=order.recipient||{};
-    const status=trackingFieldFromPayload(bestPayload,["status_label","statusLabel","current_status_label","currentStatus","status"])||
-      (normalizedEvents[0]?.description||"Em acompanhamento");
+    const status=postalTrackingStatus(normalizedEvents,bestPayload);
     const updatedAt=trackingFieldFromPayload(bestPayload,["updated_at","updatedAt","last_update","lastUpdate"])||
       normalizedEvents[0]?.date||null;
 
