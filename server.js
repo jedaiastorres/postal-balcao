@@ -377,7 +377,7 @@ function requireRole(...roles) {
 }
 
 function scopeForUser(user) {
-  if (user?.role === "ADMIN") return {};
+  if (["ADMIN","SUPERVISOR"].includes(user?.role)) return {};
   if (user?.storeId) return { storeId: user.storeId };
   return { partnerEmail: user?.email };
 }
@@ -2693,21 +2693,21 @@ app.get("/api/store/collections", requireAuth, requireRole("STORE_OWNER","OPS"),
   }catch(error){res.status(500).json({error:"Não foi possível carregar as coletas."});}
 });
 
-app.patch("/api/collections/:id", requireAuth, requireRole("ADMIN","STORE_OWNER","OPS"), async (req,res)=>{
+app.patch("/api/collections/:id", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","OPS"), async (req,res)=>{
   try{
     const current=await clientDb.getCollection(req.params.id);
     if(!current) return res.status(404).json({error:"Coleta não encontrada."});
-    if(req.user.role!=="ADMIN"&&current.assigned_store_id!==req.user.storeId){
+    if(!["ADMIN","SUPERVISOR"].includes(req.user.role)&&current.assigned_store_id!==req.user.storeId){
       return res.status(403).json({error:"Esta coleta não está atribuída ao seu ponto."});
     }
     const status=String(req.body.status||current.status).toUpperCase();
     const allowed=new Set(["REQUESTED","ASSIGNED","ACCEPTED","EN_ROUTE","COLLECTED","WAITING_DROPOFF","RECEIVED_AT_POINT","COMPLETED","DECLINED","CANCELED"]);
     if(!allowed.has(status)) return res.status(400).json({error:"Status de coleta inválido."});
-    const assignedStoreId=req.user.role==="ADMIN"&&req.body.assignedStoreId!==undefined
+    const assignedStoreId=["ADMIN","SUPERVISOR"].includes(req.user.role)&&req.body.assignedStoreId!==undefined
       ?(req.body.assignedStoreId||null):current.assigned_store_id;
 
     let pointRate=Number(current.point_rate||0),pointComp=Number(current.point_compensation||0),postalComp=Number(current.postal_compensation||0);
-    if(req.user.role==="ADMIN"&&assignedStoreId&&assignedStoreId!==current.assigned_store_id){
+    if(["ADMIN","SUPERVISOR"].includes(req.user.role)&&assignedStoreId&&assignedStoreId!==current.assigned_store_id){
       pointRate=current.service_type==="PICKUP"?POINT_PICKUP_EARNING_PER_PACKAGE:POINT_DROPOFF_EARNING_PER_PACKAGE;
       pointComp=round2(pointRate*Number(current.package_count||1));
       postalComp=round2(Number(current.total_fee||0)-pointComp);
@@ -2734,7 +2734,7 @@ app.patch("/api/collections/:id", requireAuth, requireRole("ADMIN","STORE_OWNER"
   }catch(error){res.status(500).json({error:"Não foi possível atualizar a coleta."});}
 });
 
-app.get("/api/admin/collections", requireAuth, requireRole("ADMIN"), async (_req,res)=>{
+app.get("/api/admin/collections", requireAuth, requireRole("ADMIN","SUPERVISOR"), async (_req,res)=>{
   try{res.json({collections:await clientDb.listCollections({all:true},250)});}
   catch(error){res.status(500).json({error:"Não foi possível carregar o painel de coletas."});}
 });
@@ -2972,7 +2972,7 @@ app.get("/api/admin/go-live-readiness", requireAuth, requireRole("ADMIN"), async
   });
 });
 
-app.get("/api/admin/overview", requireAuth, requireRole("ADMIN"), async (_req, res) => {
+app.get("/api/admin/overview", requireAuth, requireRole("ADMIN","SUPERVISOR"), async (_req, res) => {
   try {
     const overview = await db.adminOverview();
     res.json({
@@ -2990,7 +2990,7 @@ app.get("/api/admin/overview", requireAuth, requireRole("ADMIN"), async (_req, r
   }
 });
 
-app.get("/api/admin/stores", requireAuth, requireRole("ADMIN"), async (_req, res) => {
+app.get("/api/admin/stores", requireAuth, requireRole("ADMIN","SUPERVISOR"), async (_req, res) => {
   try {
     const stores = await db.listStores();
     res.json({ stores: stores.map(store => ({
@@ -3048,7 +3048,7 @@ app.patch("/api/admin/stores/:id", requireAuth, requireRole("ADMIN"), async (req
   } catch(error){ res.status(500).json({error:"Não foi possível atualizar o ponto."}); }
 });
 
-app.get("/api/admin/users", requireAuth, requireRole("ADMIN"), async (_req,res)=>{
+app.get("/api/admin/users", requireAuth, requireRole("ADMIN","SUPERVISOR"), async (_req,res)=>{
   try { res.json({users:await db.listUsers()}); }
   catch(error){ res.status(500).json({error:"Não foi possível carregar os usuários."}); }
 });
@@ -3061,10 +3061,10 @@ app.post("/api/admin/users", requireAuth, requireRole("ADMIN"), async (req,res)=
     const role=String(body.role||"STORE_CLERK").toUpperCase();
     const password=String(body.password||"");
     if(!email||!name||password.length<6) return res.status(400).json({error:"Nome, e-mail e senha com ao menos 6 caracteres são obrigatórios."});
-    if(!["ADMIN","STORE_OWNER","STORE_CLERK","OPS"].includes(role)) return res.status(400).json({error:"Perfil inválido."});
-    if(role!=="ADMIN" && !body.storeId) return res.status(400).json({error:"Selecione o ponto deste usuário."});
+    if(!["ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"].includes(role)) return res.status(400).json({error:"Perfil inválido."});
+    if(!["ADMIN","SUPERVISOR"].includes(role) && !body.storeId) return res.status(400).json({error:"Selecione o ponto deste usuário."});
     const user=await db.createUser({
-      storeId:role==="ADMIN"?null:body.storeId,email,name,passwordHash:hashPassword(password),role,active:body.active!==false
+      storeId:["ADMIN","SUPERVISOR"].includes(role)?null:body.storeId,email,name,passwordHash:hashPassword(password),role,active:body.active!==false
     });
     await audit(req,"CREATE_USER","USER",user.id,{email:user.email,role:user.role,storeId:user.store_id});
     res.status(201).json({user:{id:user.id,email:user.email,name:user.name,role:user.role,storeId:user.store_id,active:user.active}});
@@ -3078,11 +3078,11 @@ app.patch("/api/admin/users/:id", requireAuth, requireRole("ADMIN"), async (req,
   try {
     const body=req.body||{};
     const role=body.role?String(body.role).toUpperCase():undefined;
-    if(role && !["ADMIN","STORE_OWNER","STORE_CLERK","OPS"].includes(role)) return res.status(400).json({error:"Perfil inválido."});
+    if(role && !["ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"].includes(role)) return res.status(400).json({error:"Perfil inválido."});
     const password=body.password?String(body.password):"";
     if(password && password.length<6) return res.status(400).json({error:"A nova senha precisa ter ao menos 6 caracteres."});
     const user=await db.updateUser(req.params.id,{
-      storeId:role==="ADMIN"?null:body.storeId,
+      storeId:["ADMIN","SUPERVISOR"].includes(role)?null:body.storeId,
       name:body.name,
       passwordHash:password?hashPassword(password):undefined,
       role,
