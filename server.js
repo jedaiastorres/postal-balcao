@@ -2444,7 +2444,7 @@ app.delete("/api/client/connections/:id", requireAuth, requireRole("CLIENT"), as
   }catch(error){res.status(500).json({error:"Não foi possível desconectar a loja."});}
 });
 
-app.get("/api/store/pickup-settings", requireAuth, requireRole("STORE_OWNER","STORE_CLERK","OPS"), async (req,res)=>{
+app.get("/api/store/pickup-settings", requireAuth, requireRole("STORE_OWNER","OPS"), async (req,res)=>{
   try{
     if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
     const store=await db.getStore(req.user.storeId);
@@ -2524,7 +2524,7 @@ app.patch("/api/store/financial-settings", requireAuth, requireRole("STORE_OWNER
   }
 });
 
-app.get("/api/store/referral", requireAuth, requireRole("STORE_OWNER","STORE_CLERK"), async (req,res)=>{
+app.get("/api/store/referral", requireAuth, requireRole("STORE_OWNER"), async (req,res)=>{
   try{
     if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
     const store=await db.getStore(req.user.storeId);
@@ -2545,7 +2545,7 @@ app.get("/api/store/referral", requireAuth, requireRole("STORE_OWNER","STORE_CLE
   }catch(error){res.status(500).json({error:"Não foi possível carregar suas indicações."});}
 });
 
-app.post("/api/store/clients", requireAuth, requireRole("STORE_OWNER","STORE_CLERK"), async (req,res)=>{
+app.post("/api/store/clients", requireAuth, requireRole("STORE_OWNER"), async (req,res)=>{
   try{
     if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
     const email=String(req.body.email||"").trim().toLowerCase();
@@ -2570,7 +2570,7 @@ app.post("/api/store/clients", requireAuth, requireRole("STORE_OWNER","STORE_CLE
   }catch(error){res.status(500).json({error:"Não foi possível cadastrar o cliente."});}
 });
 
-app.get("/api/store/collections", requireAuth, requireRole("STORE_OWNER","STORE_CLERK","OPS"), async (req,res)=>{
+app.get("/api/store/collections", requireAuth, requireRole("STORE_OWNER","OPS"), async (req,res)=>{
   try{
     if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
     const collections=await clientDb.listCollections({storeId:req.user.storeId},100);
@@ -2579,7 +2579,7 @@ app.get("/api/store/collections", requireAuth, requireRole("STORE_OWNER","STORE_
   }catch(error){res.status(500).json({error:"Não foi possível carregar as coletas."});}
 });
 
-app.patch("/api/collections/:id", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK","OPS"), async (req,res)=>{
+app.patch("/api/collections/:id", requireAuth, requireRole("ADMIN","STORE_OWNER","OPS"), async (req,res)=>{
   try{
     const current=await clientDb.getCollection(req.params.id);
     if(!current) return res.status(404).json({error:"Coleta não encontrada."});
@@ -3058,7 +3058,7 @@ app.post("/api/admin/credit/products", requireAuth, requireRole("ADMIN"), async 
   } catch(error){ res.status(500).json({error:"Não foi possível salvar o produto de crédito."}); }
 });
 
-app.get("/api/credit/products", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK"), async (_req,res)=>{
+app.get("/api/credit/products", requireAuth, requireRole("ADMIN","STORE_OWNER"), async (_req,res)=>{
   try {
     const products=await db.listCreditProducts(true);
     res.json({products:products.map(p=>({
@@ -3069,14 +3069,14 @@ app.get("/api/credit/products", requireAuth, requireRole("ADMIN","STORE_OWNER","
   } catch(error){ res.status(500).json({error:"Não foi possível carregar as ofertas."}); }
 });
 
-app.get("/api/credit/proposals", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK"), async (req,res)=>{
+app.get("/api/credit/proposals", requireAuth, requireRole("ADMIN","STORE_OWNER"), async (req,res)=>{
   try {
     const proposals=await db.listCreditProposals(req.user.role==="ADMIN"?{}:{storeId:req.user.storeId||null});
     res.json({proposals});
   } catch(error){ res.status(500).json({error:"Não foi possível carregar as propostas."}); }
 });
 
-app.post("/api/credit/proposals", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK"), async (req,res)=>{
+app.post("/api/credit/proposals", requireAuth, requireRole("ADMIN","STORE_OWNER"), async (req,res)=>{
   try {
     const body=req.body||{};
     const applicantName=String(body.applicantName||"").trim();
@@ -3201,7 +3201,7 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
         codigoServico: option.codigoServico,
         prazoEntrega: option.prazoEntrega,
         precoVenda: option.precoVenda,
-        comissaoParceiro: option.comissaoParceiro,
+        comissaoParceiro: req.user.role === "STORE_CLERK" ? undefined : option.comissaoParceiro,
         volumeCount:volumes.length,
         selectionToken
       };
