@@ -1263,6 +1263,21 @@ function publicOrder(order) {
   };
 }
 
+function publicOrderForUser(order,user) {
+  const dto=publicOrder(order);
+  if(!dto) return dto;
+  if(user?.role==="STORE_CLERK"){
+    delete dto.pointRevenueTotal;
+    delete dto.partnerCommission;
+    dto.addons=(dto.addons||[]).map(addon=>{
+      const safe={...addon};
+      delete safe.pointRevenue;
+      return safe;
+    });
+  }
+  return dto;
+}
+
 function validateFreightParties(sender, recipient, items) {
   const required = ["name", "document", "phone", "cep", "address", "number", "neighborhood", "city"];
   for (const pair of [["remetente", sender], ["destinatário", recipient]]) {
@@ -2031,7 +2046,7 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
       referral:Boolean(account.referral_store_id),sourceEcommerceOrderId:body.sourceEcommerceOrderId||null
     });
     const complete=await clientDb.getClientOrder(orderId,req.user.userId);
-    res.status(201).json({order:publicOrder(complete),collection,balance:created.balance});
+    res.status(201).json({order:publicOrderForUser(complete,req.user),collection,balance:created.balance});
   }catch(error){
     console.error("client shipment error:",error.message);
     if(createdOrderId){
@@ -3643,7 +3658,7 @@ app.post("/api/integrations/v1/inventory/receive", requireIntegrationAuth, async
 app.get("/api/orders", requireAuth, async (req, res) => {
   try {
     const orders = await db.listOrdersScoped(scopeForUser(req.user), Number(req.query.limit || 100));
-    res.json({ orders: orders.map(publicOrder) });
+    res.json({ orders: orders.map(order=>publicOrderForUser(order,req.user)) });
   } catch (error) {
     console.error("list orders error:", error.message);
     res.status(503).json({ error: "Não foi possível carregar Meus Fretes." });
@@ -3654,7 +3669,7 @@ app.get("/api/orders/:id", requireAuth, async (req, res) => {
   try {
     const order = await db.getOrder(req.params.id, scopeForUser(req.user));
     if (!order) return res.status(404).json({ error: "Frete não encontrado." });
-    res.json({ order: publicOrder(order) });
+    res.json({ order: publicOrderForUser(order,req.user) });
   } catch (error) {
     console.error("get order error:", error.message);
     res.status(503).json({ error: "Não foi possível consultar o frete." });
@@ -3751,7 +3766,7 @@ app.post("/api/orders", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CL
 
       const complete = await db.getOrder(order.id, scopeForUser(req.user));
       return res.status(201).json({
-        order: publicOrder(complete),
+        order: publicOrderForUser(complete,req.user),
         nextAction: "PAY_REMITTANCE",
         message: "Dinheiro registrado. A comissão do ponto foi preservada e a etiqueta aguarda o repasse."
       });
@@ -3776,14 +3791,14 @@ app.post("/api/orders", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CL
         await db.addOrderEvent(order.id, "PAYMENT_SIMULATOR", "Pagamento de homologação pendente", "Use o simulador para confirmar o pagamento sem movimentar dinheiro.");
         const complete = await db.getOrder(order.id, scopeForUser(req.user));
         return res.status(201).json({
-          order: publicOrder(complete),
+          order: publicOrderForUser(complete,req.user),
           nextAction: "SIMULATE_PAYMENT",
           message: "Pagamento salvo em modo homologação."
         });
       }
       const complete = await db.getOrder(order.id, scopeForUser(req.user));
       return res.status(201).json({
-        order: publicOrder(complete),
+        order: publicOrderForUser(complete,req.user),
         paymentSetupRequired: true,
         message: "Asaas ainda precisa da chave de API para liberar cobranças."
       });
@@ -3793,7 +3808,7 @@ app.post("/api/orders", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CL
       const pending = await db.updateStatus(order.id, "PARTNER_FINANCIAL_SETUP_REQUIRED", "PENDING");
       const complete = await db.getOrder(pending.id, scopeForUser(req.user));
       return res.status(201).json({
-        order: publicOrder(complete),
+        order: publicOrderForUser(complete,req.user),
         paymentSetupRequired: true,
         message: "Este ponto ainda não possui carteira Asaas vinculada para receber sua parte automaticamente."
       });
@@ -3833,7 +3848,7 @@ app.post("/api/orders", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CL
 
     const complete = await db.getOrder(updated.id, req.user.email);
     res.status(201).json({
-      order: publicOrder(complete),
+      order: publicOrderForUser(complete,req.user),
       checkoutUrl: checkout.url,
       nextAction: "OPEN_CHECKOUT"
     });
@@ -3850,16 +3865,16 @@ app.post("/api/orders/:id/remittance", requireAuth, requireRole("ADMIN","STORE_O
     const order = await db.getOrder(req.params.id, req.user.email);
     if (!order) return res.status(404).json({ error: "Frete não encontrado." });
     if (order.payment_method !== "DINHEIRO") return res.status(400).json({ error: "Este frete não é de pagamento em dinheiro." });
-    if (order.status === "LABEL_AVAILABLE") return res.json({ order: publicOrder(order), alreadyPaid: true });
+    if (order.status === "LABEL_AVAILABLE") return res.json({ order: publicOrderForUser(order,req.user), alreadyPaid: true });
     if (order.payment_checkout_url && order.payment_status === "PENDING") {
-      return res.json({ order: publicOrder(order), checkoutUrl: order.payment_checkout_url });
+      return res.json({ order: publicOrderForUser(order,req.user), checkoutUrl: order.payment_checkout_url });
     }
     if (!asaas.configured()) {
       if (PAYMENT_SIMULATOR_ENABLED) {
         const updated = await db.updateStatus(order.id, "SIMULATED_REMITTANCE_PENDING", "PENDING");
         await db.addOrderEvent(order.id, "REMITTANCE_SIMULATOR", "Repasse de homologação pendente", "Use o simulador para confirmar o repasse sem movimentar dinheiro.");
         const complete = await db.getOrder(updated.id, scopeForUser(req.user));
-        return res.json({ order: publicOrder(complete), simulator: true });
+        return res.json({ order: publicOrderForUser(complete,req.user), simulator: true });
       }
       return res.status(503).json({ error: "Asaas ainda não configurado." });
     }
@@ -3887,7 +3902,7 @@ app.post("/api/orders/:id/remittance", requireAuth, requireRole("ADMIN","STORE_O
       paymentStatus: "PENDING"
     });
 
-    res.json({ order: publicOrder(updated), checkoutUrl: checkout.url });
+    res.json({ order: publicOrderForUser(updated,req.user), checkoutUrl: checkout.url });
   } catch (error) {
     console.error("cash remittance error:", error.status, error.message);
     res.status(500).json({ error: error.message || "Não foi possível gerar o repasse." });
@@ -3924,7 +3939,7 @@ app.post("/api/orders/:id/simulate-payment", requireAuth, requireRole("ADMIN","S
 
     const complete = await db.getOrder(order.id, scopeForUser(req.user));
     await audit(req, "SIMULATE_PAYMENT", "FREIGHT_ORDER", order.id, { paymentMethod: order.payment_method });
-    res.json({ ok:true, order: publicOrder(complete) });
+    res.json({ ok:true, order: publicOrderForUser(complete,req.user) });
   } catch (error) {
     console.error("simulate payment error:", error.message);
     res.status(500).json({ error: error.message || "Não foi possível simular o pagamento." });
