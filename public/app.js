@@ -1784,7 +1784,11 @@ async function loadMaster() {
           <div><span>Ponto</span><strong>${escapeHtml(u.store_name || "Postal")}</strong></div>
           <div><span>Status</span><strong>${u.active ? "Ativo" : "Inativo"}</strong></div>
           <div><span>Último acesso</span><strong>${u.last_login_at ? new Date(u.last_login_at).toLocaleString("pt-BR") : "—"}</strong></div>
-          <button class="ghost" type="button" data-edit-user="${escapeHtml(u.id)}">Editar</button>
+          <div class="row-actions">
+            <button class="ghost" type="button" data-edit-user="${escapeHtml(u.id)}">Editar</button>
+            <button class="ghost" type="button" data-reset-user="${escapeHtml(u.id)}">Resetar senha</button>
+            <button class="danger-btn" type="button" data-delete-user="${escapeHtml(u.id)}">Excluir</button>
+          </div>
         </div>`).join(""):'<div class="empty-state">Nenhum usuário cadastrado.</div>';
 
       usersHost.querySelectorAll("[data-edit-user]").forEach(btn=>btn.addEventListener("click",async()=>{
@@ -1809,6 +1813,30 @@ async function loadMaster() {
         try{
           await api(`/api/admin/users/${user.id}`,{method:"PATCH",body:JSON.stringify({role,storeId,active,password})});
           toast("Usuário atualizado.");
+          await loadMaster();
+        }catch(err){toast(err.message,"error");}
+      }));
+
+      usersHost.querySelectorAll("[data-reset-user]").forEach(btn=>btn.addEventListener("click",async()=>{
+        const user=state.admin.users.find(u=>u.id===btn.dataset.resetUser);
+        if(!user) return;
+        if(String(user.id)===String(state.user?.id)) return toast("Use 'Alterar minha senha' para o próprio MASTER.","error");
+        if(!window.confirm("Redefinir a senha de "+user.name+"?")) return;
+        try{
+          const result=await api("/api/admin/users/"+encodeURIComponent(user.id)+"/reset-password",{method:"POST",body:"{}"});
+          window.prompt("Senha temporária de "+user.name+" — copie e envie ao usuário:",result.temporaryPassword||"");
+          toast("Senha redefinida.");
+        }catch(err){toast(err.message,"error");}
+      }));
+
+      usersHost.querySelectorAll("[data-delete-user]").forEach(btn=>btn.addEventListener("click",async()=>{
+        const user=state.admin.users.find(u=>u.id===btn.dataset.deleteUser);
+        if(!user) return;
+        if(String(user.id)===String(state.user?.id)) return toast("O MASTER não pode excluir o próprio acesso.","error");
+        if(!window.confirm("Excluir definitivamente o usuário "+user.name+" ("+user.email+")?")) return;
+        try{
+          await api("/api/admin/users/"+encodeURIComponent(user.id),{method:"DELETE"});
+          toast("Usuário excluído.");
           await loadMaster();
         }catch(err){toast(err.message,"error");}
       }));
