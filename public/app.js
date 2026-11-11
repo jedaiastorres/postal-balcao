@@ -524,7 +524,7 @@ function renderResults(result, payload) {
         <strong class="price-total">${money(option.precoVenda)}</strong>
         <span class="price-commission-label">Sua comissão</span>
         <strong class="price-commission">${money(option.comissaoParceiro)}</strong>
-        <small>Taxa de pagamento é somada no fechamento • passe o mouse para ver sua comissão</small>
+        <small>${option.hubTransferApplied ? "Inclui "+money(option.hubTransferTotal)+" de transferência ao hub • " : ""}Taxa de pagamento é somada no fechamento • passe o mouse para ver sua comissão</small>
       </div>
       <button class="select-btn" type="button">Selecionar</button>
     `;
@@ -534,7 +534,7 @@ function renderResults(result, payload) {
       card.querySelector(".price-commission-label")?.classList.add("hidden");
       card.querySelector(".price-commission")?.classList.add("hidden");
       const hint = priceReveal.querySelector("small");
-      if (hint) hint.textContent = state.user?.role === "STORE_CLERK" ? "Valor a cobrar do cliente" : "Preço Postal para sua conta";
+      if (hint) hint.textContent = (option.hubTransferApplied ? "Inclui "+money(option.hubTransferTotal)+" de transferência ao hub · " : "") + (state.user?.role === "STORE_CLERK" ? "Valor a cobrar do cliente" : "Preço Postal para sua conta");
     }
     priceReveal.addEventListener("click", () => {
       priceReveal.classList.toggle("show-commission");
@@ -2005,7 +2005,7 @@ async function loadMaster() {
           <div><span>Usuários</span><strong>${Number(s.activeUsers||0)}</strong></div>
           <div><span>Fretes</span><strong>${Number(s.totalOrders||0)}</strong></div>
           <div><span>Venda</span><strong>${money(s.grossSales)}</strong></div>
-          <div><span>Origem cotação</span><strong>${escapeHtml(s.quoteOriginCep ? maskCep(s.quoteOriginCep) : "CEP real")}</strong></div>
+          <div><span>Hub / origem operacional</span><strong>${escapeHtml(s.quoteOriginCep ? ((s.operationalHub?.name||"Hub")+" · "+maskCep(s.quoteOriginCep)) : "CEP real")}</strong></div>
           <div><span>Financeiro</span><strong>${s.asaasWalletId ? "Wallet vinculada" : "Pendente"}</strong></div>
           <button class="ghost" type="button" data-edit-store="${escapeHtml(s.id)}">Editar</button>
         </div>`).join("") : '<div class="empty-state">Nenhum ponto cadastrado.</div>';
