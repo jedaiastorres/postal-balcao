@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#d7083b" />
   <title>Postal Serviços | Balcão Parceiro</title>
-  <link rel="stylesheet" href="/styles.css?v=1.10.0" />
+  <link rel="stylesheet" href="/styles.css?v=1.11.0" />
 </head>
 <body>
   <div id="toast" class="toast" aria-live="polite"></div>
@@ -83,6 +83,7 @@
       <nav>
         <button class="nav-item" data-view="cash"><span>R$</span> Meu Caixa</button>
         <button class="nav-item owner-finance-only hidden" data-view="financial"><span>◎</span> Recebimentos Asaas</button>
+        <button class="nav-item owner-finance-only hidden" data-view="storeUsers"><span>♙</span> Usuários do ponto</button>
         <button class="nav-item" data-view="inventory"><span>▤</span> Produtos & Estoque</button>
         <button class="nav-item" data-view="credit"><span>₿</span> Crédito no Balcão</button>
         <button class="nav-item" data-view="clients"><span>♙</span> Clientes</button>
@@ -290,6 +291,35 @@
             <div class="selection-detail"><span>Total</span><strong id="selectedPrice">—</strong></div>
             <button id="continueShipmentBtn" class="primary" type="button">Continuar</button>
           </div>
+        </div>
+      </section>
+
+      <section id="storeUsersView" class="view hidden owner-finance-only">
+        <div class="orders-head">
+          <div>
+            <div class="eyebrow">EQUIPE DO PONTO</div>
+            <h1>Usuários de atendimento</h1>
+            <p>Crie acessos para sua equipe fazer cotações e postagens. Esses usuários não acessam Asaas, caixa, relatórios, comissões ou configurações administrativas.</p>
+          </div>
+          <span class="order-status info">Acesso restrito a postagens</span>
+        </div>
+
+        <div class="panel-grid">
+          <article class="form-panel">
+            <div class="form-panel-head"><span class="step-number">+</span><div><h3>Novo atendente</h3><p>O acesso fica vinculado exclusivamente a este ponto.</p></div></div>
+            <form id="storeUserForm" class="inventory-form">
+              <label>Nome*<input id="storeUserName" required /></label>
+              <label>E-mail de acesso*<input id="storeUserEmail" type="email" required /></label>
+              <label>Senha inicial*<input id="storeUserPassword" type="password" minlength="10" required /></label>
+              <div class="payment-method-note">Permissões: simular frete, criar postagem, acompanhar pagamento, imprimir etiqueta e comprovante. Sem acesso financeiro ou administrativo.</div>
+              <button class="primary" type="submit">Criar usuário</button>
+            </form>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head"><div><span class="eyebrow">ACESSOS</span><h3>Equipe cadastrada</h3></div><button id="refreshStoreUsersBtn" class="ghost" type="button">Atualizar</button></div>
+            <div id="storeUsersList" class="inventory-list"><div class="empty-state">Carregando usuários...</div></div>
+          </article>
         </div>
       </section>
 
@@ -996,7 +1026,7 @@
     </div>
   </div>
 
-  <script src="/app.js?v=1.10.0"></script>
-  <script src="/client.js?v=1.10.0"></script>
+  <script src="/app.js?v=1.11.0"></script>
+  <script src="/client.js?v=1.11.0"></script>
 </body>
 </html>
