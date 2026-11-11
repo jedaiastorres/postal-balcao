@@ -936,7 +936,7 @@ function receiptPayload(preview = false) {
     preview,
     createdAt: r.postedAt || r.createdAt || new Date().toISOString(),
     trackingCode: preview ? "SERA GERADO APOS A POSTAGEM" : (r.trackingCode || ""),
-    publicTrackingUrl: preview ? "" : (r.publicTrackingUrl || ""),
+    publicTrackingUrl: preview ? "" : (r.trackingCode ? ("/rastreio?codigo="+encodeURIComponent(r.trackingCode)) : ""),
     cartId: preview ? "" : (r.cartId || ""),
     packageId: preview ? "" : (r.packageId || ""),
     carrier: o.transportadora || r.carrier || "",
