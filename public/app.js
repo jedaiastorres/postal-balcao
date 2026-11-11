@@ -769,7 +769,7 @@ async function refreshPaymentPreview() {
 
     const note = $("#paymentMethodNote");
     if (method === "DINHEIRO") {
-      note.textContent = `O cliente paga ${money(preview.total)} em dinheiro. O ponto mantém sua receita e depois repassa ${money(preview.cashRemittance)} via PIX para liberar a etiqueta.`;
+      note.textContent = state.user?.role === "STORE_CLERK" ? `O cliente paga ${money(preview.total)} em dinheiro. A etiqueta será liberada após o responsável financeiro do ponto concluir o repasse.` : `O cliente paga ${money(preview.total)} em dinheiro. O ponto mantém sua receita e depois repassa ${money(preview.cashRemittance)} via PIX para liberar a etiqueta.`;
     } else {
       note.textContent = `A taxa do Asaas (${money(preview.paymentFee)}) já foi somada. A receita do ponto e a margem da Postal permanecem preservadas.`;
     }
@@ -1294,7 +1294,7 @@ function openOrderDetails(order) {
     <div class="detail-grid">
       <div><span>Status</span><strong>${escapeHtml(orderStatusMeta(order.status)[0])}</strong></div>
       <div><span>Total cliente</span><strong>${money(order.totalToCustomer)}</strong></div>
-      <div><span>Receita do ponto</span><strong>${money(order.pointRevenueTotal)}</strong></div>
+      ${state.user?.role==="STORE_CLERK" ? "" : `<div><span>Receita do ponto</span><strong>${money(order.pointRevenueTotal)}</strong></div>`}
       <div><span>Pagamento</span><strong>${escapeHtml(paymentMethodLabel(order.paymentMethod))}</strong></div>
       <div><span>Rastreio</span><strong>${escapeHtml(order.trackingCode || "—")}</strong></div>
       <div><span>Volumes</span><strong>${Number(order.packageCount||1)}</strong></div>
@@ -1321,11 +1321,16 @@ function renderOrders() {
   $("#ordersPendingCount").textContent = allOrders.filter(o => pendingStatuses.has(o.status)).length;
   $("#ordersReadyCount").textContent = allOrders.filter(o => ["LABEL_AVAILABLE","LABEL_AVAILABLE_SIMULATED"].includes(o.status)).length;
   const clientOrdersMode = state.user?.role === "CLIENT";
+  const clerkMode = state.user?.role === "STORE_CLERK";
+  const financialSummaryTile = document.querySelector("#ordersView .orders-summary > div:nth-child(3)");
+  financialSummaryTile?.classList.toggle("hidden", clerkMode);
   const summaryLabel = document.querySelector("#ordersView .orders-summary > div:nth-child(3) span");
   if (summaryLabel) summaryLabel.textContent = clientOrdersMode ? "Total utilizado" : "Comissão acumulada";
-  $("#ordersCommissionTotal").textContent = clientOrdersMode
-    ? money(allOrders.reduce((s,o) => s + Number(o.totalToCustomer || o.salePrice || 0), 0))
-    : money(allOrders.filter(o => commissionStatuses.has(o.status)).reduce((s,o) => s + Number(o.pointRevenueTotal || o.partnerCommission || 0), 0));
+  if (!clerkMode) {
+    $("#ordersCommissionTotal").textContent = clientOrdersMode
+      ? money(allOrders.reduce((s,o) => s + Number(o.totalToCustomer || o.salePrice || 0), 0))
+      : money(allOrders.filter(o => commissionStatuses.has(o.status)).reduce((s,o) => s + Number(o.pointRevenueTotal || o.partnerCommission || 0), 0));
+  }
 
   if (!orders.length) {
     host.innerHTML = `<div class="orders-empty"><strong>Nenhum frete encontrado.</strong><span>Ajuste os filtros ou faça uma nova cotação.</span><button class="primary" type="button" data-empty-new>Nova cotação</button></div>`;
@@ -1351,7 +1356,7 @@ function renderOrders() {
       </div>
       <div class="order-metrics">
         <div><span>Total cliente</span><strong>${money(order.totalToCustomer || order.salePrice)}</strong></div>
-        <div><span>${clientOrdersMode ? "Primeira milha" : "Sua receita"}</span><strong>${clientOrdersMode ? money(order.firstMileFee || 0) : money(order.pointRevenueTotal || order.partnerCommission)}</strong></div>
+        <div><span>${clerkMode ? "Prazo" : (clientOrdersMode ? "Primeira milha" : "Sua receita")}</span><strong>${clerkMode ? ((Number(order.deadline||0)||"—")+" dias") : (clientOrdersMode ? money(order.firstMileFee || 0) : money(order.pointRevenueTotal || order.partnerCommission))}</strong></div>
         <div><span>Pagamento</span><strong>${escapeHtml(paymentMethodLabel(order.paymentMethod))}</strong></div>
         <div><span>${Number(order.packageCount||1)>1?"Volumes":"Rastreio"}</span><strong>${Number(order.packageCount||1)>1?Number(order.packageCount):escapeHtml(order.trackingCode || "—")}</strong></div>
       </div>
@@ -1359,7 +1364,7 @@ function renderOrders() {
       <div class="order-bottom"><span>${escapeHtml(description)}</span><div class="order-actions"></div></div>`;
     const actions = card.querySelector(".order-actions");
 
-    if (order.status === "CASH_REMITTANCE_PENDING") {
+    if (!clerkMode && order.status === "CASH_REMITTANCE_PENDING") {
       const due = Number(order.cashRemittanceTotal || order.cashRemittanceAmount || 0);
       const btn = document.createElement("button"); btn.className="primary"; btn.type="button";
       btn.textContent = state.config?.paymentSimulatorEnabled ? `Preparar repasse teste ${money(due)}` : `Pagar ${money(due)} e liberar etiqueta`;
@@ -1391,6 +1396,12 @@ function renderOrders() {
       receiptBtn.textContent=allTracking>=expected ? "Imprimir comprovante 80 mm" : "Comprovante: rastreio pendente";
       receiptBtn.disabled=allTracking<expected;
       receiptBtn.addEventListener("click",()=>openReceipt(receiptPayloadFromOrder(order),true)); actions.appendChild(receiptBtn);
+    }
+
+    if (order.trackingCode && !order.isSimulation) {
+      const trackBtn=document.createElement("button"); trackBtn.className="ghost"; trackBtn.type="button"; trackBtn.textContent="Rastrear";
+      trackBtn.addEventListener("click",()=>window.open(order.publicTrackingUrl || ("/rastreio?codigo="+encodeURIComponent(order.trackingCode)),"_blank"));
+      actions.appendChild(trackBtn);
     }
 
     const detailBtn=document.createElement("button"); detailBtn.className="ghost"; detailBtn.type="button"; detailBtn.textContent="Detalhes";
