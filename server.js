@@ -82,6 +82,12 @@ app.use((req,res,next)=>{
 });
 app.use(express.static(path.join(__dirname, "public"), { etag: false, maxAge: 0 }));
 
+app.get("/rastreio", (_req,res)=>{
+  res.setHeader("Cache-Control","no-store");
+  res.sendFile(path.join(__dirname,"public","rastreio.html"));
+});
+
+
 function parseCookies(req) {
   const raw = req.headers.cookie || "";
   return Object.fromEntries(
@@ -998,7 +1004,7 @@ async function createShipmentFromOrderUnlocked(order) {
       labelA4Url: order.label_a4_url || "",
       labelA6Url: order.label_a6_url || "",
       declarationUrl: order.declaration_url || "",
-      publicTrackingUrl: order.public_tracking_url || "",
+      publicTrackingUrl: postalTrackingUrl(order.tracking_code || ""),
       volumes: Array.isArray(order.shipment_volumes) ? order.shipment_volumes : [],
       ready:true
     };
@@ -1171,6 +1177,14 @@ async function createShipmentFromOrderUnlocked(order) {
   return shipment;
 }
 
+function postalTrackingUrl(trackingCode) {
+  const code=String(trackingCode||"").trim();
+  if(!code) return "";
+  const base=String(process.env.APP_PUBLIC_URL||"").replace(/\/$/,"");
+  const path="/rastreio?codigo="+encodeURIComponent(code);
+  return base ? base+path : path;
+}
+
 function publicOrder(order) {
   if (!order) return null;
   const rawPackageData = order.package_data && typeof order.package_data === "object" ? order.package_data : {};
@@ -1224,7 +1238,7 @@ function publicOrder(order) {
       labelA4Url:v.labelA4Url || "",
       labelA6Url:v.labelA6Url || "",
       declarationUrl:v.declarationUrl || "",
-      publicTrackingUrl:v.publicTrackingUrl || ""
+      publicTrackingUrl:postalTrackingUrl(v.trackingCode || v.tracking_code || "")
     })) : [],
     providerPaymentStatus: order.provider_payment_status || "PENDING",
     providerPaymentRef: order.provider_payment_ref || "",
@@ -3970,6 +3984,53 @@ app.get("/api/envios/:id", requireAuth, async (req, res) => {
   } catch (error) {
     console.error("package detail error:", error.status, error.message);
     res.status(error.status || 502).json({ error: "Falha ao consultar envio." });
+  }
+});
+
+// Rastreamento público com marca Postal. A ConectEnvios fica somente no backend.
+app.get("/api/public/rastreio/:stamp", async (req,res)=>{
+  if(!TOKEN) return res.status(503).json({error:"Rastreamento temporariamente indisponível."});
+  const stamp=String(req.params.stamp||"").trim();
+  if(!/^[A-Za-z0-9]{6,40}$/.test(stamp)){
+    return res.status(400).json({error:"Código de rastreio inválido."});
+  }
+  try{
+    const order=await db.findOrderByTrackingCode(stamp);
+    if(!order){
+      return res.status(404).json({error:"Código não encontrado na rede Postal."});
+    }
+    const result=await providerFetch(`/package/track/stamp/${encodeURIComponent(stamp)}`,{method:"GET",timeout:30000});
+    const raw=result.data||{};
+    const data=raw.data||raw;
+    const events=Array.isArray(data.events)?data.events:[];
+    const sender=order.sender||{};
+    const recipient=order.recipient||{};
+    res.json({
+      trackingCode:stamp,
+      statusLabel:String(data.status_label||data.statusLabel||"Em acompanhamento"),
+      carrier:String(order.carrier||""),
+      service:String(order.service_name||""),
+      origin:{
+        city:String(sender.city||""),
+        cep:String(sender.cep||"").replace(/\D/g,"")
+      },
+      destination:{
+        city:String(recipient.city||""),
+        cep:String(recipient.cep||"").replace(/\D/g,"")
+      },
+      events:events.slice(0,30).map(event=>({
+        date:event.date||event.created_at||event.createdAt||null,
+        description:String(event.description||event.label||event.status_label||event.status||"Atualização do envio"),
+        city:event.city||null,
+        uf:event.uf||event.state||null,
+        type:event.type||null
+      })),
+      updatedAt:data.updated_at||data.updatedAt||null
+    });
+  }catch(error){
+    console.error("public tracking error:",error.status,error.message);
+    const status=Number(error.status)||502;
+    res.status(status===404?404:502).json({error:"Não foi possível atualizar o rastreio agora. Tente novamente em alguns instantes."});
   }
 });
 
