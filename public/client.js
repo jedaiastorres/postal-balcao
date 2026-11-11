@@ -585,34 +585,103 @@
 
   function renderCollectionCard(x,role){
     const addr=x.address||{};
+    const financialVisible=role!=="STORE_CLERK";
     const div=document.createElement("article"); div.className="order-card";
-    div.innerHTML=`
-      <div class="order-top"><div><div class="order-id">#${escapeHtml(String(x.id).slice(0,8).toUpperCase())}</div>
-      <h3>${x.service_type==="PICKUP"?"Coleta no cliente":"Postagem no ponto"} <span>${Number(x.package_count)} pacote(s)</span></h3>
-      <p>${escapeHtml(addr.address||addr.logradouro||"")} ${escapeHtml(addr.number||"")} · ${escapeHtml(addr.city||"")}</p></div>
-      <span class="order-status info">${escapeHtml(x.status)}</span></div>
-      <div class="order-metrics"><div><span>Taxa cliente</span><strong>${money(x.total_fee)}</strong></div>
-      <div><span>Ponto</span><strong>${escapeHtml(x.store_name||"Aguardando direção")}</strong></div>
-      <div><span>Remuneração ponto</span><strong>${money(x.point_compensation)}</strong></div>
-      <div><span>Solicitado</span><strong>${new Date(x.requested_at).toLocaleDateString("pt-BR")}</strong></div></div>
-      <div class="order-actions"></div>`;
+    const customerLine=[
+      x.client_name||x.requester_name||"Cliente",
+      x.client_phone||x.requester_phone||""
+    ].filter(Boolean).join(" · ");
+    const addressLine=[
+      addr.address||addr.logradouro||"",
+      addr.number||"",
+      addr.neighborhood||"",
+      addr.city||"",
+      addr.uf||"",
+      addr.cep||""
+    ].filter(Boolean).join(" · ");
+    const metricHtml=[
+      '<div><span>Cliente</span><strong>'+escapeHtml(customerLine||"Cliente")+'</strong></div>',
+      financialVisible?'<div><span>Taxa cliente</span><strong>'+money(x.total_fee)+'</strong></div>':"",
+      '<div><span>Ponto</span><strong>'+escapeHtml(x.store_name||"Aguardando direção")+'</strong></div>',
+      financialVisible?'<div><span>Remuneração ponto</span><strong>'+money(x.point_compensation)+'</strong></div>':"",
+      '<div><span>Solicitado</span><strong>'+new Date(x.requested_at).toLocaleDateString("pt-BR")+'</strong></div>'
+    ].filter(Boolean).join("");
+    div.innerHTML=
+      '<div class="order-top"><div><div class="order-id">#'+escapeHtml(String(x.id).slice(0,8).toUpperCase())+'</div>'+
+      '<h3>'+(x.service_type==="PICKUP"?"Coleta no cliente":"Postagem no ponto")+' <span>'+Number(x.package_count)+' pacote(s)</span></h3>'+
+      '<p>'+escapeHtml(addressLine)+'</p></div>'+
+      '<span class="order-status info">'+escapeHtml(x.status)+'</span></div>'+
+      '<div class="order-metrics">'+metricHtml+'</div>'+
+      (x.notes?'<div class="payment-method-note">'+escapeHtml(x.notes)+'</div>':"")+
+      '<div class="order-actions"></div>';
     const actions=div.querySelector(".order-actions");
     if(["ADMIN","SUPERVISOR"].includes(role)){
       const sel=document.createElement("select"); sel.className="compact-select";
-      sel.innerHTML='<option value="">Atribuir ponto...</option>'+client.adminStores.filter(s=>s.active).map(s=>`<option value="${s.id}" ${s.id===x.assigned_store_id?"selected":""}>${escapeHtml(s.name)}</option>`).join("");
+      sel.innerHTML='<option value="">Atribuir ponto...</option>'+client.adminStores.filter(s=>s.active).map(s=>'<option value="'+s.id+'" '+(s.id===x.assigned_store_id?"selected":"")+'>'+escapeHtml(s.name)+'</option>').join("");
       const btn=document.createElement("button");btn.className="primary";btn.textContent="Direcionar";btn.onclick=async()=>{
         if(!sel.value)return; await api("/api/collections/"+x.id,{method:"PATCH",body:JSON.stringify({status:"ASSIGNED",assignedStoreId:sel.value})}); await loadCollections();
       };actions.append(sel,btn);
     }else if(["STORE_OWNER","STORE_CLERK","OPS"].includes(role)){
       const stages=x.service_type==="PICKUP"?["ACCEPTED","EN_ROUTE","COLLECTED"]:["RECEIVED_AT_POINT"];
-      stages.forEach(s=>{const b=document.createElement("button");b.className=s.includes("COLLECTED")||s.includes("RECEIVED")?"primary":"ghost";b.textContent=s==="ACCEPTED"?"Aceitar":s==="EN_ROUTE"?"A caminho":s==="COLLECTED"?"Coletado":"Recebido no ponto";b.onclick=async()=>{await api("/api/collections/"+x.id,{method:"PATCH",body:JSON.stringify({status:s})});await loadCollections();};actions.appendChild(b);});
+      stages.forEach(s=>{
+        const b=document.createElement("button");
+        b.className=s.includes("COLLECTED")||s.includes("RECEIVED")?"primary":"ghost";
+        b.textContent=s==="ACCEPTED"?"Aceitar":s==="EN_ROUTE"?"A caminho":s==="COLLECTED"?"Coletado":"Recebido no ponto";
+        b.onclick=async()=>{await api("/api/collections/"+x.id,{method:"PATCH",body:JSON.stringify({status:s})});await loadCollections();};
+        actions.appendChild(b);
+      });
     }
     return div;
+  }
+
+  function updatePointCollectionTotal(){
+    const qty=Math.max(1,Number($("#pointCollectionPackages")?.value||1));
+    if($("#pointCollectionTotal")) $("#pointCollectionTotal").textContent=money(qty*5);
+  }
+
+  async function createPointCollection(event){
+    event.preventDefault();
+    const form=event.currentTarget;
+    const button=form.querySelector('button[type="submit"]');
+    const original=button.textContent;
+    button.disabled=true;button.textContent="Criando...";
+    try{
+      const result=await api("/api/store/collections",{
+        method:"POST",
+        body:JSON.stringify({
+          requesterName:$("#pointCollectionName").value.trim(),
+          requesterPhone:$("#pointCollectionPhone").value.trim(),
+          requesterDocument:$("#pointCollectionDocument").value.trim(),
+          packageCount:Number($("#pointCollectionPackages").value||1),
+          scheduledFor:$("#pointCollectionScheduledFor").value||null,
+          notes:$("#pointCollectionNotes").value.trim(),
+          address:{
+            address:$("#pointCollectionAddress").value.trim(),
+            number:$("#pointCollectionNumber").value.trim(),
+            complement:$("#pointCollectionComplement").value.trim(),
+            neighborhood:$("#pointCollectionNeighborhood").value.trim(),
+            cep:$("#pointCollectionCep").value.trim(),
+            city:$("#pointCollectionCity").value.trim(),
+            uf:$("#pointCollectionUf").value.trim()
+          }
+        })
+      });
+      form.reset();
+      $("#pointCollectionPackages").value="1";
+      updatePointCollectionTotal();
+      toast(result.message||"Ordem de coleta criada.");
+      await loadCollections();
+    }catch(err){
+      toast(err.message,"error");
+    }finally{
+      button.disabled=false;button.textContent=original;
+    }
   }
 
   async function loadCollections(){
     const role=state.user?.role; if(!role)return;
     $("#pickupSettingsCard")?.classList.toggle("hidden",role!=="STORE_OWNER");
+    $("#pointCollectionCreateCard")?.classList.toggle("hidden",!["STORE_OWNER","STORE_CLERK"].includes(role));
     if(role==="STORE_OWNER"){
       const s=await api("/api/store/pickup-settings");
       $("#pickupEnabled").checked=Boolean(s.enabled);$("#pickupRadius").value=s.radiusKm||10;
@@ -625,9 +694,14 @@
       d=cols;client.adminStores=stores.stores||[];
     }else d=await api("/api/store/collections");
     client.collections=d.collections||[];
-    $("#collectionsSubtitle").textContent=role==="CLIENT"?"Acompanhe a coleta no seu endereço ou a postagem no ponto escolhido.":["ADMIN","SUPERVISOR"].includes(role)?"Direcione coletas para a rede de pontos Postal.":"Veja as coletas direcionadas ao seu ponto.";
+    $("#collectionsSubtitle").textContent=
+      role==="CLIENT"
+        ?"Acompanhe a coleta no seu endereço ou a postagem no ponto escolhido."
+        :(["ADMIN","SUPERVISOR"].includes(role)
+          ?"Direcione e acompanhe coletas de toda a rede Postal."
+          :"Crie ordens de coleta para clientes e acompanhe o motorista até a retirada.");
     const host=$("#collectionsList");host.innerHTML="";
-    if(!client.collections.length){host.innerHTML='<div class="empty-state">Nenhuma coleta pendente.</div>';return;}
+    if(!client.collections.length){host.innerHTML='<div class="empty-state">Nenhuma coleta registrada.</div>';return;}
     client.collections.forEach(x=>host.appendChild(renderCollectionCard(x,role)));
   }
 
@@ -671,6 +745,8 @@
     $("#confirmBulkCollectionBtn")?.addEventListener("click",confirmBulkCollection);
     $("#bulkCollectionModal")?.addEventListener("click",e=>{if(e.target.id==="bulkCollectionModal")closeBulkCollection();});
     $("#refreshCollectionsBtn")?.addEventListener("click",loadCollections);
+    $("#pointCollectionForm")?.addEventListener("submit",createPointCollection);
+    $("#pointCollectionPackages")?.addEventListener("input",updatePointCollectionTotal);
     $("#pickupSettingsForm")?.addEventListener("submit",async e=>{
       e.preventDefault();
       try{await api("/api/store/pickup-settings",{method:"PATCH",body:JSON.stringify({
