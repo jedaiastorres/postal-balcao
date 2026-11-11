@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#d7083b" />
   <title>Postal Serviços | Balcão Parceiro</title>
-  <link rel="stylesheet" href="/styles.css?v=1.11.1" />
+  <link rel="stylesheet" href="/styles.css?v=1.12.0" />
 </head>
 <body>
   <div id="toast" class="toast" aria-live="polite"></div>
@@ -103,7 +103,8 @@
       <div id="adminNavSection" class="admin-only hidden">
         <div class="nav-section">ADMINISTRAÇÃO POSTAL</div>
         <nav>
-          <button class="nav-item" data-view="master"><span>★</span> Painel Master</button>
+          <button class="nav-item master-only hidden" data-view="master"><span>★</span> Painel Master</button>
+          <button class="nav-item supervisor-only hidden" data-view="supervisor"><span>◉</span> Supervisão da Rede</button>
         </nav>
       </div>
 
@@ -291,6 +292,33 @@
             <div class="selection-detail"><span>Total</span><strong id="selectedPrice">—</strong></div>
             <button id="continueShipmentBtn" class="primary" type="button">Continuar</button>
           </div>
+        </div>
+      </section>
+
+      <section id="cashView" class="view hidden">
+        <div class="orders-head">
+          <div>
+            <div class="eyebrow">FINANCEIRO DO PONTO</div>
+            <h1>Meu Caixa</h1>
+            <p>Acompanhe vendas, ganhos do ponto, coletas, indicações e pendências financeiras.</p>
+          </div>
+          <button id="refreshCashBtn" class="ghost" type="button">Atualizar caixa</button>
+        </div>
+        <div class="cards-4">
+          <article class="metric-card"><span>Ganhos totais</span><strong id="cashTotalEarnings">R$ 0,00</strong><small>Fretes + produtos + serviços + ganhos extras</small></article>
+          <article class="metric-card"><span>Ganhos em vendas</span><strong id="cashSalesEarnings">R$ 0,00</strong><small>Receita do ponto nas vendas pagas</small></article>
+          <article class="metric-card"><span>Coletas e indicações</span><strong id="cashExtraEarnings">R$ 0,00</strong><small>Ganhos adicionais registrados</small></article>
+          <article class="metric-card"><span>Repasse pendente</span><strong id="cashPendingRemittance">R$ 0,00</strong><small>Valores em dinheiro aguardando regularização</small></article>
+        </div>
+        <div class="panel-grid">
+          <article class="panel">
+            <div class="panel-head"><div><span class="eyebrow">RESUMO</span><h3>Indicadores do caixa</h3></div></div>
+            <div id="cashSummaryList" class="inventory-list"><div class="empty-state">Carregando caixa...</div></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><span class="eyebrow">EXTRATO</span><h3>Movimentações recentes</h3></div></div>
+            <div id="cashMovementsList" class="inventory-list"><div class="empty-state">Carregando movimentações...</div></div>
+          </article>
         </div>
       </section>
 
@@ -559,6 +587,33 @@
         </div>
       </section>
 
+      <section id="supervisorView" class="view hidden supervisor-only">
+        <div class="orders-head">
+          <div>
+            <div class="eyebrow">SUPERVISÃO POSTAL</div>
+            <h1>Supervisão da Rede</h1>
+            <p>Acompanhe todos os pontos Postal, seus volumes, usuários e operação diária.</p>
+          </div>
+          <div class="order-actions">
+            <button class="ghost" data-go="orders" type="button">Ver todos os fretes</button>
+            <button class="primary" data-go="collections" type="button">Gerir coletas</button>
+          </div>
+        </div>
+        <div class="master-metrics">
+          <div><span>Pontos ativos</span><strong id="supervisorStores">0</strong></div>
+          <div><span>Usuários ativos</span><strong id="supervisorUsers">0</strong></div>
+          <div><span>Fretes da rede</span><strong id="supervisorOrders">0</strong></div>
+          <div><span>Venda bruta</span><strong id="supervisorGross">R$ 0,00</strong></div>
+        </div>
+        <article class="panel master-section">
+          <div class="panel-head">
+            <div><span class="eyebrow">TODOS OS PONTOS</span><h3>Acompanhamento operacional</h3></div>
+            <button id="refreshSupervisorBtn" class="ghost" type="button">Atualizar</button>
+          </div>
+          <div id="supervisorStoresList" class="admin-table"><div class="empty-state">Carregando pontos...</div></div>
+        </article>
+      </section>
+
       <section id="masterView" class="view hidden admin-only">
         <div class="orders-head">
           <div>
@@ -612,7 +667,7 @@
           </article>
 
           <article class="form-panel">
-            <div class="form-panel-head"><span class="step-number">2</span><div><h3>Novo usuário</h3><p>Crie donos, atendentes e operadores com acesso individual.</p></div></div>
+            <div class="form-panel-head"><span class="step-number">2</span><div><h3>Novo usuário</h3><p>Crie supervisores globais, donos, atendentes e operadores com acesso individual.</p></div></div>
             <form id="adminUserForm" class="inventory-form">
               <label>Nome*<input id="adminUserName" required /></label>
               <label>E-mail*<input id="adminUserEmail" type="email" required /></label>
@@ -622,7 +677,8 @@
                   <option value="STORE_OWNER">Dono do ponto</option>
                   <option value="STORE_CLERK">Atendente</option>
                   <option value="OPS">Operação Postal</option>
-                  <option value="ADMIN">Administrador Postal</option>
+                  <option value="SUPERVISOR">Supervisor da rede</option>
+                  <option value="ADMIN">MASTER / Administrador Postal</option>
                 </select>
               </label>
               <label>Ponto<select id="adminUserStore"></select></label>
@@ -1026,7 +1082,7 @@
     </div>
   </div>
 
-  <script src="/app.js?v=1.11.1"></script>
-  <script src="/client.js?v=1.11.1"></script>
+  <script src="/app.js?v=1.12.0"></script>
+  <script src="/client.js?v=1.12.0"></script>
 </body>
 </html>
