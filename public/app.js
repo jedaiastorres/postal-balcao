@@ -146,6 +146,9 @@ function showApp(user) {
   if (!params.get("payment") && user?.role === "STORE_CLERK") {
     navigate("quote");
   }
+  if (!params.get("payment") && user?.role === "SUPERVISOR") {
+    navigate("supervisor");
+  }
   if (params.get("payment")) {
     const isTopup = user?.role === "CLIENT" && String(params.get("order") || "").startsWith("TOPUP-");
     navigate(isTopup ? "wallet" : "orders");
