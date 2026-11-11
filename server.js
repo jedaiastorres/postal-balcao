@@ -43,6 +43,7 @@ const CLIENT_PICKUP_FEE_PER_PACKAGE = Math.max(0, Number(process.env.CLIENT_PICK
 const POINT_PICKUP_EARNING_PER_PACKAGE = Math.max(0, Number(process.env.POINT_PICKUP_EARNING_PER_PACKAGE || 3));
 const POINT_DROPOFF_EARNING_PER_PACKAGE = Math.max(0, Number(process.env.POINT_DROPOFF_EARNING_PER_PACKAGE || 2));
 const REFERRAL_EARNING_PER_SHIPMENT = Math.max(0, Number(process.env.REFERRAL_EARNING_PER_SHIPMENT || 0.50));
+const HUB_TRANSFER_FEE_PER_PACKAGE = Math.max(0, Number(process.env.HUB_TRANSFER_FEE_PER_PACKAGE || 5));
 
 const paymentRuntime = {
   operational: false,
@@ -574,10 +575,15 @@ async function resolveOperationalQuoteOrigin(user, actualCepFrom) {
     }
   }
   const configured = cleanDigits(store?.quote_origin_cep || "");
+  const operationalHub = store?.operational_hub && typeof store.operational_hub==="object"
+    ? store.operational_hub
+    : {};
   return {
     actualCepFrom,
     providerCepFrom: configured.length === 8 ? configured : actualCepFrom,
     storeId: store?.id || null,
+    store,
+    operationalHub,
     overridden: configured.length === 8 && configured !== actualCepFrom
   };
 }
@@ -3685,11 +3691,13 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
 
     let partnerCommissionRate = (req.user.role === "CLIENT" || (req.user.role === "ADMIN" && !req.user.storeId)) ? 0 : PARTNER_COMMISSION;
     if (req.user.role !== "CLIENT" && req.user.storeId) {
-      const store = await db.getStore(req.user.storeId);
+      const store = quoteOrigin.store || await db.getStore(req.user.storeId);
       if (store?.commission_percent != null) {
         partnerCommissionRate = Math.max(0, Math.min(0.50, Number(store.commission_percent) / 100));
       }
     }
+    const hubTransferFeePerPackage = quoteOrigin.overridden ? HUB_TRANSFER_FEE_PER_PACKAGE : 0;
+    const hubTransferTotal = round2(hubTransferFeePerPackage * volumes.length);
 
     let demo = false;
     let cacheHits = 0;
@@ -3729,15 +3737,19 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
 
     const options = aggregated.map(option => {
       const first = volumes[0];
+      const salePriceWithHub = round2(Number(option.precoVenda||0) + hubTransferTotal);
+      const postalMarginWithHub = round2(Number(option.postalMargin||0) + hubTransferTotal);
       const selectionToken = signSelectionToken({
         exp: Date.now() + 2 * 60 * 60 * 1000,
         postalCompanyId: option.postalCompanyId,
         service: option.produto,
         deadline: option.prazoEntrega,
-        salePrice: option.precoVenda,
+        salePrice: salePriceWithHub,
         partnerCommission: option.comissaoParceiro,
         providerCost: option.providerCost,
-        postalMargin: option.postalMargin,
+        postalMargin: postalMarginWithHub,
+        hubTransferFeePerPackage,
+        hubTransferTotal,
         package: {
           weightGrams: totalWeightGrams,
           width:first.width,
@@ -3746,6 +3758,9 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
           cepFrom,
           cepTo,
           providerCepFrom,
+          operationalHub: quoteOrigin.overridden ? quoteOrigin.operationalHub : null,
+          hubTransferFeePerPackage,
+          hubTransferTotal,
           declaredValue:totalDeclaredValue,
           serviceCode: String(option.codigoServico || ""),
           volumeCount:volumes.length,
@@ -3759,8 +3774,11 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
         produto: option.produto,
         codigoServico: option.codigoServico,
         prazoEntrega: option.prazoEntrega,
-        precoVenda: option.precoVenda,
+        precoVenda: salePriceWithHub,
         comissaoParceiro: req.user.role === "STORE_CLERK" ? undefined : option.comissaoParceiro,
+        hubTransferApplied: quoteOrigin.overridden,
+        hubTransferFeePerPackage,
+        hubTransferTotal,
         volumeCount:volumes.length,
         selectionToken
       };
@@ -3780,6 +3798,11 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
       commissionPercent: round2(partnerCommissionRate * 100),
       volumeCount:volumes.length,
       totalWeightKg:round2(totalWeightGrams / 1000),
+      hubTransfer:{
+        applied:quoteOrigin.overridden,
+        feePerPackage:hubTransferFeePerPackage,
+        total:hubTransferTotal
+      },
       quoteElapsedMs:Date.now() - startedAt,
       cacheHits,
       options
@@ -3892,6 +3915,8 @@ app.post("/api/payment-preview", requireAuth, requireRole("ADMIN","STORE_OWNER",
       subtotal: financials.customerSubtotal,
       paymentFee: financials.paymentSurcharge,
       total: financials.totalToCustomer,
+      hubTransferFeePerPackage:Number(selection.hubTransferFeePerPackage||0),
+      hubTransferTotal:Number(selection.hubTransferTotal||0),
       pointRevenue: req.user.role==="STORE_CLERK" ? undefined : financials.pointRevenueTotal,
       cashRemittance: req.user.role==="STORE_CLERK"
         ? undefined
@@ -4189,6 +4214,8 @@ app.post("/api/orders", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CL
       pointRevenueTotal: financials.pointRevenueTotal,
       postalRevenueTotal: financials.postalRevenueTotal,
       providerRevenueTotal: financials.providerRevenueTotal,
+      hubTransferFeePerPackage: Number(selection.hubTransferFeePerPackage||0),
+      hubTransferTotal: Number(selection.hubTransferTotal||0),
       partnerCommission,
       postalMargin,
       providerCost,
