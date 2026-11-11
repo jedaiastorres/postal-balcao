@@ -1046,6 +1046,17 @@ async function listUsers() {
   return rows;
 }
 
+async function deleteUser(id) {
+  const db = requireDb();
+  const { rows } = await db.query(
+    `DELETE FROM app_users
+      WHERE id=$1
+      RETURNING id,store_id,email,name,role,active`,
+    [id]
+  );
+  return rows[0] || null;
+}
+
 async function listStoreUsers(storeId) {
   const db = requireDb();
   const { rows } = await db.query(
@@ -1431,6 +1442,7 @@ module.exports = {
   createUser,
   updateUser,
   listUsers,
+  deleteUser,
   listStoreUsers,
   touchUserLogin,
   createStore,
