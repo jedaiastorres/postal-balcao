@@ -14,7 +14,7 @@ function routeLabel(route){
 function dateLabel(value){
   if(!value) return "";
   const d=new Date(value);
-  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString("pt-BR");
+  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString("pt-BR",{timeZone:"America/Belem"});
 }
 function showError(message){
   $("#errorBox").textContent=message;
@@ -46,8 +46,16 @@ async function track(code){
     const recipientAddress=[data.recipient?.address,data.recipient?.number,data.recipient?.complement,data.recipient?.neighborhood,data.recipient?.city,data.recipient?.cep?formatCep(data.recipient.cep):""].filter(Boolean).join(", ");
     $("#recipientAddress").textContent=recipientAddress;
     const pkg=data.package||{};
+    const firstVolume=Array.isArray(pkg.volumes)&&pkg.volumes.length?pkg.volumes[0]:null;
+    const dims=firstVolume?.dimensions;
+    const dimensionsText=dims && (dims.length||dims.width||dims.height)
+      ? `${Number(dims.length||0)} × ${Number(dims.width||0)} × ${Number(dims.height||0)} cm`
+      : "";
     $("#packageSummary").textContent=`${Number(pkg.volumeCount||1)} volume(s) · ${Number(pkg.weightKg||0).toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:3})} kg`;
-    $("#packageDeclared").textContent=Number(pkg.declaredValue||0)>0 ? `Valor declarado: ${Number(pkg.declaredValue).toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}` : "";
+    const packageDetails=[];
+    if(dimensionsText) packageDetails.push("Medidas: "+dimensionsText);
+    if(Number(pkg.declaredValue||0)>0) packageDetails.push(`Valor declarado: ${Number(pkg.declaredValue).toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}`);
+    $("#packageDeclared").textContent=packageDetails.join(" · ");
     $("#origin").textContent=routeLabel(data.origin);
     $("#destination").textContent=routeLabel(data.destination);
     $("#updatedAt").textContent=data.updatedAt ? "Atualizado em "+dateLabel(data.updatedAt) : "";
