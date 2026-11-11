@@ -3002,16 +3002,103 @@ app.post("/api/store/clients", requireAuth, requireRole("STORE_OWNER"), async (r
   }catch(error){res.status(500).json({error:"Não foi possível cadastrar o cliente."});}
 });
 
-app.get("/api/store/collections", requireAuth, requireRole("STORE_OWNER","OPS"), async (req,res)=>{
+app.post("/api/store/collections", requireAuth, requireRole("STORE_OWNER","STORE_CLERK"), async (req,res)=>{
+  try{
+    if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
+    const body=req.body||{};
+    const requesterName=String(body.requesterName||"").trim();
+    const requesterPhone=String(body.requesterPhone||"").trim();
+    const requesterDocument=cleanDigits(body.requesterDocument||"");
+    const packageCount=Math.max(1,Math.min(200,Number(body.packageCount||1)));
+    const address=body.address&&typeof body.address==="object"?body.address:{};
+    const cep=cleanDigits(address.cep||"");
+    const street=String(address.address||"").trim();
+    const number=String(address.number||"").trim();
+    const city=String(address.city||"").trim();
+
+    if(!requesterName) return res.status(400).json({error:"Informe o nome do cliente."});
+    if(!requesterPhone) return res.status(400).json({error:"Informe o telefone do cliente."});
+    if(!street||!number||cep.length!==8||!city){
+      return res.status(400).json({error:"Informe endereço, número, CEP e cidade para a coleta."});
+    }
+
+    const feePerPackage=CLIENT_PICKUP_FEE_PER_PACKAGE;
+    const pointRate=POINT_PICKUP_EARNING_PER_PACKAGE;
+    const totalFee=round2(feePerPackage*packageCount);
+    const pointCompensation=round2(pointRate*packageCount);
+    const postalCompensation=round2(totalFee-pointCompensation);
+
+    const collection=await clientDb.createCollectionRequest({
+      clientUserId:null,
+      freightOrderId:null,
+      serviceType:"PICKUP",
+      status:"ASSIGNED",
+      packageCount,
+      feePerPackage,
+      totalFee,
+      assignedStoreId:req.user.storeId,
+      pointRate,
+      pointCompensation,
+      postalCompensation,
+      address:{
+        address:street,
+        number,
+        complement:String(address.complement||"").trim(),
+        neighborhood:String(address.neighborhood||"").trim(),
+        cep,
+        city,
+        uf:String(address.uf||"").trim().toUpperCase()
+      },
+      scheduledFor:body.scheduledFor||null,
+      notes:String(body.notes||"").trim(),
+      requesterName,
+      requesterPhone,
+      requesterDocument,
+      createdByUserId:req.user.userId
+    });
+
+    await audit(req,"CREATE_STORE_COLLECTION","COLLECTION",collection.id,{
+      storeId:req.user.storeId,
+      requesterName,
+      packageCount,
+      totalFee
+    });
+
+    res.status(201).json({
+      collection,
+      pricing:{
+        packageCount,
+        feePerPackage,
+        totalFee
+      },
+      message:"Ordem de coleta criada e vinculada ao ponto."
+    });
+  }catch(error){
+    console.error("store collection create error:",error.message);
+    res.status(500).json({error:"Não foi possível criar a ordem de coleta."});
+  }
+});
+
+app.get("/api/store/collections", requireAuth, requireRole("STORE_OWNER","STORE_CLERK","OPS"), async (req,res)=>{
   try{
     if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
     const collections=await clientDb.listCollections({storeId:req.user.storeId},100);
-    const earnings=await clientDb.listPointEarnings(req.user.storeId,100);
-    res.json({collections,earnings});
+    const earnings=req.user.role==="STORE_CLERK"?[]:await clientDb.listPointEarnings(req.user.storeId,100);
+    res.json({
+      collections:collections.map(item=>{
+        if(req.user.role!=="STORE_CLERK") return item;
+        const safe={...item};
+        delete safe.point_rate;
+        delete safe.point_compensation;
+        delete safe.postal_compensation;
+        return safe;
+      }),
+      earnings
+    });
   }catch(error){res.status(500).json({error:"Não foi possível carregar as coletas."});}
 });
 
-app.patch("/api/collections/:id", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","OPS"), async (req,res)=>{
+app.patch("/api/collections/:id", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req,res)=>{
   try{
     const current=await clientDb.getCollection(req.params.id);
     if(!current) return res.status(404).json({error:"Coleta não encontrada."});
