@@ -115,7 +115,7 @@ function showApp(user) {
   document.querySelectorAll(".owner-finance-only").forEach(el => el.classList.toggle("hidden", user?.role !== "STORE_OWNER"));
 
   const clerkPostingOnly = user?.role === "STORE_CLERK";
-  const clerkAllowedViews = new Set(["dashboard","quote","orders"]);
+  const clerkAllowedViews = new Set(["quote","orders"]);
   document.querySelectorAll(".sidebar .nav-item").forEach(btn => {
     if (clerkPostingOnly && !clerkAllowedViews.has(btn.dataset.view)) {
       btn.dataset.clerkHidden = "1";
@@ -140,6 +140,9 @@ function showApp(user) {
   refreshDashboard();
 
   const params = new URLSearchParams(window.location.search);
+  if (!params.get("payment") && user?.role === "STORE_CLERK") {
+    navigate("quote");
+  }
   if (params.get("payment")) {
     const isTopup = user?.role === "CLIENT" && String(params.get("order") || "").startsWith("TOPUP-");
     navigate(isTopup ? "wallet" : "orders");
@@ -245,7 +248,7 @@ function navigate(name) {
     toast("Área exclusiva da administração Postal.", "error");
     return;
   }
-  if (state.user?.role === "STORE_CLERK" && !["dashboard","quote","shipment","orders"].includes(name)) {
+  if (state.user?.role === "STORE_CLERK" && !["quote","shipment","orders"].includes(name)) {
     toast("Este usuário possui acesso somente às postagens do ponto.", "error");
     return;
   }
@@ -517,11 +520,11 @@ function renderResults(result, payload) {
     `;
 
     const priceReveal = card.querySelector(".price-reveal");
-    if (state.user?.role === "CLIENT") {
+    if (["CLIENT","STORE_CLERK"].includes(state.user?.role)) {
       card.querySelector(".price-commission-label")?.classList.add("hidden");
       card.querySelector(".price-commission")?.classList.add("hidden");
       const hint = priceReveal.querySelector("small");
-      if (hint) hint.textContent = "Preço Postal para sua conta";
+      if (hint) hint.textContent = state.user?.role === "STORE_CLERK" ? "Valor a cobrar do cliente" : "Preço Postal para sua conta";
     }
     priceReveal.addEventListener("click", () => {
       priceReveal.classList.toggle("show-commission");
