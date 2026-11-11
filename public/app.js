@@ -1421,6 +1421,93 @@ $("#clearOrderFilters")?.addEventListener("click", () => {
 $("#closeOrderDetailBtn")?.addEventListener("click",()=>$("#orderDetailModal")?.classList.add("hidden"));
 $("#orderDetailModal")?.addEventListener("click",event=>{if(event.target.id==="orderDetailModal") event.currentTarget.classList.add("hidden");});
 
+async function loadStoreUsers() {
+  if (state.user?.role !== "STORE_OWNER") return;
+  const host=$("#storeUsersList");
+  if(!host) return;
+  host.innerHTML='<div class="empty-state">Carregando usuários...</div>';
+  try{
+    const result=await api("/api/store/users");
+    const users=Array.isArray(result.users)?result.users:[];
+    if(!users.length){
+      host.innerHTML='<div class="empty-state">Nenhum atendente cadastrado ainda.</div>';
+      return;
+    }
+    host.innerHTML=users.map(user=>`
+      <div class="inventory-row" data-store-user-id="${escapeHtml(user.id)}">
+        <div>
+          <span class="addon-type">ATENDENTE</span>
+          <strong>${escapeHtml(user.name||"")}</strong>
+          <small>${escapeHtml(user.email||"")}</small>
+        </div>
+        <div><span>Status</span><strong>${user.active?"Ativo":"Bloqueado"}</strong></div>
+        <div><span>Último acesso</span><strong>${user.lastLoginAt?new Date(user.lastLoginAt).toLocaleString("pt-BR"):"Nunca"}</strong></div>
+        <div class="row-actions">
+          <button class="ghost" type="button" data-toggle-user="${escapeHtml(user.id)}">${user.active?"Bloquear":"Ativar"}</button>
+          <button class="ghost" type="button" data-password-user="${escapeHtml(user.id)}">Nova senha</button>
+        </div>
+      </div>`).join("");
+
+    host.querySelectorAll("[data-toggle-user]").forEach(btn=>btn.addEventListener("click",async()=>{
+      const user=users.find(item=>item.id===btn.dataset.toggleUser);
+      if(!user) return;
+      try{
+        await api("/api/store/users/"+encodeURIComponent(user.id),{
+          method:"PATCH",
+          body:JSON.stringify({active:!user.active})
+        });
+        toast(user.active?"Acesso bloqueado.":"Acesso ativado.");
+        await loadStoreUsers();
+      }catch(err){toast(err.message,"error");}
+    }));
+
+    host.querySelectorAll("[data-password-user]").forEach(btn=>btn.addEventListener("click",async()=>{
+      const user=users.find(item=>item.id===btn.dataset.passwordUser);
+      if(!user) return;
+      const password=window.prompt("Nova senha para "+user.name+" (mínimo 10 caracteres):","");
+      if(password===null) return;
+      if(password.length<10) return toast("A senha precisa ter ao menos 10 caracteres.","error");
+      try{
+        await api("/api/store/users/"+encodeURIComponent(user.id),{
+          method:"PATCH",
+          body:JSON.stringify({password})
+        });
+        toast("Senha do atendente atualizada.");
+      }catch(err){toast(err.message,"error");}
+    }));
+  }catch(err){
+    host.innerHTML=`<div class="empty-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+$("#storeUserForm")?.addEventListener("submit",async event=>{
+  event.preventDefault();
+  const btn=event.currentTarget.querySelector('button[type="submit"]');
+  btn.disabled=true;
+  const original=btn.textContent;
+  btn.textContent="Criando...";
+  try{
+    await api("/api/store/users",{
+      method:"POST",
+      body:JSON.stringify({
+        name:$("#storeUserName").value.trim(),
+        email:$("#storeUserEmail").value.trim(),
+        password:$("#storeUserPassword").value
+      })
+    });
+    event.currentTarget.reset();
+    toast("Usuário do ponto criado.");
+    await loadStoreUsers();
+  }catch(err){
+    toast(err.message,"error");
+  }finally{
+    btn.disabled=false;
+    btn.textContent=original;
+  }
+});
+
+$("#refreshStoreUsersBtn")?.addEventListener("click",loadStoreUsers);
+
 async function loadStoreFinancialSettings() {
   if (state.user?.role !== "STORE_OWNER") return;
   const summary = $("#storeFinancialSummary");
