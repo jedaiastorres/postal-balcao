@@ -36,6 +36,7 @@ async function initDb() {
       email TEXT,
       asaas_wallet_id TEXT,
       quote_origin_cep TEXT,
+      operational_hub JSONB NOT NULL DEFAULT '{}'::jsonb,
       address JSONB NOT NULL DEFAULT '{}'::jsonb,
       commission_percent NUMERIC(6,3) NOT NULL DEFAULT 20,
       active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -102,6 +103,8 @@ async function initDb() {
       point_revenue_total NUMERIC(12,2) NOT NULL DEFAULT 0,
       postal_revenue_total NUMERIC(12,2) NOT NULL DEFAULT 0,
       provider_revenue_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+      hub_transfer_fee_per_package NUMERIC(12,2) NOT NULL DEFAULT 0,
+      hub_transfer_total NUMERIC(12,2) NOT NULL DEFAULT 0,
       partner_commission NUMERIC(12,2) NOT NULL,
       postal_margin NUMERIC(12,2) NOT NULL,
       provider_cost NUMERIC(12,2) NOT NULL,
@@ -289,11 +292,14 @@ async function initDb() {
   await pool.query(`
     ALTER TABLE stores ADD COLUMN IF NOT EXISTS asaas_wallet_id TEXT;
     ALTER TABLE stores ADD COLUMN IF NOT EXISTS quote_origin_cep TEXT;
+    ALTER TABLE stores ADD COLUMN IF NOT EXISTS operational_hub JSONB NOT NULL DEFAULT '{}'::jsonb;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS addons_total NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS customer_subtotal NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS point_revenue_total NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS postal_revenue_total NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS provider_revenue_total NUMERIC(12,2) NOT NULL DEFAULT 0;
+    ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS hub_transfer_fee_per_package NUMERIC(12,2) NOT NULL DEFAULT 0;
+    ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS hub_transfer_total NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS store_id UUID REFERENCES stores(id) ON DELETE SET NULL;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS is_simulation BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS provider_payment_status TEXT NOT NULL DEFAULT 'PENDING';
@@ -356,6 +362,7 @@ async function insertOrder(order) {
       payment_amount, payment_surcharge, cash_remittance_amount,
       sale_price, addons_total, customer_subtotal,
       point_revenue_total, postal_revenue_total, provider_revenue_total,
+      hub_transfer_fee_per_package, hub_transfer_total,
       partner_commission, postal_margin, provider_cost,
       postal_company_id, carrier, service_name, deadline, quote_token,
       sender, recipient, items, invoice_number, package_data, package_count
@@ -364,9 +371,10 @@ async function insertOrder(order) {
       $8,$9,$10,
       $11,$12,$13,
       $14,$15,$16,
-      $17,$18,$19,
-      $20,$21,$22,$23,$24,
-      $25::jsonb,$26::jsonb,$27::jsonb,$28,$29::jsonb,$30
+      $17,$18,
+      $19,$20,$21,
+      $22,$23,$24,$25,$26,
+      $27::jsonb,$28::jsonb,$29::jsonb,$30,$31::jsonb,$32
     )
     RETURNING *`,
     [
@@ -1079,11 +1087,11 @@ async function createStore(store) {
   const db = requireDb();
   const id = store.id || require("crypto").randomUUID();
   const { rows } = await db.query(
-    `INSERT INTO stores(id,code,name,legal_name,cnpj,phone,email,asaas_wallet_id,quote_origin_cep,address,commission_percent,active)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12)
+    `INSERT INTO stores(id,code,name,legal_name,cnpj,phone,email,asaas_wallet_id,quote_origin_cep,operational_hub,address,commission_percent,active)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13)
      RETURNING *`,
     [id,store.code,store.name,store.legalName||"",store.cnpj||"",store.phone||"",store.email||"",store.asaasWalletId||null,
-     store.quoteOriginCep||null,JSON.stringify(store.address||{}),store.commissionPercent??20,store.active!==false]
+     store.quoteOriginCep||null,JSON.stringify(store.operationalHub||{}),JSON.stringify(store.address||{}),store.commissionPercent??20,store.active!==false]
   );
   return rows[0];
 }
@@ -1094,8 +1102,8 @@ async function updateStore(id, patch) {
   if (!current) return null;
   const { rows } = await db.query(
     `UPDATE stores SET
-      code=$2,name=$3,legal_name=$4,cnpj=$5,phone=$6,email=$7,asaas_wallet_id=$8,quote_origin_cep=$9,address=$10::jsonb,
-      commission_percent=$11,active=$12,updated_at=NOW()
+      code=$2,name=$3,legal_name=$4,cnpj=$5,phone=$6,email=$7,asaas_wallet_id=$8,quote_origin_cep=$9,operational_hub=$10::jsonb,address=$11::jsonb,
+      commission_percent=$12,active=$13,updated_at=NOW()
      WHERE id=$1 RETURNING *`,
     [
       id,
@@ -1107,6 +1115,7 @@ async function updateStore(id, patch) {
       patch.email ?? current.email,
       patch.asaasWalletId ?? current.asaas_wallet_id ?? null,
       patch.quoteOriginCep !== undefined ? (patch.quoteOriginCep || null) : (current.quote_origin_cep || null),
+      JSON.stringify(patch.operationalHub ?? current.operational_hub ?? {}),
       JSON.stringify(patch.address ?? current.address ?? {}),
       patch.commissionPercent ?? Number(current.commission_percent),
       patch.active ?? current.active
