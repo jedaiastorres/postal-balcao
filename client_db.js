@@ -718,7 +718,7 @@ async function listBridgeConnections(status=null,limit=100){
   let where="";
   if(status){ params.push(status); where="WHERE c.status=$1"; }
   params.push(safe);
-  const limitPos=params.length;
+  const limitPlaceholder="$"+params.length;
   const {rows}=await db.query(
     `SELECT c.id,c.user_id,c.platform,c.display_name,c.external_store_id,c.status,
             c.authorization_url,c.config,c.last_sync_at,c.created_at,c.updated_at,
@@ -727,7 +727,7 @@ async function listBridgeConnections(status=null,limit=100){
        JOIN app_users u ON u.id=c.user_id
        ${where}
        ORDER BY c.updated_at ASC
-       LIMIT ${limitPos}`,
+       LIMIT ${limitPlaceholder}`,
     params
   );
   return rows;
