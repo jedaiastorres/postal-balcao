@@ -384,6 +384,8 @@ async function insertOrder(order) {
       order.pointRevenueTotal || order.partnerCommission || 0,
       order.postalRevenueTotal || order.postalMargin || 0,
       order.providerRevenueTotal || order.providerCost || 0,
+      order.hubTransferFeePerPackage || 0,
+      order.hubTransferTotal || 0,
       order.partnerCommission, order.postalMargin, order.providerCost,
       order.postalCompanyId || null, order.carrier || "", order.serviceName || "", order.deadline || 0, order.quoteToken,
       JSON.stringify(order.sender || {}), JSON.stringify(order.recipient || {}), JSON.stringify(order.items || []),
