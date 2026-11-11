@@ -3573,6 +3573,11 @@ app.put("/api/admin/catalog/:code", requireAuth, requireRole("ADMIN"), async (re
   } catch(error){ res.status(500).json({error:"Não foi possível salvar o item."}); }
 });
 
+// Crédito no Balcão descontinuado no produto.
+app.use("/api/credit",(_req,res)=>res.status(410).json({error:"Módulo de crédito descontinuado."}));
+app.use("/api/admin/credit",(_req,res)=>res.status(410).json({error:"Módulo de crédito descontinuado."}));
+app.use("/api/integrations/v1/credit",(_req,res)=>res.status(410).json({error:"Módulo de crédito descontinuado."}));
+
 app.get("/api/admin/credit/partners", requireAuth, requireRole("ADMIN"), async (_req,res)=>{
   try { res.json({partners:await db.listCreditPartners()}); }
   catch(error){ res.status(500).json({error:"Não foi possível carregar parceiros de crédito."}); }
