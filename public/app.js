@@ -975,7 +975,7 @@ function buildReceiptHtml(data) {
   const volumeRows = Array.isArray(data.volumes) && data.volumes.length > 1
     ? `<div class="dash"></div><div class="section">VOLUMES</div>${data.volumes.map(v => `<div class="volume"><b>Volume ${v.index}</b><br>${escapeHtml(String(v.weightKg))} kg · ${escapeHtml(v.dimensions)}<br>Valor declarado: ${money(v.declaredValue)}${v.trackingCode ? `<br>Rastreio: <b>${escapeHtml(v.trackingCode)}</b>` : ""}</div>`).join("")}`
     : "";
-  const paidLabel = String(data.paymentStatus || "PAID").toUpperCase() === "PAID" ? "PAGO" : String(data.paymentStatus || "");
+  const paidLabel = data.preview ? "PRÉVIA — NÃO PAGO" : (String(data.paymentStatus || "PAID").toUpperCase() === "PAID" ? "PAGO" : String(data.paymentStatus || ""));
 
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Comprovante Postal</title>
   <style>
