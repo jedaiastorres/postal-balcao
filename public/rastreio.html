@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#d7083b" />
+  <title>Rastreio | Postal Serviços</title>
+  <style>
+    :root{--postal:#d7083b;--postal-dark:#ac062f;--ink:#20232d;--muted:#747987;--line:#e7e8ed;--bg:#f6f7fa;--card:#fff;--green:#178f5a;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    *{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff 0,#f7f7f9 38%,#f4f5f8 100%);color:var(--ink);min-height:100vh}
+    .top{height:82px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 max(22px,calc((100vw - 1040px)/2))}
+    .brand{display:flex;align-items:center;gap:11px}.mark{width:42px;height:32px;color:var(--postal)}.mark svg{width:100%;height:100%}
+    .brand-name{font-weight:900;font-size:21px;line-height:18px}.brand-sub{font-size:15px;letter-spacing:.4px}.home{color:var(--ink);text-decoration:none;font-weight:700;font-size:13px}
+    main{max-width:1040px;margin:0 auto;padding:58px 22px 80px}.hero{text-align:center;max-width:760px;margin:0 auto}.eyebrow{font-size:11px;font-weight:900;letter-spacing:1.4px;color:var(--postal)}
+    h1{font-size:42px;line-height:1.03;letter-spacing:-1.3px;margin:10px 0 12px}.hero p{margin:0;color:var(--muted);font-size:16px;line-height:1.6}
+    .search{display:grid;grid-template-columns:1fr auto;gap:10px;background:#fff;border:1px solid var(--line);border-radius:20px;padding:10px;max-width:760px;margin:30px auto 0;box-shadow:0 18px 50px rgba(20,24,35,.07)}
+    .search input{height:52px;border:0;outline:none;padding:0 14px;font-size:18px;text-transform:uppercase;min-width:0}.search button{border:0;border-radius:13px;background:var(--postal);color:#fff;font-weight:900;padding:0 25px}.search button:hover{background:var(--postal-dark)}.search button:disabled{opacity:.6}
+    .result{margin-top:30px}.hidden{display:none!important}.card{background:#fff;border:1px solid var(--line);border-radius:24px;padding:25px;box-shadow:0 12px 38px rgba(20,24,35,.05)}
+    .summary{display:grid;grid-template-columns:1.3fr .85fr .85fr;gap:18px;align-items:center}.status-wrap{display:grid;gap:6px}.status-label{display:inline-flex;align-items:center;width:max-content;max-width:100%;gap:7px;background:#edf9f3;color:var(--green);border-radius:999px;padding:7px 11px;font-size:11px;font-weight:900}.dot{width:8px;height:8px;border-radius:50%;background:currentColor}
+    .tracking{font-family:"Courier New",monospace;font-size:25px;font-weight:900;letter-spacing:.6px;word-break:break-all}.meta span,.route-box span{display:block;color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.7px}.meta strong,.route-box strong{display:block;margin-top:5px;font-size:15px}
+    .route{display:grid;grid-template-columns:1fr 44px 1fr;align-items:center;gap:10px;margin-top:18px}.route-box{border:1px solid var(--line);background:#fafafb;border-radius:17px;padding:17px}.arrow{text-align:center;color:var(--postal);font-size:22px}
+    .timeline-card{margin-top:18px}.section-title{display:flex;justify-content:space-between;gap:15px;align-items:end;margin-bottom:14px}.section-title h2{font-size:21px;margin:4px 0 0}.section-title small{color:var(--muted)}
+    .timeline{display:grid}.event{display:grid;grid-template-columns:22px 1fr;gap:12px;position:relative;padding:0 0 20px}.event:last-child{padding-bottom:0}.rail{position:relative;display:flex;justify-content:center}.rail:after{content:"";position:absolute;top:12px;bottom:-10px;width:2px;background:#eceef2}.event:last-child .rail:after{display:none}.pin{width:12px;height:12px;border-radius:50%;background:var(--postal);z-index:1;margin-top:4px;box-shadow:0 0 0 5px #fff0f4}
+    .event strong{font-size:14px}.event p{margin:4px 0 0;color:var(--muted);font-size:12px}.event time{display:block;margin-top:5px;color:#9a9eaa;font-size:11px}.error{max-width:760px;margin:24px auto 0;border:1px solid #f1cbd5;background:#fff6f8;color:#8a1732;border-radius:18px;padding:18px;text-align:center}
+    .empty{padding:28px;text-align:center;color:var(--muted)}footer{text-align:center;color:#969aa5;font-size:11px;margin-top:28px}
+    @media(max-width:720px){.top{padding:0 18px}.home{display:none}main{padding-top:38px}h1{font-size:33px}.search{grid-template-columns:1fr}.search button{height:48px}.summary{grid-template-columns:1fr}.route{grid-template-columns:1fr}.arrow{transform:rotate(90deg)}}
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <div class="mark">
+        <svg viewBox="0 0 64 48" aria-hidden="true">
+          <path d="M6 8h52v32H6z" fill="none" stroke="currentColor" stroke-width="5"/>
+          <path d="M8 11l24 19L56 11" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div><div class="brand-name">POSTAL</div><div class="brand-sub">SERVIÇOS</div></div>
+    </div>
+    <a class="home" href="/">Acessar sistema</a>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="eyebrow">ACOMPANHE SUA ENTREGA</div>
+      <h1>Rastreio Postal</h1>
+      <p>Consulte aqui o andamento da sua encomenda usando o código informado no comprovante de postagem.</p>
+    </section>
+
+    <form id="trackingForm" class="search">
+      <input id="trackingCode" autocomplete="off" spellcheck="false" placeholder="Digite o código de rastreio" aria-label="Código de rastreio" />
+      <button id="trackBtn" type="submit">Rastrear envio</button>
+    </form>
+
+    <div id="errorBox" class="error hidden"></div>
+
+    <section id="trackingResult" class="result hidden">
+      <article class="card">
+        <div class="summary">
+          <div class="status-wrap">
+            <span id="statusLabel" class="status-label"><i class="dot"></i> Em acompanhamento</span>
+            <div id="trackingDisplay" class="tracking">—</div>
+          </div>
+          <div class="meta"><span>Transportadora</span><strong id="carrier">—</strong></div>
+          <div class="meta"><span>Serviço</span><strong id="service">—</strong></div>
+        </div>
+        <div class="route">
+          <div class="route-box"><span>Origem</span><strong id="origin">—</strong></div>
+          <div class="arrow">→</div>
+          <div class="route-box"><span>Destino</span><strong id="destination">—</strong></div>
+        </div>
+      </article>
+
+      <article class="card timeline-card">
+        <div class="section-title">
+          <div><div class="eyebrow">HISTÓRICO</div><h2>Movimentações do envio</h2></div>
+          <small id="updatedAt"></small>
+        </div>
+        <div id="timeline" class="timeline"></div>
+      </article>
+    </section>
+
+    <footer>Postal Serviços e Transportes · Acompanhe sua encomenda sem sair da Postal.</footer>
+  </main>
+  <script src="/rastreio.js?v=1.0.0"></script>
+</body>
+</html>
