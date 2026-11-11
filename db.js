@@ -1024,6 +1024,19 @@ async function listUsers() {
   return rows;
 }
 
+async function listStoreUsers(storeId) {
+  const db = requireDb();
+  const { rows } = await db.query(
+    `SELECT id,store_id,email,name,role,active,last_login_at,created_at,updated_at
+       FROM app_users
+      WHERE store_id=$1
+        AND role='STORE_CLERK'
+      ORDER BY name,email`,
+    [storeId]
+  );
+  return rows;
+}
+
 async function touchUserLogin(id) {
   const db = requireDb();
   await db.query("UPDATE app_users SET last_login_at=NOW(),updated_at=NOW() WHERE id=$1",[id]);
@@ -1395,6 +1408,7 @@ module.exports = {
   createUser,
   updateUser,
   listUsers,
+  listStoreUsers,
   touchUserLogin,
   createStore,
   updateStore,
