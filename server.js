@@ -2709,35 +2709,37 @@ app.get("/api/analytics/overview", requireAuth, requireRole("ADMIN","SUPERVISOR"
 
 app.get("/api/store/cash", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER"), async (req,res)=>{
   try{
-    const storeId=req.user.role==="STORE_OWNER" ? req.user.storeId : (req.query.storeId||null);
+    const range=analyticsDateRange(req.query||{});
+    const storeId=req.user.role==="STORE_OWNER" ? req.user.storeId : String(req.query.storeId||"").trim();
     if(req.user.role==="STORE_OWNER" && !storeId){
       return res.status(400).json({error:"Usuário sem ponto vinculado."});
     }
 
-    const params=[];
-    const orderWhere=["f.is_simulation=FALSE"];
-    const earningWhere=["pe.status IN ('EARNED','PAID')"];
-    if(storeId){
-      params.push(storeId);
-      orderWhere.push("f.store_id=$1");
-      earningWhere.push("pe.store_id=$1");
-    }
+    const orderParams=[range.start.toISOString(),range.end.toISOString()];
+    const orderWhere=["f.created_at >= $1::timestamptz","f.created_at <= $2::timestamptz","f.is_simulation=FALSE"];
+    if(storeId){ orderParams.push(storeId); orderWhere.push("f.store_id=$"+orderParams.length); }
+    const carrier=String(req.query.carrier||"").trim();
+    if(carrier){ orderParams.push(carrier); orderWhere.push("LOWER(f.carrier)=LOWER($"+orderParams.length+")"); }
+    const paymentMethod=String(req.query.paymentMethod||"").trim().toUpperCase();
+    if(paymentMethod){ orderParams.push(paymentMethod); orderWhere.push("UPPER(f.payment_method)=$"+orderParams.length); }
 
-    const [ordersResult,earningsResult,movementsResult]=await Promise.all([
+    const earningParams=[range.start.toISOString(),range.end.toISOString()];
+    const earningWhere=["pe.created_at >= $1::timestamptz","pe.created_at <= $2::timestamptz","pe.status IN ('EARNED','PAID')"];
+    if(storeId){ earningParams.push(storeId); earningWhere.push("pe.store_id=$"+earningParams.length); }
+
+    const [ordersResult,earningsResult,salesMovementsResult,earningMovementsResult]=await Promise.all([
       db.pool.query(
         `SELECT
            COUNT(*) FILTER (WHERE f.payment_status='PAID')::int AS paid_orders,
            COALESCE(SUM(f.payment_amount) FILTER (WHERE f.payment_status='PAID'),0) AS customer_received,
            COALESCE(SUM(f.point_revenue_total) FILTER (WHERE f.payment_status='PAID'),0) AS sales_earnings,
+           COALESCE(SUM(f.postal_revenue_total) FILTER (WHERE f.payment_status='PAID'),0) AS postal_earnings,
            COALESCE(SUM(f.cash_remittance_amount) FILTER (
              WHERE f.status IN ('CASH_REMITTANCE_PENDING','CASH_REMITTANCE_PAYMENT_PENDING')
-           ),0) AS pending_remittance,
-           COALESCE(SUM(f.point_revenue_total) FILTER (
-             WHERE f.payment_status='PAID' AND f.created_at>=date_trunc('day',NOW())
-           ),0) AS today_sales_earnings
+           ),0) AS pending_remittance
          FROM freight_orders f
          WHERE ${orderWhere.join(" AND ")}`,
-        params
+        orderParams
       ),
       db.pool.query(
         `SELECT
@@ -2748,66 +2750,69 @@ app.get("/api/store/cash", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_
            COALESCE(SUM(pe.amount) FILTER (WHERE pe.paid_at IS NULL),0) AS unpaid_extra_earnings
          FROM point_earnings pe
          WHERE ${earningWhere.join(" AND ")}`,
-        params
+        earningParams
       ),
       db.pool.query(
-        `SELECT * FROM (
-           SELECT f.id::text AS id,f.created_at AS created_at,'SALE'::text AS type,
-                  COALESCE(s.name,'Postal Serviços') AS store_name,
-                  ('Frete '||COALESCE(f.tracking_code,LEFT(f.id::text,8))) AS description,
-                  CASE WHEN f.payment_status='PAID' THEN f.point_revenue_total ELSE 0 END AS amount,
-                  f.payment_status AS status
-             FROM freight_orders f
-             LEFT JOIN stores s ON s.id=f.store_id
-            WHERE ${orderWhere.join(" AND ")}
-           UNION ALL
-           SELECT pe.id::text,pe.created_at,'EARNING',COALESCE(s.name,'Postal Serviços'),
-                  CASE pe.earning_type
-                    WHEN 'PICKUP' THEN 'Remuneração de coleta'
-                    WHEN 'DROPOFF' THEN 'Remuneração de postagem/recebimento'
-                    WHEN 'REFERRAL' THEN 'Comissão por cliente indicado'
-                    ELSE 'Ganho do ponto'
-                  END,
-                  pe.amount,pe.status
-             FROM point_earnings pe
-             LEFT JOIN stores s ON s.id=pe.store_id
-            WHERE ${earningWhere.join(" AND ")}
-         ) x
-         ORDER BY created_at DESC
-         LIMIT 100`,
-        params
+        `SELECT f.id::text AS id,f.created_at,'SALE'::text AS type,
+                COALESCE(s.name,'Postal Serviços') AS store_name,
+                ('Frete '||COALESCE(f.tracking_code,LEFT(f.id::text,8))) AS description,
+                CASE WHEN f.payment_status='PAID' THEN f.point_revenue_total ELSE 0 END AS amount,
+                f.payment_status AS status
+           FROM freight_orders f
+           LEFT JOIN stores s ON s.id=f.store_id
+          WHERE ${orderWhere.join(" AND ")}
+          ORDER BY f.created_at DESC LIMIT 100`,
+        orderParams
+      ),
+      db.pool.query(
+        `SELECT pe.id::text AS id,pe.created_at,'EARNING'::text AS type,
+                COALESCE(s.name,'Postal Serviços') AS store_name,
+                CASE pe.earning_type
+                  WHEN 'PICKUP' THEN 'Remuneração de coleta'
+                  WHEN 'DROPOFF' THEN 'Remuneração de postagem/recebimento'
+                  WHEN 'REFERRAL' THEN 'Comissão por cliente indicado'
+                  ELSE 'Ganho do ponto'
+                END AS description,
+                pe.amount,pe.status
+           FROM point_earnings pe
+           LEFT JOIN stores s ON s.id=pe.store_id
+          WHERE ${earningWhere.join(" AND ")}
+          ORDER BY pe.created_at DESC LIMIT 100`,
+        earningParams
       )
     ]);
 
     const sales=ordersResult.rows[0]||{};
     const extras=earningsResult.rows[0]||{};
-    const salesEarnings=Number(sales.sales_earnings||0);
+    const storeSalesEarnings=Number(sales.sales_earnings||0);
+    const postalEarnings=Number(sales.postal_earnings||0);
     const extraEarnings=Number(extras.extra_earnings||0);
+    const primarySalesEarnings=req.user.role==="STORE_OWNER"?storeSalesEarnings:postalEarnings;
+    const movements=[...salesMovementsResult.rows,...earningMovementsResult.rows]
+      .sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).slice(0,100);
 
     res.json({
+      range:{from:range.start.toISOString(),to:range.end.toISOString(),period:range.period},
       scope:storeId?"STORE":"NETWORK",
       storeId:storeId||null,
       summary:{
         paidOrders:Number(sales.paid_orders||0),
         customerReceived:Number(sales.customer_received||0),
-        salesEarnings,
+        salesEarnings:primarySalesEarnings,
+        storeSalesEarnings,
+        postalEarnings,
         extraEarnings,
-        totalEarnings:round2(salesEarnings+extraEarnings),
-        todayEarnings:round2(Number(sales.today_sales_earnings||0)),
+        totalEarnings:round2(primarySalesEarnings+extraEarnings),
         pickupEarnings:Number(extras.pickup_earnings||0),
         dropoffEarnings:Number(extras.dropoff_earnings||0),
         referralEarnings:Number(extras.referral_earnings||0),
         unpaidExtraEarnings:Number(extras.unpaid_extra_earnings||0),
         pendingRemittance:Number(sales.pending_remittance||0)
       },
-      movements:movementsResult.rows.map(row=>({
-        id:row.id,
-        type:row.type,
-        storeName:row.store_name,
-        description:row.description,
-        amount:Number(row.amount||0),
-        status:row.status,
-        createdAt:row.created_at
+      movements:movements.map(row=>({
+        id:row.id,type:row.type,storeName:row.store_name,
+        description:row.description,amount:Number(row.amount||0),
+        status:row.status,createdAt:row.created_at
       }))
     });
   }catch(error){
