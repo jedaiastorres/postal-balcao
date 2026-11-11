@@ -2787,7 +2787,7 @@ app.get("/api/store/cash", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_
     const storeSalesEarnings=Number(sales.sales_earnings||0);
     const postalEarnings=Number(sales.postal_earnings||0);
     const extraEarnings=Number(extras.extra_earnings||0);
-    const primarySalesEarnings=req.user.role==="STORE_OWNER"?storeSalesEarnings:postalEarnings;
+    const primarySalesEarnings=storeSalesEarnings;
     const movements=[...salesMovementsResult.rows,...earningMovementsResult.rows]
       .sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).slice(0,100);
 
