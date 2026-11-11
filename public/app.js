@@ -771,7 +771,10 @@ async function refreshPaymentPreview() {
       })
     });
     state.paymentPreview = preview;
-    $("#paymentFreight").textContent = money(preview.freightPrice);
+    const hubTransfer=Number(preview.hubTransferTotal||0);
+    $("#paymentFreight").textContent = money(Number(preview.freightPrice||0)-hubTransfer);
+    $("#paymentHubTransfer").textContent = money(hubTransfer);
+    $("#paymentHubTransferRow").classList.toggle("hidden",hubTransfer<=0);
     $("#paymentAddons").textContent = money(preview.addonsTotal);
     $("#paymentFee").textContent = money(preview.paymentFee);
     $("#paymentTotal").textContent = money(preview.total);
@@ -899,7 +902,10 @@ function prepareShipmentView() {
   $("#trackingLink")?.classList.add("hidden");
   state.selectedAddons = new Map();
   state.paymentPreview = null;
-  $("#paymentFreight").textContent = money(state.selectedOption.precoVenda);
+  const initialHubTransfer=Number(state.selectedOption.hubTransferTotal||0);
+  $("#paymentFreight").textContent = money(Number(state.selectedOption.precoVenda||0)-initialHubTransfer);
+  $("#paymentHubTransfer").textContent = money(initialHubTransfer);
+  $("#paymentHubTransferRow").classList.toggle("hidden",initialHubTransfer<=0);
   $("#paymentAddons").textContent = money(0);
   $("#paymentFee").textContent = "Selecione o pagamento";
   $("#paymentTotal").textContent = money(state.selectedOption.precoVenda);
@@ -1785,6 +1791,7 @@ async function loadManagementAnalytics(){
     $("#analyticsCustomers").textContent=Number(s.uniqueCustomers||0);
     $("#analyticsPostalRevenue").textContent=money(s.postalRevenue||0);
     $("#analyticsPointRevenue").textContent=money(s.pointRevenue||0);
+    if($("#analyticsHubTransfer")) $("#analyticsHubTransfer").textContent=money(s.hubTransferRevenue||0);
 
     appendSelectOptions("#analyticsCarrier",data.filters?.carriers||[]);
     appendSelectOptions("#analyticsService",data.filters?.services||[]);
@@ -2162,6 +2169,15 @@ $("#adminStoreForm")?.addEventListener("submit",async event=>{
       },
       commissionPercent:Number($("#adminStoreCommission").value||20),
       quoteOriginCep:onlyDigits($("#adminStoreQuoteCep").value),
+      operationalHub:{
+        name:$("#adminStoreHubName").value.trim(),
+        cep:onlyDigits($("#adminStoreQuoteCep").value),
+        address:$("#adminStoreHubAddress").value.trim(),
+        number:$("#adminStoreHubNumber").value.trim(),
+        neighborhood:$("#adminStoreHubNeighborhood").value.trim(),
+        city:$("#adminStoreHubCity").value.trim(),
+        state:$("#adminStoreHubUf").value.trim().toUpperCase()
+      },
       asaasWalletId:$("#adminStoreWallet").value.trim()
     })});
     event.currentTarget.reset(); $("#adminStoreCommission").value="20"; toast("Ponto cadastrado."); await loadMaster();
