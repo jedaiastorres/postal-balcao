@@ -966,33 +966,41 @@ function buildReceiptHtml(data) {
   const trackingBlock = trackingCodes.length > 1
     ? `<div class="label">${trackingCodes.length} códigos de rastreio</div>${trackingCodes.map((code,index)=>`<div class="row"><span>Volume ${index+1}</span><b class="tiny">${escapeHtml(code)}</b></div>`).join("")}`
     : `<div class="label">Código de rastreio</div><div class="tracking">${escapeHtml(trackingCodes[0] || "AGUARDANDO")}</div>${trackingUrl}`;
-  const invoice = data.invoiceNumber ?
-    `<div class="row"><span>Nota fiscal</span><b>${escapeHtml(data.invoiceNumber)}</b></div>` :
-    '<div class="row"><span>Documento</span><b>Declaração de conteúdo</b></div>';
+  const invoice = data.invoiceNumber
+    ? `<div class="row"><span>Nota fiscal</span><b>${escapeHtml(data.invoiceNumber)}</b></div>`
+    : '<div class="row"><span>Documento</span><b>Declaração de conteúdo</b></div>';
   const ids = `${data.packageId ? `<div class="row tiny"><span>ID pacote</span><b>${escapeHtml(data.packageId)}</b></div>` : ""}${data.cartId ? `<div class="row tiny"><span>ID postagem</span><b>${escapeHtml(data.cartId)}</b></div>` : ""}`;
+  const origin = [sender.city, maskCep(sender.cep)].filter(Boolean).join(" · ");
+  const destination = [recipient.city, maskCep(recipient.cep)].filter(Boolean).join(" · ");
+  const volumeRows = Array.isArray(data.volumes) && data.volumes.length > 1
+    ? `<div class="dash"></div><div class="section">VOLUMES</div>${data.volumes.map(v => `<div class="volume"><b>Volume ${v.index}</b><br>${escapeHtml(String(v.weightKg))} kg · ${escapeHtml(v.dimensions)}<br>Valor declarado: ${money(v.declaredValue)}${v.trackingCode ? `<br>Rastreio: <b>${escapeHtml(v.trackingCode)}</b>` : ""}</div>`).join("")}`
+    : "";
+  const paidLabel = String(data.paymentStatus || "PAID").toUpperCase() === "PAID" ? "PAGO" : String(data.paymentStatus || "");
 
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Comprovante de Postagem</title>
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Comprovante Postal</title>
   <style>
   @page{size:${width}mm auto;margin:2mm}*{box-sizing:border-box}body{width:${inner}mm;margin:0 auto;font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;font-size:10.5px;line-height:1.28}
   .receipt{width:100%;padding:1mm 0}.center{text-align:center}.brand{font-size:18px;font-weight:900;letter-spacing:.7px}.brand-sub{font-size:9px;font-weight:800;letter-spacing:1.2px}
-  h1{font-size:13px;margin:3mm 0 1mm}.preview{border:1px solid #000;padding:1.5mm;margin:2mm 0;font-weight:900;text-align:center}.dash{border-top:1px dashed #000;margin:2.2mm 0}
+  h1{font-size:12px;margin:3mm 0 1mm}.preview{border:1px solid #000;padding:1.5mm;margin:2mm 0;font-weight:900;text-align:center}.dash{border-top:1px dashed #000;margin:2.2mm 0}
   .label{font-size:8px;text-transform:uppercase;font-weight:800}.tracking{font-family:"Courier New",monospace;font-size:17px;font-weight:900;letter-spacing:.5px;word-break:break-all;margin:1mm 0}
   .section{font-weight:900;font-size:10px;margin-bottom:1mm}.person{font-weight:900;font-size:11px}.small{font-size:9px}.tiny{font-size:8px;word-break:break-all}.row,.item{display:flex;justify-content:space-between;gap:2mm;margin:.7mm 0}
-  .total{font-size:14px;font-weight:900}.footer{text-align:center;font-size:8.5px;margin-top:3mm}.no-print{text-align:center;margin-top:4mm}.print-btn{padding:3mm 6mm;border:1px solid #000;background:#fff;font-weight:900}@media print{.no-print{display:none}body{width:${inner}mm}}
+  .volume{font-size:8.5px;border-top:1px dotted #000;padding:1.2mm 0}.volume:first-of-type{border-top:0}.total{font-size:14px;font-weight:900}.footer{text-align:center;font-size:8.5px;margin-top:3mm}.no-print{text-align:center;margin-top:4mm}.print-btn{padding:3mm 6mm;border:1px solid #000;background:#fff;font-weight:900}@media print{.no-print{display:none}body{width:${inner}mm}}
   </style></head><body><div class="receipt">
-  <div class="center"><div class="brand">POSTAL</div><div class="brand-sub">SERVIÇOS</div><h1>COMPROVANTE DE POSTAGEM</h1><div class="small">${escapeHtml(created)}</div></div>
+  <div class="center"><div class="brand">POSTAL</div><div class="brand-sub">SERVIÇOS</div><h1>COMPROVANTE DE PAGAMENTO E POSTAGEM</h1><div class="small">${escapeHtml(created)}</div>${data.storeName ? `<div class="small">Ponto: ${escapeHtml(data.storeName)}</div>` : ""}${data.orderId ? `<div class="tiny">Pedido: ${escapeHtml(String(data.orderId).slice(0,12).toUpperCase())}</div>` : ""}</div>
   ${preview}<div class="dash"></div>
   <div class="center">${trackingBlock}</div>
   <div class="dash"></div><div class="section">REMETENTE</div><div class="person">${escapeHtml(sender.name)}</div><div>Doc.: ${escapeHtml(sender.document)}</div><div>Tel.: ${escapeHtml(sender.phone)}</div>${sender.email ? `<div>E-mail: ${escapeHtml(sender.email)}</div>` : ""}<div class="small">${escapeHtml(addressText(sender))}</div>
   <div class="dash"></div><div class="section">DESTINATÁRIO</div><div class="person">${escapeHtml(recipient.name)}</div><div>Doc.: ${escapeHtml(recipient.document)}</div><div>Tel.: ${escapeHtml(recipient.phone)}</div>${recipient.email ? `<div>E-mail: ${escapeHtml(recipient.email)}</div>` : ""}<div class="small">${escapeHtml(addressText(recipient))}</div>
-  <div class="dash"></div><div class="section">ENVIO</div><div class="row"><span>Transportadora</span><b>${escapeHtml(data.carrier)}</b></div><div class="row"><span>Serviço</span><b>${escapeHtml(data.service)}</b></div><div class="row"><span>Prazo estimado</span><b>${escapeHtml(data.deadline ? data.deadline + " dias úteis" : "-")}</b></div>${Number(data.volumeCount||1)>1?`<div class="row"><span>Volumes</span><b>${Number(data.volumeCount)} caixas</b></div>`:""}<div class="row"><span>Peso total</span><b>${escapeHtml(data.weightKg + " kg")}</b></div><div class="row"><span>Dimensões</span><b class="tiny">${escapeHtml(data.dimensions)}</b></div><div class="row"><span>Valor declarado</span><b>${money(data.declaredValue)}</b></div>${invoice}
+  <div class="dash"></div><div class="section">ROTA</div><div class="row"><span>Origem</span><b>${escapeHtml(origin || "-")}</b></div><div class="row"><span>Destino</span><b>${escapeHtml(destination || "-")}</b></div>
+  <div class="dash"></div><div class="section">PACOTE / ENVIO</div><div class="row"><span>Transportadora</span><b>${escapeHtml(data.carrier)}</b></div><div class="row"><span>Serviço</span><b>${escapeHtml(data.service)}</b></div><div class="row"><span>Prazo estimado</span><b>${escapeHtml(data.deadline ? data.deadline + " dias úteis" : "-")}</b></div>${Number(data.volumeCount||1)>1 ? `<div class="row"><span>Volumes</span><b>${Number(data.volumeCount)}</b></div>` : ""}<div class="row"><span>Peso total</span><b>${escapeHtml(data.weightKg + " kg")}</b></div><div class="row"><span>Medidas</span><b class="tiny">${escapeHtml(data.dimensions)}</b></div><div class="row"><span>Valor declarado</span><b>${money(data.declaredValue)}</b></div>${invoice}
+  ${volumeRows}
   <div class="dash"></div><div class="section">CONTEÚDO</div>${items || '<div class="small">Conteúdo não informado</div>'}
   ${extras ? `<div class="dash"></div><div class="section">PRODUTOS / SERVIÇOS</div>${extras}` : ""}
-  <div class="dash"></div>
+  <div class="dash"></div><div class="section">PAGAMENTO</div>
   <div class="row"><span>Frete</span><b>${money(data.freightPrice || data.salePrice)}</b></div>
   ${Number(data.addonsTotal || 0) ? `<div class="row"><span>Adicionais</span><b>${money(data.addonsTotal)}</b></div>` : ""}
   ${Number(data.paymentFee || 0) ? `<div class="row"><span>Taxa pagamento</span><b>${money(data.paymentFee)}</b></div>` : ""}
-  <div class="row total"><span>TOTAL PAGO</span><b>${money(data.salePrice)}</b></div><div class="row"><span>Pagamento</span><b>${escapeHtml(data.paymentMethod || "-")}</b></div>${ids}
+  <div class="row total"><span>TOTAL PAGO</span><b>${money(data.salePrice)}</b></div><div class="row"><span>Forma</span><b>${escapeHtml(data.paymentMethod || "-")}</b></div><div class="row"><span>Status</span><b>${escapeHtml(paidLabel)}</b></div>${ids}
   <div class="dash"></div><div class="footer">Guarde este comprovante até a conclusão da entrega.<br>Acompanhe pelo código de rastreio.<br>Este comprovante não substitui documento fiscal.</div>
   <div class="no-print"><button class="print-btn" onclick="window.print()">IMPRIMIR</button></div></div></body></html>`;
 }
@@ -1356,7 +1364,7 @@ function renderOrders() {
       const receiptBtn=document.createElement("button"); receiptBtn.className="ghost"; receiptBtn.type="button";
       const allTracking=(order.shipmentVolumes||[]).filter(v=>v.trackingCode).length || (order.trackingCode?1:0);
       const expected=Math.max(1,Number(order.packageCount||1));
-      receiptBtn.textContent=allTracking>=expected ? "Comprovante com rastreios" : "Rastreio pendente";
+      receiptBtn.textContent=allTracking>=expected ? "Imprimir comprovante 80 mm" : "Comprovante: rastreio pendente";
       receiptBtn.disabled=allTracking<expected;
       receiptBtn.addEventListener("click",()=>openReceipt(receiptPayloadFromOrder(order),true)); actions.appendChild(receiptBtn);
     }
