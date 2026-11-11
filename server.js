@@ -1269,6 +1269,8 @@ function publicOrderForUser(order,user) {
   if(user?.role==="STORE_CLERK"){
     delete dto.pointRevenueTotal;
     delete dto.partnerCommission;
+    delete dto.cashRemittanceAmount;
+    delete dto.cashRemittanceTotal;
     dto.addons=(dto.addons||[]).map(addon=>{
       const safe={...addon};
       delete safe.pointRevenue;
@@ -3438,10 +3440,12 @@ app.post("/api/payment-preview", requireAuth, requireRole("ADMIN","STORE_OWNER",
       subtotal: financials.customerSubtotal,
       paymentFee: financials.paymentSurcharge,
       total: financials.totalToCustomer,
-      pointRevenue: financials.pointRevenueTotal,
-      cashRemittance: paymentMethod === "DINHEIRO"
-        ? round2(financials.cashRemittanceBase + financials.paymentSurcharge)
-        : 0
+      pointRevenue: req.user.role==="STORE_CLERK" ? undefined : financials.pointRevenueTotal,
+      cashRemittance: req.user.role==="STORE_CLERK"
+        ? undefined
+        : (paymentMethod === "DINHEIRO"
+          ? round2(financials.cashRemittanceBase + financials.paymentSurcharge)
+          : 0)
     });
   } catch (error) {
     console.error("payment preview error:", error.message);
