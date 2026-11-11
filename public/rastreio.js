@@ -39,8 +39,15 @@ async function track(code){
     $("#trackingCode").value=data.trackingCode||clean;
     $("#trackingDisplay").textContent=data.trackingCode||clean;
     $("#statusLabel").innerHTML='<i class="dot"></i>'+escapeHtml(data.statusLabel||"Em acompanhamento");
-    $("#carrier").textContent=data.carrier||"—";
-    $("#service").textContent=data.service||"—";
+    $("#operator").textContent=data.operator||"Postal Serviços";
+    $("#service").textContent=data.service||"Entrega";
+    $("#senderName").textContent=data.sender?.name||"—";
+    $("#recipientName").textContent=data.recipient?.name||"—";
+    const recipientAddress=[data.recipient?.address,data.recipient?.number,data.recipient?.complement,data.recipient?.neighborhood,data.recipient?.city,data.recipient?.cep?formatCep(data.recipient.cep):""].filter(Boolean).join(", ");
+    $("#recipientAddress").textContent=recipientAddress;
+    const pkg=data.package||{};
+    $("#packageSummary").textContent=`${Number(pkg.volumeCount||1)} volume(s) · ${Number(pkg.weightKg||0).toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:3})} kg`;
+    $("#packageDeclared").textContent=Number(pkg.declaredValue||0)>0 ? `Valor declarado: ${Number(pkg.declaredValue).toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}` : "";
     $("#origin").textContent=routeLabel(data.origin);
     $("#destination").textContent=routeLabel(data.destination);
     $("#updatedAt").textContent=data.updatedAt ? "Atualizado em "+dateLabel(data.updatedAt) : "";
