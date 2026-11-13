@@ -4687,6 +4687,50 @@ function postalTrackingStatus(events,payload) {
   return postalizeTrackingText(raw||first?.description||"Em acompanhamento");
 }
 
+// Rastreios criados diretamente na ConectEnvios não possuem pedido local no Postal Balcão.
+// Consulte somente a linha do tempo pública; não exponha dados pessoais de envios externos.
+function normalizePostalTrackingEvents(rawEvents) {
+  return rawEvents.slice(0,30).map(event=>({
+    date:event.correios_date||event.date||event.datetime||event.created_at||event.createdAt||event.timestamp||null,
+    description:postalTrackingEventDescription(event),
+    city:event.city||event.location?.city||event.local?.city||null,
+    uf:event.uf||event.state||event.location?.uf||event.location?.state||null,
+    type:event.correios_type||event.type||event.code||event.status_code||null
+  }));
+}
+
+async function externalPostalTracking(stamp) {
+  let payload;
+  try {
+    const result=await providerFetch(`/package/track/stamp/${encodeURIComponent(stamp)}`,{method:"GET",timeout:15000});
+    payload=result.data;
+  }catch(error){
+    // Um código desconhecido não deve virar erro do servidor.
+    if([400,404,422].includes(Number(error.status))) return null;
+    throw error;
+  }
+  if(!payload || typeof payload!=="object" || Array.isArray(payload)) return null;
+  if(payload.success===false || payload.error) return null;
+  const rawEvents=trackingEventsFromPayload(payload);
+  const rawStatus=trackingFieldFromPayload(payload,["status_label","statusLabel","current_status_label","currentStatus","status"]);
+  if(!rawEvents.length && (!rawStatus || /^(error|failed|404)$|not found|n[aã]o encontrado|inv[aá]lido/i.test(String(rawStatus)))) return null;
+  const events=normalizePostalTrackingEvents(rawEvents);
+  const status=postalTrackingStatus(events,payload);
+  return {
+    trackingCode:stamp,
+    statusLabel:String(status),
+    operator:"Postal Serviços",
+    service:postalServiceLabel(trackingFieldFromPayload(payload,["service_name","serviceName","service"])),
+    sender:{name:"",city:"",cep:""},
+    recipient:{name:"",address:"",number:"",complement:"",neighborhood:"",city:"",cep:""},
+    origin:{city:"",cep:""},
+    destination:{city:"",cep:""},
+    package:{volumeCount:1,weightKg:0,declaredValue:0,volumes:[]},
+    events,
+    updatedAt:trackingFieldFromPayload(payload,["updated_at","updatedAt","last_update","lastUpdate"])||events[0]?.date||null
+  };
+}
+
 app.get("/api/public/rastreio/:stamp", async (req,res)=>{
   if(!TOKEN) return res.status(503).json({error:"Rastreamento temporariamente indisponível."});
   const stamp=String(req.params.stamp||"").trim();
@@ -4696,7 +4740,9 @@ app.get("/api/public/rastreio/:stamp", async (req,res)=>{
   try{
     const order=await db.findOrderByTrackingCode(stamp);
     if(!order){
-      return res.status(404).json({error:"Código não encontrado na rede Postal."});
+      const external=await externalPostalTracking(stamp);
+      if(!external) return res.status(404).json({error:"Código não encontrado na rede Postal."});
+      return res.json(external);
     }
 
     const volumes=Array.isArray(order.shipment_volumes)?order.shipment_volumes:[];
@@ -4733,13 +4779,7 @@ app.get("/api/public/rastreio/:stamp", async (req,res)=>{
     }
     if(!bestEvents.length && payloads.length) bestPayload=payloads[0]||{};
 
-    const normalizedEvents=bestEvents.slice(0,30).map(event=>({
-      date:event.correios_date||event.date||event.datetime||event.created_at||event.createdAt||event.timestamp||null,
-      description:postalTrackingEventDescription(event),
-      city:event.city||event.location?.city||event.local?.city||null,
-      uf:event.uf||event.state||event.location?.uf||event.location?.state||null,
-      type:event.correios_type||event.type||event.code||event.status_code||null
-    }));
+    const normalizedEvents=normalizePostalTrackingEvents(bestEvents);
 
     const rawPackage=order.package_data&&typeof order.package_data==="object"?order.package_data:{};
     const packageVolumes=Array.isArray(rawPackage.volumes)&&rawPackage.volumes.length
