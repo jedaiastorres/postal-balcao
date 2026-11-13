@@ -4207,6 +4207,49 @@ app.get("/api/orders/:id", requireAuth, async (req, res) => {
   }
 });
 
+// Reprocessamento manual: conserva o pedido pago e nunca cria um novo checkout.
+app.post("/api/orders/:id/reprocess-shipment", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK"), async (req,res)=>{
+  try {
+    if (!ENABLE_SHIPMENT_CREATION || !TOKEN) return res.status(503).json({error:"Emissão não habilitada no momento."});
+    const order=await db.getOrder(req.params.id,scopeForUser(req.user));
+    if (!order) return res.status(404).json({error:"Frete não encontrado."});
+    if (String(order.payment_status).toUpperCase()!=="PAID" || order.is_simulation) {
+      return res.status(409).json({error:"Somente pedidos reais com pagamento confirmado podem ser reprocessados."});
+    }
+    if (!["SHIPMENT_ERROR","PROVIDER_PAYMENT_PENDING","PAID_WAITING_SHIPMENT","PAYMENT_CONFIRMED","LABEL_AVAILABLE"].includes(order.status)) {
+      return res.status(409).json({error:"Este pedido não está aguardando emissão."});
+    }
+    // Sem identificador remoto, só repetir POST /cart quando o erro foi explicitamente
+    // falta de saldo. Em falhas desconhecidas o provedor pode ter criado um carrinho.
+    const hasProviderRef=Boolean(order.conect_cart_id || order.conect_package_id);
+    const isKnownFundsFailure=String(order.provider_payment_status||"").toUpperCase()==="AWAITING_FUNDS";
+    const neverAttempted=Number(order.provider_payment_attempts||0)===0;
+    if (!hasProviderRef && !isKnownFundsFailure && !neverAttempted) {
+      return res.status(409).json({error:"A emissão anterior não possui confirmação do provedor. É necessária conferência manual para evitar postagem duplicada."});
+    }
+    const shipment=await createShipmentFromOrder(order);
+    const updated=await db.getOrder(order.id,scopeForUser(req.user));
+    await audit(req,"REPROCESS_SHIPMENT","FREIGHT_ORDER",order.id,{ready:Boolean(shipment?.ready),hadProviderRef:hasProviderRef});
+    return res.json({
+      ok:true,
+      ready:Boolean(shipment?.ready || updated?.status==="LABEL_AVAILABLE"),
+      message:shipment?.ready || updated?.status==="LABEL_AVAILABLE"
+        ?"Etiqueta liberada. Você já pode imprimir."
+        :"Postagem reconsultada. Aguardando liberação da etiqueta pela transportadora; não é necessário pagar novamente.",
+      order:publicOrderForUser(updated,req.user)
+    });
+  } catch(error) {
+    console.error("manual reprocess shipment error:",req.params.id,providerFailureText(error));
+    const updated=await db.getOrder(req.params.id,scopeForUser(req.user)).catch(()=>null);
+    return res.status(error.status && error.status>=400 && error.status<500 ? error.status : 502).json({
+      error:providerPaymentFailureStatus(error)==="AWAITING_FUNDS"
+        ?"Saldo da ConectEnvios ainda insuficiente ou postagem aguardando pagamento. Após regularizar, tente novamente."
+        :"Não foi possível liberar a etiqueta. O pedido pago foi preservado; consulte os detalhes antes de tentar novamente.",
+      order:updated?publicOrderForUser(updated,req.user):undefined
+    });
+  }
+});
+
 app.post("/api/orders", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK"), async (req, res) => {
   try {
     const body = req.body || {};

@@ -1328,6 +1328,26 @@ function openOrderDetails(order) {
   modal.classList.remove("hidden");
 }
 
+async function reprocessOrderShipment(orderId, button) {
+  if (!orderId || button.disabled) return;
+  button.disabled=true;
+  const original=button.textContent;
+  button.textContent="Consultando postagem...";
+  try {
+    const result=await api("/api/orders/"+encodeURIComponent(orderId)+"/reprocess-shipment",{
+      method:"POST",body:JSON.stringify({})
+    });
+    toast(result.message || (result.ready?"Etiqueta disponível.":"Postagem em processamento."),result.ready?"ok":"info");
+    await loadOrders();
+  } catch(error) {
+    toast(error.message || "Não foi possível reprocessar a postagem.","error");
+    await loadOrders();
+  } finally {
+    button.disabled=false;
+    button.textContent=original;
+  }
+}
+
 function renderOrders() {
   const host = $("#ordersList");
   if (!host) return;
@@ -1397,6 +1417,15 @@ function renderOrders() {
     if (order.paymentCheckoutUrl && ["PAYMENT_PENDING","CASH_REMITTANCE_PAYMENT_PENDING"].includes(order.status)) {
       const btn=document.createElement("button"); btn.className="primary"; btn.type="button"; btn.textContent="Abrir pagamento";
       btn.addEventListener("click",()=>{window.location.href=order.paymentCheckoutUrl;}); actions.appendChild(btn);
+    }
+
+    if (order.paymentStatus === "PAID" && !order.isSimulation &&
+        ["SHIPMENT_ERROR","PROVIDER_PAYMENT_PENDING","PAID_WAITING_SHIPMENT","PAYMENT_CONFIRMED"].includes(order.status)) {
+      const retryBtn=document.createElement("button");
+      retryBtn.className="primary"; retryBtn.type="button";
+      retryBtn.textContent="Reprocessar emissão";
+      retryBtn.addEventListener("click",()=>reprocessOrderShipment(order.id,retryBtn));
+      actions.appendChild(retryBtn);
     }
 
     if (order.status === "LABEL_AVAILABLE") {
