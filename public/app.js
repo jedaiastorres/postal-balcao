@@ -1337,10 +1337,10 @@ async function reprocessOrderShipment(orderId, button) {
     const result=await api("/api/orders/"+encodeURIComponent(orderId)+"/reprocess-shipment",{
       method:"POST",body:JSON.stringify({})
     });
-    showToast(result.message || (result.ready?"Etiqueta disponível.":"Postagem em processamento."),result.ready?"success":"info");
+    toast(result.message || (result.ready?"Etiqueta disponível.":"Postagem em processamento."),result.ready?"ok":"info");
     await loadOrders();
   } catch(error) {
-    showToast(error.message || "Não foi possível reprocessar a postagem.","error");
+    toast(error.message || "Não foi possível reprocessar a postagem.","error");
     await loadOrders();
   } finally {
     button.disabled=false;
