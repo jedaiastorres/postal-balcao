@@ -9,7 +9,8 @@
     operations: [],
     selectedOperations: new Set(),
     opsStatus: "",
-    pendingImport: null
+    pendingImport: null,
+    bulkRows: [], bulkBusy:false
   };
 
   function isClient(){ return state.user?.role === "CLIENT"; }
@@ -718,12 +719,198 @@
       :'<div class="empty-state">Nenhum cliente indicado ainda.</div>';
   }
 
+  function renderSpreadsheetBulk(){
+    const rows=client.bulkRows||[],container=$("#clientBulkSpreadsheetReview"),host=$("#clientBulkSpreadsheetRows");
+    if(!container||!host)return;
+    container.classList.toggle("hidden",!rows.length);
+    if(!rows.length)return;
+    const valid=rows.filter(r=>!r.errors.length);
+    const ready=rows.filter(r=>r.options?.length&&r.phase!=="ISSUED");
+    const issued=rows.filter(r=>r.phase==="ISSUED");
+    const total=ready.reduce((sum,r)=>sum+Number(r.options[r.selectedIndex||0]?.precoVenda||0),0);
+    const hub=ready.reduce((sum,r)=>sum+Number(r.options[r.selectedIndex||0]?.hubTransferTotal||0),0);
+    $("#clientBulkSpreadsheetSummary").textContent=
+      rows.length+" pedidos · "+valid.length+" válido(s) · "+issued.length+" emitido(s) · "+
+      ready.length+" pronto(s) para contratar · Total "+money(total)+
+      (hub>0?" (transferências aos hubs: "+money(hub)+")":"");
+    $("#clientBulkSpreadsheetQuoteBtn").disabled=client.bulkBusy||!valid.some(r=>r.phase!=="ISSUED");
+    $("#clientBulkSpreadsheetIssueBtn").disabled=client.bulkBusy||!ready.length;
+    host.innerHTML="";
+    rows.forEach((row,index)=>{
+      const quote=row.options?.[row.selectedIndex||0];
+      const stateLabel=row.phase==="ISSUED"?"Emitido":
+        row.phase==="QUOTING"?"Consultando...":
+        row.errors.length?row.errors.join("; "):
+        row.phase==="ERROR"?(row.quoteError||"Falha ao cotar"):
+        quote?"Pronto para contratar":"Aguardando cotação";
+      const tr=document.createElement("tr");
+      tr.innerHTML="<td><strong>"+escapeHtml(row.ref||"Linha "+row.line)+"</strong><small>Linha "+Number(row.line)+"</small></td>"+
+        "<td><strong>"+escapeHtml(row.sender?.name||"")+" → "+escapeHtml(row.recipient?.name||"")+"</strong>"+
+        "<small>"+escapeHtml(row.sender?.cep||"")+" → "+escapeHtml(row.recipient?.cep||"")+"</small></td>"+
+        "<td>"+Number(row.count||0)+"</td>"+
+        "<td><div class='bulk-service-cell'></div></td>"+
+        "<td><strong>"+(quote?money(quote.precoVenda):"—")+"</strong>"+
+        (quote?.hubTransferApplied?"<small>Hub: "+money(quote.hubTransferTotal)+"</small>":"")+"</td>"+
+        "<td><span class='bulk-row-state'>"+escapeHtml(stateLabel)+"</span></td>";
+      const service=tr.querySelector(".bulk-service-cell");
+      if(row.options?.length && row.phase!=="ISSUED"){
+        const select=document.createElement("select");
+        select.setAttribute("aria-label","Escolha a transportadora do pedido "+row.ref);
+        row.options.forEach((opt,j)=>{
+          const o=document.createElement("option");
+          o.value=String(j);o.textContent=(opt.transportadora||"Transportadora")+" — "+(opt.produto||"Serviço")+
+            " · "+money(opt.precoVenda)+" · "+(opt.prazoEntrega||"—")+" d";
+          select.appendChild(o);
+        });
+        select.value=String(row.selectedIndex||0);
+        select.addEventListener("change",()=>{
+          row.selectedIndex=Number(select.value);renderSpreadsheetBulk();
+        });
+        service.appendChild(select);
+      }else{
+        service.textContent=row.phase==="ISSUED"?(quote?.transportadora||"Enviado"):"—";
+      }
+      if(row.phase==="ISSUED" && row.issuedOrderId){
+        const badge=document.createElement("small");badge.textContent="Pedido "+row.issuedOrderId.slice(0,8).toUpperCase();
+        tr.lastChild.appendChild(badge);
+      }
+      host.appendChild(tr);
+    });
+  }
+
+  async function importSpreadsheet(file){
+    if(!file)return;
+    if(file.size>900000){toast("Planilha acima de 900 KB. Divida os pedidos em outros lotes.","error");return;}
+    if(!/\.(xlsx|csv)$/i.test(file.name)){toast("Envie um arquivo .xlsx ou .csv.","error");return;}
+    const progress=$("#clientBulkSpreadsheetProgress");
+    client.bulkBusy=true;client.bulkRows=[];
+    $("#clientBulkSpreadsheetReview").classList.remove("hidden");
+    $("#clientBulkSpreadsheetRows").innerHTML="";
+    progress.textContent="Lendo e validando a planilha...";
+    try{
+      const buffer=new Uint8Array(await file.arrayBuffer());let encoded="";
+      for(let i=0;i<buffer.length;i+=16384){
+        encoded+=String.fromCharCode(...buffer.subarray(i,i+16384));
+      }
+      const response=await api("/api/client/bulk/parse",{
+        method:"POST",body:JSON.stringify({name:file.name,contentBase64:btoa(encoded)})
+      });
+      client.bulkRows=(response.rows||[]).map(row=>({
+        ...row,options:[],selectedIndex:0,phase:row.errors.length?"INVALID":"NEW",
+        quoteError:"",issuedOrderId:null
+      }));
+      progress.textContent=response.invalid
+        ?response.invalid+" linha(s) com erro. Corrija no Excel e importe novamente. Os pedidos válidos podem ser cotados."
+        :"Planilha validada. Calcule os fretes e escolha a transportadora de cada envio.";
+      toast(response.valid+" pedido(s) válido(s) importados.");
+    }catch(error){
+      client.bulkRows=[];progress.textContent=error.message;
+      toast(error.message,"error");
+    }finally{
+      client.bulkBusy=false;renderSpreadsheetBulk();
+    }
+  }
+
+  async function quoteSpreadsheetBulk(){
+    if(client.bulkBusy)return;
+    const rows=client.bulkRows.filter(r=>!r.errors.length&&r.phase!=="ISSUED");
+    if(!rows.length){toast("Não há pedidos válidos para cotar.","error");return;}
+    client.bulkBusy=true;renderSpreadsheetBulk();
+    let cursor=0,done=0;
+    const progress=$("#clientBulkSpreadsheetProgress");
+    const worker=async()=>{
+      while(cursor<rows.length){
+        const row=rows[cursor++];
+        row.phase="QUOTING";
+        try{
+          const cents=Math.round(Number(row.declaredValue||0)*100);
+          const perVol=Math.floor(cents/row.count),remainder=cents%row.count;
+          const volumes=Array.from({length:row.count},(_,i)=>({
+            peso:row.weight,comprimento:row.length,largura:row.width,altura:row.height,
+            vlDeclarado:(perVol+(i<remainder?1:0))/100
+          }));
+          const quote=await api("/api/cotacao",{
+            method:"POST",body:JSON.stringify({
+              cepOrigem:row.sender.cep,cepDestino:row.recipient.cep,volumes
+            })
+          });
+          row.options=quote.options||[];
+          row.selectedIndex=0;
+          row.phase=row.options.length?"READY":"ERROR";
+          if(!row.options.length)row.quoteError="Nenhum serviço disponível";
+        }catch(error){
+          row.options=[];row.phase="ERROR";row.quoteError=error.message;
+        }finally{
+          done++;progress.textContent="Cotando "+done+" de "+rows.length+" pedidos...";
+          renderSpreadsheetBulk();
+        }
+      }
+    };
+    await Promise.all([worker(),worker()]);
+    client.bulkBusy=false;
+    const success=rows.filter(r=>r.phase==="READY").length;
+    progress.textContent=success+" cotação(ões) pronta(s). Revise as transportadoras, preços, prazos e transferências antes de confirmar.";
+    renderSpreadsheetBulk();
+  }
+
+  async function issueSpreadsheetBulk(){
+    if(client.bulkBusy)return;
+    const rows=client.bulkRows.filter(r=>r.options?.length&&r.phase!=="ISSUED");
+    if(!rows.length){toast("Calcule as cotações antes de emitir.","error");return;}
+    const total=rows.reduce((sum,r)=>sum+Number(r.options[r.selectedIndex||0].precoVenda||0),0);
+    let balance=Number(client.walletBalance||0);
+    try{const wallet=await api("/api/client/wallet");balance=Number(wallet.balance||0);}
+    catch(error){toast("Não foi possível conferir o saldo. "+error.message,"error");return;}
+    if(balance+0.001<total){toast("Saldo insuficiente. Necessário "+money(total)+"; disponível "+money(balance)+".","error");return;}
+    if(!window.confirm("Confirmar "+rows.length+" postagem(ns) no valor total de "+money(total)+
+      "? O Saldo Postal será debitado por pedido emitido e os já emitidos não serão duplicados."))return;
+    client.bulkBusy=true;renderSpreadsheetBulk();
+    let issued=0,failed=0;const progress=$("#clientBulkSpreadsheetProgress");
+    for(const row of rows){
+      const option=row.options[row.selectedIndex||0];
+      if(!option)continue;
+      try{
+        const type=row.documentType;
+        const response=await api("/api/client/orders",{
+          method:"POST",body:JSON.stringify({
+            selectionToken:option.selectionToken,carrier:option.transportadora,
+            sender:row.sender,recipient:row.recipient,items:row.items,
+            invoiceNumber:type==="DECLARACAO"?"":row.documentKey,
+            fiscalDocumentType:type==="DECLARACAO"?"":type,
+            fiscalDocumentKey:type==="DECLARACAO"?"":row.documentKey,
+            firstMileType:"LATER",packageCount:row.count,
+            bulkRowKey:row.bulkRowKey
+          })
+        });
+        if(response.order?.paymentStatus==="REFUNDED" || response.order?.status==="CLIENT_ORDER_ERROR"){
+          throw Error("Pedido anterior estornado; requer revisão na Central de Pedidos.");
+        }
+        row.phase="ISSUED";row.issuedOrderId=response.order?.id||null;issued++;
+      }catch(error){
+        row.phase="ERROR";row.quoteError=error.message;failed++;
+        if(/saldo insuficiente/i.test(error.message))break;
+      }
+      progress.textContent="Processados: "+(issued+failed)+" de "+rows.length+" · "+issued+" emitido(s).";
+      renderSpreadsheetBulk();
+    }
+    client.bulkBusy=false;
+    progress.textContent=issued+" pedido(s) processados com sucesso, "+failed+" pendência(s). "+
+      "Pedidos com etiqueta disponível podem ser impressos ou selecionados para coleta em lote abaixo.";
+    renderSpreadsheetBulk();
+    await loadOperations();await loadClientHome();
+  }
+
   function bind(){
     initRegistration();
     $("#walletTopupForm")?.addEventListener("submit",topup);
     $("#walletTopupAmount")?.addEventListener("input",previewTopup);
     $("#walletTopupMethod")?.addEventListener("change",previewTopup);
     $("#clientOpsRefreshBtn")?.addEventListener("click",loadOperations);
+    $("#clientBulkSpreadsheetFile")?.addEventListener("change",async e=>{
+      const file=e.target.files?.[0];await importSpreadsheet(file);e.target.value="";
+    });
+    $("#clientBulkSpreadsheetQuoteBtn")?.addEventListener("click",quoteSpreadsheetBulk);
+    $("#clientBulkSpreadsheetIssueBtn")?.addEventListener("click",issueSpreadsheetBulk);
     $("#clientOpsSearch")?.addEventListener("input",renderOperations);
     $("#clientOpsSourceFilter")?.addEventListener("change",renderOperations);
     $$(".client-status-tab").forEach(btn=>btn.addEventListener("click",()=>{
