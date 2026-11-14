@@ -77,7 +77,7 @@ function validateRecord(entry, line) {
     if(!party.name)errors.push(label+": nome obrigatório");
     if(![11,14].includes(party.document.length))errors.push(label+": CPF/CNPJ com 11 ou 14 dígitos");
     if(party.phone.length<10 || party.phone.length>11)errors.push(label+": telefone com DDD obrigatório");
-    if(!/^\d{8}$/.test(party.cep))errors.push(label+": CEP com 8 dígitos");
+    if(!/^\d{8}$/.test(party.cep) || party.cep==="00000000")errors.push(label+": CEP com 8 dígitos");
     if(!party.address || !party.number || !party.neighborhood || !/^[^/]{2,}\/[A-Za-z]{2}$/.test(party.city)){
       errors.push(label+": complete logradouro, número, bairro e Cidade/UF");
     }
