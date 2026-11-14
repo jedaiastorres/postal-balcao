@@ -1996,7 +1996,7 @@ app.post("/api/client/bulk/parse",requireAuth,requireRole("CLIENT"),async(req,re
     const rows=parsed.rows.map(row=>({
       ...row,
       bulkRowKey:"bulk:"+crypto.createHash("sha256")
-        .update(parsed.fingerprint+"|"+row.ref).digest("hex")
+        .update("postal-bulk-order-v1|"+row.ref).digest("hex")
     }));
     await audit(req,"PREVIEW_CLIENT_BULK_FILE","BULK_IMPORT",null,{rows:rows.length,valid:parsed.valid,invalid:parsed.invalid});
     res.json({rows,valid:parsed.valid,invalid:parsed.invalid});
