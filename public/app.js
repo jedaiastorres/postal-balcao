@@ -7,6 +7,7 @@ const state = {
   currentQuote: null,
   selectedOption: null,
   shipmentResult: null,
+  fiscalDocument: null,
   orders: [],
   catalog: [],
   selectedAddons: new Map(),
@@ -348,6 +349,132 @@ function invalidateQuoteSelection() {
   $("#selectionSummary")?.classList.add("hidden");
 }
 
+function selectedFiscalMode() {
+  return document.querySelector('input[name="fiscalSourceMode"]:checked')?.value || "MANUAL";
+}
+function fiscalFormDocumentMetadata() {
+  const selected = document.querySelector('input[name="documentType"]:checked')?.value;
+  const type = selected === "invoice" ? "NFE" : (selected === "dce" ? "DCE" : "");
+  const entered = onlyDigits($("#invoiceNumber")?.value || "");
+  if (type === "DCE" && entered.length !== 44) throw new Error("Informe a chave da DC-e com 44 dígitos.");
+  return { fiscalDocumentType: type, fiscalDocumentKey: entered.length === 44 ? entered : "" };
+}
+function updateFiscalModePanels() {
+  const mode = selectedFiscalMode();
+  $("#fiscalManualPanel")?.classList.toggle("hidden", mode !== "MANUAL");
+  $("#fiscalAuthorizedPanel")?.classList.toggle("hidden", mode !== "AUTHORIZED");
+  $("#fiscalXmlPanel")?.classList.toggle("hidden", mode !== "XML");
+  if (mode === "AUTHORIZED") {
+    const enabled = Boolean(state.config?.fiscalLookupConfigured);
+    $("#fiscalLookupAvailability").textContent = enabled
+      ? "A consulta utiliza somente uma integração fiscal autorizada. O titular do documento deve permitir o acesso."
+      : "Consulta automática ainda não habilitada: falta configurar acesso fiscal autorizado. Você pode importar o XML ou preencher manualmente.";
+  }
+}
+function resetImportedFiscalDocument() {
+  state.fiscalDocument = null;
+  $("#fiscalImportSummary").classList.add("hidden");
+  $("#fiscalPhysicalConfirmation").classList.add("hidden");
+  $("#fiscalPhysicalConfirmed").checked = false;
+}
+document.querySelectorAll('input[name="fiscalSourceMode"]').forEach(radio => {
+  radio.addEventListener("change", () => {
+    resetImportedFiscalDocument();
+    updateFiscalModePanels();
+  });
+});
+$("#fiscalAccessKey")?.addEventListener("input",event=>{
+  const only = onlyDigits(event.target.value).slice(0,44);
+  if(event.target.value !== only)event.target.value=only;
+});
+$("#fiscalLookupBtn")?.addEventListener("click",async()=>{
+  const key = onlyDigits($("#fiscalAccessKey").value);
+  const type = $("#fiscalDocumentType").value;
+  if(key.length !== 44){toast("Informe uma chave fiscal de 44 dígitos.","error");return;}
+  if(!$("#fiscalLookupConsent").checked){toast("Confirme a autorização para acessar o documento.","error");return;}
+  const button = $("#fiscalLookupBtn"); button.disabled = true; button.textContent="Consultando...";
+  try {
+    const result = await api("/api/fiscal-documents/lookup",{
+      method:"POST",body:JSON.stringify({type,key,consent:true})
+    });
+    applyFiscalDocument(result.document);
+    toast("Documento consultado. Confira o peso, as medidas e os volumes.");
+  }catch(error){toast(error.message,"error");}
+  finally{button.disabled=false;button.textContent="Consultar dados";}
+});
+$("#fiscalXmlFile")?.addEventListener("change",async event=>{
+  const file=event.target.files?.[0];
+  if(!file)return;
+  try{
+    if(file.size>3000000)throw Error("O XML deve ter no máximo 3 MB.");
+    const xml=await file.text();
+    if(!window.PostalFiscalDocument?.parse)throw Error("Leitor XML indisponível. Atualize o sistema.");
+    applyFiscalDocument(window.PostalFiscalDocument.parse(xml));
+    toast("XML lido no navegador. Revise as informações antes de cotar.");
+  }catch(error){toast(error.message,"error");}
+  finally{event.target.value="";}
+});
+function applyFiscalDocument(doc) {
+  if(!doc || !["NFE","DCE"].includes(doc.type) || onlyDigits(doc.key).length!==44){
+    throw Error("O documento não possui dados fiscais válidos para pré-preenchimento.");
+  }
+  if(onlyDigits(doc.sender?.cep).length!==8 || onlyDigits(doc.recipient?.cep).length!==8){
+    throw Error("Remetente ou destinatário sem CEP válido. Confira o documento ou preencha manualmente.");
+  }
+  state.fiscalDocument = doc;
+  $("#cepOrigem").value=maskCep(doc.sender.cep);
+  $("#cepDestino").value=maskCep(doc.recipient.cep);
+  if(Number.isFinite(Number(doc.declaredValue)) && Number(doc.declaredValue)>0) {
+    if(!document.querySelector("#extraQuoteVolumes .extra-volume-card")) $("#vlDeclarado").value=Number(doc.declaredValue).toFixed(2);
+  }
+  if(Number(doc.volumeCount)===1 && Number(doc.grossWeightKg)>0) $("#peso").value=String(doc.grossWeightKg);
+  const summary=$("#fiscalImportSummary");
+  summary.classList.remove("hidden");
+  summary.textContent=(doc.type==="DCE"?"DC-e":"NF-e")+" "+doc.key+
+    " • Origem: "+doc.sender.cep+" • Destino: "+doc.recipient.cep+
+    " • "+(doc.items?.length||0)+" item(ns)"+
+    (doc.volumeCount?" • "+doc.volumeCount+" volume(s) indicado(s) no documento":"")+
+    ". Confira as informações físicas e ajuste a quantidade de volumes antes da cotação.";
+  $("#fiscalPhysicalConfirmation").classList.remove("hidden");
+  $("#fiscalPhysicalConfirmed").checked=false;
+  invalidateQuoteSelection();
+}
+function applyImportedFiscalToShipment() {
+  const doc=state.fiscalDocument;
+  if(!doc)return;
+  for(const [prefix,party] of [["sender",doc.sender||{}],["recipient",doc.recipient||{}]]){
+    const fieldMap={name:"Name",document:"Document",phone:"Phone",email:"Email",cep:"Cep",address:"Address",
+      number:"Number",neighborhood:"Neighborhood",complement:"Complement",city:"City"};
+    for(const [key,suffix] of Object.entries(fieldMap)){
+      const input=$("#"+prefix+suffix);
+      if(input && party[key])input.value= key==="cep" ? maskCep(party[key]) : String(party[key]);
+    }
+  }
+  const selected=document.querySelector('input[name="documentType"][value="'+(doc.type==="NFE"?"invoice":"dce")+'"]');
+  if(selected){selected.checked=true;selected.dispatchEvent(new Event("change"));}
+  $("#invoiceNumber").value=doc.key;
+  if(Array.isArray(doc.items)&&doc.items.length){
+    const host=$("#contentItems");host.innerHTML="";
+    for(const item of doc.items.slice(0,100)){
+      const quantity = Number(item.quantity);
+      const safeQuantity=Number.isInteger(quantity)&&quantity>0?quantity:1;
+      const description=(!Number.isInteger(quantity)&&quantity>0)
+        ? String(item.description)+" (quantidade no documento: "+quantity+")"
+        : String(item.description);
+      addContentItem({description,quantity:safeQuantity,
+        value:safeQuantity===1&&quantity!==1
+          ? Math.round(Number(item.value||0)*quantity*100)/100
+          : Number(item.value||0)});
+    }
+  }
+}
+$("#quoteForm")?.addEventListener("input",event=>{
+  if(state.fiscalDocument && ["peso","altura","largura","comprimento","vlDeclarado",
+    "cepOrigem","cepDestino"].includes(event.target.id)){
+    $("#fiscalPhysicalConfirmed").checked=false;
+  }
+});
+
 function primaryVolumeData() {
   return {
     peso:Number($("#peso").value || 0),
@@ -442,6 +569,10 @@ $("#quoteForm").addEventListener("submit", async (event) => {
   btn.textContent = "Consultando...";
   $("#resultsWrap").classList.add("hidden");
 
+  if (state.fiscalDocument && !$("#fiscalPhysicalConfirmed").checked) {
+    toast("Confirme peso, medidas, quantidade de volumes e endereços antes de cotar.","error");
+    btn.disabled=false;btn.textContent="Calcular frete";return;
+  }
   const volumes = quoteVolumePayloads();
   const payload = {
     cepOrigem: onlyDigits($("#cepOrigem").value),
@@ -896,6 +1027,7 @@ function prepareShipmentView() {
   $("#recipientCep").value = maskCep(state.currentQuote.cepDestino);
   fillAddressFromCep("sender");
   fillAddressFromCep("recipient");
+  applyImportedFiscalToShipment();
   $("#shipmentForm").classList.remove("hidden");
   $("#shipmentSuccess").classList.add("hidden");
   $("#paymentMethod").value = "";
@@ -1117,9 +1249,11 @@ $("#backToQuoteBtn")?.addEventListener("click", () => navigate("quote"));
 $("#addContentItemBtn")?.addEventListener("click", () => addContentItem({ quantity: 1, value: 0 }));
 
 $$(`input[name="documentType"]`).forEach(radio => radio.addEventListener("change", () => {
-  const invoice = document.querySelector('input[name="documentType"]:checked')?.value === "invoice";
-  $("#invoiceField").classList.toggle("hidden", !invoice);
-  $("#invoiceNumber").required = invoice;
+  const documentType=document.querySelector('input[name="documentType"]:checked')?.value;
+  const showsKey=documentType==="invoice" || documentType==="dce";
+  $("#invoiceField").classList.toggle("hidden", !showsKey);
+  $("#invoiceField").firstChild.textContent=documentType==="dce"?"Chave da DC-e*":"Chave / número da NF-e*";
+  $("#invoiceNumber").required = showsKey;
 }));
 
 async function fillAddressFromCep(prefix) {
@@ -2408,6 +2542,7 @@ $("#shipmentForm")?.addEventListener("submit", async event => {
     recipient: partyData("recipient"),
     items: declaration,
     invoiceNumber: currentInvoiceNumber(),
+    ...fiscalFormDocumentMetadata(),
     paymentMethod,
     addons: selectedAddonPayload()
   };
