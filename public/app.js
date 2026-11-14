@@ -469,8 +469,7 @@ function applyImportedFiscalToShipment() {
   }
 }
 $("#quoteForm")?.addEventListener("input",event=>{
-  if(state.fiscalDocument && ["peso","altura","largura","comprimento","vlDeclarado",
-    "cepOrigem","cepDestino"].includes(event.target.id)){
+  if(state.fiscalDocument){
     $("#fiscalPhysicalConfirmed").checked=false;
   }
 });
@@ -569,6 +568,12 @@ $("#quoteForm").addEventListener("submit", async (event) => {
   btn.textContent = "Consultando...";
   $("#resultsWrap").classList.add("hidden");
 
+  if(state.fiscalDocument &&
+    (onlyDigits($("#cepOrigem").value)!==onlyDigits(state.fiscalDocument.sender?.cep) ||
+      onlyDigits($("#cepDestino").value)!==onlyDigits(state.fiscalDocument.recipient?.cep))){
+    toast("Os CEPs foram alterados em relação ao documento. Escolha preenchimento manual ou importe o documento correto.","error");
+    btn.disabled=false;btn.textContent="Calcular frete";return;
+  }
   if (state.fiscalDocument && !$("#fiscalPhysicalConfirmed").checked) {
     toast("Confirme peso, medidas, quantidade de volumes e endereços antes de cotar.","error");
     btn.disabled=false;btn.textContent="Calcular frete";return;
