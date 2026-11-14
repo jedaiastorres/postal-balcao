@@ -192,7 +192,6 @@ async function template() {
     ["Limites","Até 100 pedidos por arquivo e até 900 KB. Evite fórmulas e não apague a aba Envios."],
     ["Observação","Os valores das cotações só serão mostrados após consulta ao provedor. Nenhum preço de exemplo é uma oferta."],
   ];
-  notes.getRange?.("A1");
   for(let i=0;i<tips.length;i++){
     const row=notes.addRow(tips[i]);row.height=i===0?34:41;
     row.getCell(1).font={bold:true,color:{argb:i===0?"FFFFFFFF":"FF1F2937"}};
