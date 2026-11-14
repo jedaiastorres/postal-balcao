@@ -42,6 +42,11 @@ async function initClientDb() {
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS first_mile_type TEXT;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS first_mile_fee NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS package_count INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS client_bulk_row_key TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS freight_orders_client_bulk_row_uidx
+      ON freight_orders(client_user_id,client_bulk_row_key)
+      WHERE client_bulk_row_key IS NOT NULL;
+
 
     CREATE INDEX IF NOT EXISTS freight_orders_client_idx
       ON freight_orders(client_user_id,created_at DESC);
@@ -470,10 +475,22 @@ async function insertClientOrder(order){
 }
 
 async function createClientOrderAndDebit(order){
-  const db=database();
+  const db=await database().connect();
   const total=round2(order.totalAmount);
   await db.query("BEGIN");
   try{
+    if(order.bulkRowKey){
+      await db.query("SELECT pg_advisory_xact_lock(hashtext($1))",[order.clientUserId+"|"+order.bulkRowKey]);
+      const previous=await db.query(
+        "SELECT * FROM freight_orders WHERE client_user_id=$1 AND client_bulk_row_key=$2 LIMIT 1",
+        [order.clientUserId,order.bulkRowKey]
+      );
+      if(previous.rows[0]){
+        const balance=await db.query("SELECT wallet_balance FROM customer_accounts WHERE user_id=$1",[order.clientUserId]);
+        await db.query("ROLLBACK");
+        return {order:previous.rows[0],balance:Number(balance.rows[0]?.wallet_balance||0),alreadyCreated:true};
+      }
+    }
     const wallet=await db.query(
       `UPDATE customer_accounts SET wallet_balance=wallet_balance-$2,updated_at=NOW()
         WHERE user_id=$1 AND wallet_balance >= $2 RETURNING wallet_balance`,
@@ -491,7 +508,7 @@ async function createClientOrderAndDebit(order){
         partner_commission,postal_margin,provider_cost,
         first_mile_type,first_mile_fee,package_count,
         postal_company_id,carrier,service_name,deadline,quote_token,
-        sender,recipient,items,invoice_number,package_data,paid_at
+        sender,recipient,items,invoice_number,package_data,client_bulk_row_key,paid_at
       ) VALUES(
         $1,NULL,$2,$3,$4,
         $5,$6,'SALDO','PAID','POSTAL_WALLET',
@@ -501,7 +518,7 @@ async function createClientOrderAndDebit(order){
         0,$12,$13,
         $14,$15,$16,
         $17,$18,$19,$20,$21,
-        $22::jsonb,$23::jsonb,$24::jsonb,$25,$26::jsonb,NOW()
+        $22::jsonb,$23::jsonb,$24::jsonb,$25,$26::jsonb,$27,NOW()
       ) RETURNING *`,
       [
         order.id,order.clientUserId,order.referralStoreId||null,order.referralCommission||0,
@@ -510,7 +527,7 @@ async function createClientOrderAndDebit(order){
         order.firstMileType,order.firstMileFee,order.packageCount,
         order.postalCompanyId||null,order.carrier||"",order.serviceName||"",order.deadline||0,order.quoteToken,
         JSON.stringify(order.sender||{}),JSON.stringify(order.recipient||{}),JSON.stringify(order.items||[]),
-        order.invoiceNumber||"",JSON.stringify(order.packageData||{})
+        order.invoiceNumber||"",JSON.stringify(order.packageData||{}),order.bulkRowKey||null
       ]
     );
 
@@ -527,6 +544,16 @@ async function createClientOrderAndDebit(order){
     await db.query("COMMIT");
     return {order:rows[0],balance:Number(wallet.rows[0].wallet_balance)};
   }catch(error){await db.query("ROLLBACK");throw error;}
+  finally{db.release();}
+}
+
+async function getClientOrderByBulkKey(userId,key){
+  const db=database();
+  const {rows}=await db.query(
+    "SELECT * FROM freight_orders WHERE client_user_id=$1 AND client_bulk_row_key=$2 LIMIT 1",
+    [userId,String(key||"")]
+  );
+  return rows[0]||null;
 }
 
 async function listClientOrders(userId,limit=100){
@@ -985,7 +1012,7 @@ module.exports={
   initClientDb,createCustomerAccount,getCustomerAccount,findStoreByReferralCode,
   listPublicStores,listPickupStores,updateStorePickupSettings,getWallet,listWalletTransactions,creditWallet,debitWallet,
   createTopup,setTopupCheckout,getTopupByCheckoutId,getTopup,listTopups,markTopupPaid,updateTopupStatus,
-  insertClientOrder,createClientOrderAndDebit,listClientOrders,getClientOrder,choosePickupStore,createCollectionRequest,
+  insertClientOrder,createClientOrderAndDebit,getClientOrderByBulkKey,listClientOrders,getClientOrder,choosePickupStore,createCollectionRequest,
   listCollections,getCollection,updateCollection,createPointEarning,listPointEarnings,referralStats,
   createConnection,listConnections,listBridgeConnections,getConnectionById,updateConnection,deleteConnection,importEcommerceOrder,listEcommerceOrders,
   getImportedOrder,linkImportedOrder,listClientOperations,createBulkCollectionsAndDebit,
