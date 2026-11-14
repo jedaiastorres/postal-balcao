@@ -1078,7 +1078,7 @@ function prepareShipmentView() {
 
 function currentInvoiceNumber() {
   const type = document.querySelector('input[name="documentType"]:checked')?.value;
-  return type === "invoice" ? $("#invoiceNumber").value.trim() : "";
+  return ["invoice","dce"].includes(type) ? $("#invoiceNumber").value.trim() : "";
 }
 
 function receiptPayload(preview = false) {
