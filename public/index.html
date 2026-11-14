@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#d7083b" />
   <title>Postal Serviços | Balcão Parceiro</title>
-  <link rel="stylesheet" href="/styles.css?v=1.16.0" />
+  <link rel="stylesheet" href="/styles.css?v=1.17.0" />
 </head>
 <body>
   <div id="toast" class="toast" aria-live="polite"></div>
@@ -266,6 +266,41 @@
             <p>Informe os dados do pacote. O custo da ConectEnvios fica protegido no servidor; o balcão vê apenas o preço de venda e sua comissão.</p>
           </div>
         </div>
+
+        <section id="fiscalAssistant" class="fiscal-assistant panel" aria-labelledby="fiscalAssistantTitle">
+          <div class="fiscal-assistant-head">
+            <div><span class="eyebrow">POSTAGEM INTELIGENTE</span><h2 id="fiscalAssistantTitle">Preencher pelos dados fiscais</h2>
+              <p>Utilize a chave de NF-e ou DC-e com acesso autorizado, importe o XML ou continue com preenchimento manual.</p></div>
+          </div>
+          <div class="fiscal-mode-options" role="group" aria-label="Forma de preenchimento">
+            <label><input type="radio" name="fiscalSourceMode" value="MANUAL" checked /> Preenchimento manual</label>
+            <label><input type="radio" name="fiscalSourceMode" value="AUTHORIZED" /> Consulta autorizada por chave</label>
+            <label><input type="radio" name="fiscalSourceMode" value="XML" /> Importar XML</label>
+          </div>
+          <div id="fiscalManualPanel" class="fiscal-mode-panel">
+            <p>Preencha os CEPs, pesos e medidas abaixo. Os dados de remetente, destinatário e conteúdo serão informados ao continuar para a postagem.</p>
+          </div>
+          <div id="fiscalAuthorizedPanel" class="fiscal-mode-panel hidden">
+            <div class="fiscal-key-grid">
+              <label>Documento<select id="fiscalDocumentType"><option value="NFE">NF-e</option><option value="DCE">DC-e</option></select></label>
+              <label>Chave de acesso (44 dígitos)<input id="fiscalAccessKey" maxlength="54" inputmode="numeric" autocomplete="off" placeholder="Digite ou cole a chave" /></label>
+              <button id="fiscalLookupBtn" type="button" class="primary">Consultar dados</button>
+            </div>
+            <label class="fiscal-consent"><input id="fiscalLookupConsent" type="checkbox" /> Confirmo que estou autorizado a acessar este documento e que tenho permissão para utilizar os dados na postagem.</label>
+            <p id="fiscalLookupAvailability">Consulta depende de acesso fiscal autorizado e configuração do provedor. Caso não esteja disponível, importe o XML ou preencha manualmente.</p>
+          </div>
+          <div id="fiscalXmlPanel" class="fiscal-mode-panel hidden">
+            <label>Arquivo XML de NF-e ou DC-e (máximo 3 MB)
+              <input id="fiscalXmlFile" type="file" accept=".xml,text/xml,application/xml" />
+            </label>
+            <p>Os dados são lidos no seu navegador e utilizados apenas para preencher os campos. O XML não é enviado ao servidor por esta função.</p>
+          </div>
+          <div id="fiscalImportSummary" class="fiscal-import-summary hidden" role="status"></div>
+          <label id="fiscalPhysicalConfirmation" class="fiscal-consent hidden">
+            <input id="fiscalPhysicalConfirmed" type="checkbox" />
+            Conferi a origem e o destino, o peso real, as medidas e a quantidade de volumes da encomenda embalada.
+          </label>
+        </section>
 
         <form id="quoteForm" class="quote-panel">
           <div class="package-type quote-volume-header">
@@ -1052,6 +1087,7 @@
             <div class="document-choice">
               <label><input type="radio" name="documentType" value="declaration" checked /> Declaração de conteúdo</label>
               <label><input type="radio" name="documentType" value="invoice" /> Nota fiscal</label>
+              <label><input type="radio" name="documentType" value="dce" /> DC-e eletrônica</label>
               <label id="invoiceField" class="invoice-field hidden">Chave / número da NF*<input id="invoiceNumber" /></label>
             </div>
             <div id="contentItems" class="content-items"></div>
@@ -1221,7 +1257,8 @@
     </div>
   </div>
 
-  <script src="/app.js?v=1.16.0"></script>
-  <script src="/client.js?v=1.16.0"></script>
+  <script src="/fiscal_document.js?v=1.17.0"></script>
+  <script src="/app.js?v=1.17.0"></script>
+  <script src="/client.js?v=1.17.0"></script>
 </body>
 </html>
