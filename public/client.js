@@ -727,6 +727,7 @@
     const valid=rows.filter(r=>!r.errors.length);
     const ready=rows.filter(r=>r.options?.length&&r.phase!=="ISSUED");
     const issued=rows.filter(r=>r.phase==="ISSUED");
+    $("#clientBulkSpreadsheetFile").disabled=client.bulkBusy;
     const total=ready.reduce((sum,r)=>sum+Number(r.options[r.selectedIndex||0]?.precoVenda||0),0);
     const hub=ready.reduce((sum,r)=>sum+Number(r.options[r.selectedIndex||0]?.hubTransferTotal||0),0);
     $("#clientBulkSpreadsheetSummary").textContent=
@@ -738,7 +739,7 @@
     host.innerHTML="";
     rows.forEach((row,index)=>{
       const quote=row.options?.[row.selectedIndex||0];
-      const stateLabel=row.phase==="ISSUED"?"Emitido":
+      const stateLabel=row.phase==="ISSUED"?(row.labelReady?"Etiqueta disponível":"Pedido registrado · etiqueta pendente"):
         row.phase==="QUOTING"?"Consultando...":
         row.errors.length?row.errors.join("; "):
         row.phase==="ERROR"?(row.quoteError||"Falha ao cotar"):
@@ -779,7 +780,7 @@
   }
 
   async function importSpreadsheet(file){
-    if(!file)return;
+    if(!file||client.bulkBusy)return;
     if(file.size>900000){toast("Planilha acima de 900 KB. Divida os pedidos em outros lotes.","error");return;}
     if(!/\.(xlsx|csv)$/i.test(file.name)){toast("Envie um arquivo .xlsx ou .csv.","error");return;}
     const progress=$("#clientBulkSpreadsheetProgress");
@@ -885,7 +886,9 @@
         if(response.order?.paymentStatus==="REFUNDED" || response.order?.status==="CLIENT_ORDER_ERROR"){
           throw Error("Pedido anterior estornado; requer revisão na Central de Pedidos.");
         }
-        row.phase="ISSUED";row.issuedOrderId=response.order?.id||null;issued++;
+        row.phase="ISSUED";row.issuedOrderId=response.order?.id||null;
+        row.labelReady=["LABEL_AVAILABLE","LABEL_AVAILABLE_SIMULATED"].includes(response.order?.status);
+        issued++;
       }catch(error){
         row.phase="ERROR";row.quoteError=error.message;failed++;
         if(/saldo insuficiente/i.test(error.message))break;
@@ -894,8 +897,8 @@
       renderSpreadsheetBulk();
     }
     client.bulkBusy=false;
-    progress.textContent=issued+" pedido(s) processados com sucesso, "+failed+" pendência(s). "+
-      "Pedidos com etiqueta disponível podem ser impressos ou selecionados para coleta em lote abaixo.";
+    progress.textContent=issued+" pedido(s) registrado(s), "+failed+" falha(s). "+
+      "Consulte a Central de Pedidos para imprimir etiquetas liberadas e acompanhar as pendentes.";
     renderSpreadsheetBulk();
     await loadOperations();await loadClientHome();
   }
