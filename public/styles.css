@@ -1111,3 +1111,25 @@ input,select,textarea{transition:border-color .16s,box-shadow .16s,background .1
 .fiscal-consent input{accent-color:#d7083b;margin-top:2px;flex:0 0 auto}
 .fiscal-import-summary{font-size:12px;line-height:1.5;border-radius:10px;background:#f1f8f3;border:1px solid #d6eadb;padding:12px;color:#265d3b;overflow-wrap:anywhere}
 @media(max-width:720px){.fiscal-assistant{padding:14px}.fiscal-key-grid{grid-template-columns:1fr}.fiscal-mode-options label{flex-basis:100%}}
+
+/* Portal cliente — postagens em massa por planilha */
+.client-spreadsheet-panel{padding:20px;margin:16px 0 20px;border-radius:16px}
+.client-spreadsheet-heading{display:flex;gap:16px;justify-content:space-between;align-items:flex-start}
+.client-spreadsheet-heading h2{font-size:20px;margin:6px 0;letter-spacing:-.02em}
+.client-spreadsheet-heading p,.client-spreadsheet-upload span,.client-spreadsheet-note,.client-spreadsheet-review-head p{font-size:12px;line-height:1.5;color:#717888;margin:5px 0}
+.client-spreadsheet-heading a{white-space:nowrap;text-decoration:none;font-size:12px;display:inline-flex;align-items:center;justify-content:center;padding:11px 14px}
+.client-spreadsheet-upload{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:16px 0}
+.client-spreadsheet-upload label{font-size:12px;font-weight:700;display:flex;flex-direction:column;gap:8px;flex:1 1 330px}
+.client-spreadsheet-upload input{border:1px dashed #bdc2cb;background:#f9fafc;border-radius:11px;padding:13px;width:100%;max-width:520px;box-sizing:border-box}
+.client-spreadsheet-review-head{display:flex;justify-content:space-between;gap:16px;align-items:center;margin:16px 0}
+.client-spreadsheet-buttons{display:flex;gap:8px;flex-wrap:wrap}
+.client-spreadsheet-buttons button:disabled{opacity:.5;cursor:not-allowed}
+.client-spreadsheet-table-wrap{overflow-x:auto;border-radius:12px;border:1px solid #e5e7eb}
+.client-spreadsheet-table{width:100%;min-width:890px;border-collapse:collapse}
+.client-spreadsheet-table th{font-size:10px;color:#5e6571;text-align:left;text-transform:uppercase;letter-spacing:.04em;background:#f7f8fb;padding:11px}
+.client-spreadsheet-table td{font-size:12px;border-top:1px solid #edf0f4;padding:11px;vertical-align:top}
+.client-spreadsheet-table td small{display:block;font-size:11px;color:#858a96;margin-top:5px}
+.client-spreadsheet-table td select{border:1px solid #d6d9e0;border-radius:8px;background:#fff;max-width:310px;width:100%;min-height:39px;padding:8px;font-size:11px}
+.client-spreadsheet-table .bulk-row-state{display:block;max-width:230px;overflow-wrap:anywhere;line-height:1.4}
+.client-spreadsheet-note{margin-top:12px}
+@media(max-width:760px){.client-spreadsheet-heading,.client-spreadsheet-review-head{flex-direction:column;align-items:stretch}.client-spreadsheet-heading a{align-self:flex-start;white-space:normal}.client-spreadsheet-panel{padding:14px}}
