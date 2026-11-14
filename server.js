@@ -2088,6 +2088,8 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
       carrier:String(body.carrier||""),serviceName:String(selection.service||""),deadline:Number(selection.deadline||0),
       quoteToken:body.selectionToken,sender,recipient,items,invoiceNumber:String(body.invoiceNumber||"").trim(),
       bulkRowKey,
+      hubTransferFeePerPackage:Number(selection.hubTransferFeePerPackage||0),
+      hubTransferTotal:Number(selection.hubTransferTotal||0),
       packageData:{...selection.package, fiscalDocument:normalizeFiscalReference(body)}
     });
 
