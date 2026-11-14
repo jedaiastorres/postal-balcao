@@ -4236,6 +4236,9 @@ app.post("/api/fiscal-documents/lookup", requireAuth, requireRole("ADMIN","SUPER
     const raw=await response.text();
     if(raw.length>3000000)return res.status(502).json({error:"Documento muito grande para consulta."});
     const payload=JSON.parse(raw);
+    if(payload.authorized !== true){
+      return res.status(403).json({error:"O provedor não confirmou autorização de acesso ao XML."});
+    }
     const doc=payload.document || payload.data || payload;
     if(String(doc?.type||"").toUpperCase()!==type || cleanDigits(doc?.key)!==key ||
        cleanDigits(doc?.sender?.cep).length!==8 || cleanDigits(doc?.recipient?.cep).length!==8 ||
@@ -4251,13 +4254,22 @@ app.post("/api/fiscal-documents/lookup", requireAuth, requireRole("ADMIN","SUPER
         return res.status(403).json({error:"A consulta da chave requer documento fiscal vinculado à conta. Importe seu XML ou preencha manualmente."});
       }
     }
+    const safeText=(value,max=160)=>String(value??"").slice(0,max);
+    const safeParty=(party)=>Object.fromEntries([
+      "name","document","phone","email","cep","address","number","neighborhood","complement","city"
+    ].map(field=>[field,safeText(party?.[field],field==="address"?200:160)]));
+    const safeItems=doc.items.slice(0,200).filter(x=>x&&typeof x==="object").map(x=>({
+      description:safeText(x.description,200),
+      quantity:Number(x.quantity||1),
+      value:Number(x.value||0)
+    })).filter(x=>x.description&&Number.isFinite(x.quantity)&&x.quantity>0&&Number.isFinite(x.value)&&x.value>=0);
     await audit(req,"FISCAL_DOCUMENT_LOOKUP","FISCAL_DOCUMENT",type,{type,keySuffix:key.slice(-4),source:"AUTHORIZED"});
     return res.json({
       document:{
-        type,key,sender:doc.sender,recipient:doc.recipient,items:doc.items.slice(0,200),
-        declaredValue:Number(doc.declaredValue||0),
-        volumeCount:doc.volumeCount||null,
-        grossWeightKg:doc.grossWeightKg||null,
+        type,key,sender:safeParty(doc.sender),recipient:safeParty(doc.recipient),items:safeItems,
+        declaredValue:Number.isFinite(Number(doc.declaredValue))?Number(doc.declaredValue):0,
+        volumeCount:Math.max(0,Math.min(50,Number(doc.volumeCount)||0))||null,
+        grossWeightKg:Number(doc.grossWeightKg)>0?Number(doc.grossWeightKg):null,
         source:"AUTHORIZED_LOOKUP"
       }
     });
