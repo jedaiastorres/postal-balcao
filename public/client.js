@@ -567,7 +567,7 @@
       selectionToken:state.selectedOption.selectionToken,
       carrier:state.selectedOption.transportadora,
       sender:partyData("sender"),recipient:partyData("recipient"),items:contentData(),
-      invoiceNumber:currentInvoiceNumber(),firstMileType,
+      invoiceNumber:currentInvoiceNumber(),...fiscalFormDocumentMetadata(),firstMileType,
       packageCount:Math.max(1,Number(state.selectedOption?.volumeCount || state.currentQuote?.volumes?.length || 1)),
       dropoffStoreId:firstMileType==="DROPOFF"?$("#clientDropoffStore").value:null,
       latitude:firstMileType==="PICKUP"?client.pickupCoords?.latitude:null,

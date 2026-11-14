@@ -1093,3 +1093,21 @@ input,select,textarea{transition:border-color .16s,box-shadow .16s,background .1
 .collection-create-summary span{font-size:9px;color:var(--muted);font-weight:850;text-transform:uppercase;letter-spacing:.6px}
 .collection-create-summary strong{font-size:15px}
 @media(max-width:720px){.collection-create-summary{grid-template-columns:1fr}.collection-create-summary .primary{width:100%}}
+
+/* NF-e / DC-e: consulta autorizada, XML e preenchimento manual */
+.fiscal-assistant{margin-bottom:18px;padding:22px;display:flex;flex-direction:column;gap:15px;border:1px solid #e0e3e9;border-radius:18px;background:#fff}
+.fiscal-assistant-head h2{font-size:20px;margin:5px 0 6px;letter-spacing:-.025em}
+.fiscal-assistant-head p,.fiscal-mode-panel p{color:#697182;font-size:13px;margin:0;line-height:1.5}
+.fiscal-mode-options{display:flex;gap:8px;flex-wrap:wrap}
+.fiscal-mode-options label{display:flex;align-items:center;gap:7px;flex:1 1 180px;padding:11px 12px;border:1px solid #e2e5ea;border-radius:11px;background:#f9fafb;font-size:12px;font-weight:700;cursor:pointer}
+.fiscal-mode-options label:has(input:checked){border-color:#d7083b;background:#fff5f7;color:#b20835}
+.fiscal-mode-options input{accent-color:#d7083b}
+.fiscal-mode-panel{background:#f8fafc;border:1px solid #eef0f4;border-radius:12px;padding:15px}
+.fiscal-key-grid{display:grid;grid-template-columns:minmax(120px,1fr) minmax(220px,3fr) auto;gap:10px;align-items:end;margin-bottom:12px}
+.fiscal-key-grid label,.fiscal-mode-panel label:not(.fiscal-consent){display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:700}
+.fiscal-key-grid input,.fiscal-key-grid select,.fiscal-mode-panel input[type=file]{width:100%;min-height:42px;border:1px solid #d9dde4;border-radius:10px;background:#fff;padding:9px 11px}
+.fiscal-key-grid button{min-height:42px}
+.fiscal-consent{display:flex;align-items:flex-start;gap:9px;margin:8px 0;font-size:12px;color:#3d4654;line-height:1.45;cursor:pointer}
+.fiscal-consent input{accent-color:#d7083b;margin-top:2px;flex:0 0 auto}
+.fiscal-import-summary{font-size:12px;line-height:1.5;border-radius:10px;background:#f1f8f3;border:1px solid #d6eadb;padding:12px;color:#265d3b;overflow-wrap:anywhere}
+@media(max-width:720px){.fiscal-assistant{padding:14px}.fiscal-key-grid{grid-template-columns:1fr}.fiscal-mode-options label{flex-basis:100%}}
