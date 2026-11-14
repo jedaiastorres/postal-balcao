@@ -1259,6 +1259,7 @@ $$(`input[name="documentType"]`).forEach(radio => radio.addEventListener("change
   $("#invoiceField").classList.toggle("hidden", !showsKey);
   $("#invoiceField").firstChild.textContent=documentType==="dce"?"Chave da DC-e*":"Chave / número da NF-e*";
   $("#invoiceNumber").required = showsKey;
+  $("#invoiceNumber").pattern = documentType==="dce" ? "[0-9]{44}" : "";
 }));
 
 async function fillAddressFromCep(prefix) {
@@ -2512,6 +2513,8 @@ $("#shipmentForm")?.addEventListener("submit", async event => {
     toast("Revise a declaração de conteúdo.", "error");
     return;
   }
+  try { fiscalFormDocumentMetadata(); }
+  catch (error) { toast(error.message,"error"); return; }
 
   if (state.user?.role === "CLIENT") {
     const btn = $("#createShipmentBtn");
