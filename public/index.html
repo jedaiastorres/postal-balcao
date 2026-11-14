@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#d7083b" />
   <title>Postal Serviços | Balcão Parceiro</title>
-  <link rel="stylesheet" href="/styles.css?v=1.17.0" />
+  <link rel="stylesheet" href="/styles.css?v=1.18.0" />
 </head>
 <body>
   <div id="toast" class="toast" aria-live="polite"></div>
@@ -608,6 +608,38 @@
             <button class="primary" data-go="quote" type="button">+ Novo envio</button>
           </div>
         </div>
+
+        <section class="panel client-spreadsheet-panel" id="clientBulkSpreadsheet">
+          <div class="client-spreadsheet-heading">
+            <div>
+              <span class="eyebrow">POSTAGENS EM MASSA</span>
+              <h2>Importe sua planilha de envios</h2>
+              <p>Baixe o modelo, preencha uma linha por envio e confira as cotações antes de debitar seu Saldo Postal.</p>
+            </div>
+            <a id="clientBulkTemplateLink" class="ghost" href="/api/client/bulk/template" download="postal-modelo-postagens-em-massa.xlsx">Baixar planilha modelo (.xlsx)</a>
+          </div>
+          <div class="client-spreadsheet-upload">
+            <label>Planilha preenchida (.xlsx ou .csv)<input id="clientBulkSpreadsheetFile" type="file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" /></label>
+            <span>Até 100 pedidos por arquivo. Uma linha por pedido; o peso e as medidas são por volume.</span>
+          </div>
+          <div id="clientBulkSpreadsheetReview" class="hidden">
+            <div class="client-spreadsheet-review-head">
+              <div><strong id="clientBulkSpreadsheetSummary">Nenhum pedido</strong>
+                <p id="clientBulkSpreadsheetProgress" role="status" aria-live="polite">Confira os dados importados antes de calcular os fretes.</p></div>
+              <div class="client-spreadsheet-buttons">
+                <button id="clientBulkSpreadsheetQuoteBtn" type="button" class="ghost">Calcular cotações</button>
+                <button id="clientBulkSpreadsheetIssueBtn" type="button" class="primary" disabled>Confirmar postagens e debitar saldo</button>
+              </div>
+            </div>
+            <div class="client-spreadsheet-table-wrap">
+              <table class="client-spreadsheet-table">
+                <thead><tr><th>Pedido</th><th>Remetente → destinatário</th><th>Volumes</th><th>Transportadora / serviço</th><th>Valor</th><th>Situação</th></tr></thead>
+                <tbody id="clientBulkSpreadsheetRows"></tbody>
+              </table>
+            </div>
+            <p class="client-spreadsheet-note">O CEP informado deve ser o real. Quando a origem possuir CEP máscara, o sistema utiliza automaticamente o hub na cotação e acrescenta R$ 5 por volume. Após a emissão, utilize a opção de coleta em lote.</p>
+          </div>
+        </section>
 
         <div class="client-status-tabs">
           <button class="client-status-tab active" data-ops-status=""><span>Todos</span><strong id="opsCountAll">0</strong></button>
@@ -1258,7 +1290,7 @@
   </div>
 
   <script src="/fiscal_document.js?v=1.17.0"></script>
-  <script src="/app.js?v=1.17.0"></script>
-  <script src="/client.js?v=1.17.0"></script>
+  <script src="/app.js?v=1.18.0"></script>
+  <script src="/client.js?v=1.18.0"></script>
 </body>
 </html>
