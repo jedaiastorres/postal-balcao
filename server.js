@@ -7,6 +7,7 @@ const path = require("path");
 const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
 const db = require("./db");
 const clientDb = require("./client_db");
+const bulkShipping = require("./bulk_shipping");
 const asaas = require("./asaas");
 const ecommerce = require("./ecommerce_connectors");
 
@@ -587,12 +588,18 @@ async function resolveOperationalQuoteOrigin(user, actualCepFrom) {
   if (user?.storeId) {
     store = await db.getStore(user.storeId);
   } else if (user?.role === "CLIENT" && user?.userId) {
-    try {
-      const account = await clientDb.getCustomerAccount(user.userId);
-      if (account?.referral_store_id) store = await db.getStore(account.referral_store_id);
-    } catch {}
+    // O CEP real define o hub. Não usar automaticamente um ponto indicador
+    // de outra cidade como origem do pacote.
+    try { store = await db.findStoreForQuoteOrigin(actualCepFrom); } catch {}
     if (!store) {
-      try { store = await db.findStoreForQuoteOrigin(actualCepFrom); } catch {}
+      try {
+        const account = await clientDb.getCustomerAccount(user.userId);
+        if (account?.referral_store_id) {
+          const linked = await db.getStore(account.referral_store_id);
+          const pointCep = cleanDigits(linked?.address?.cep);
+          if (linked?.active && pointCep.length===8 && pointCep.slice(0,5)===actualCepFrom.slice(0,5)) store=linked;
+        }
+      } catch {}
     }
   }
   const configured = cleanDigits(store?.quote_origin_cep || "");
@@ -1970,11 +1977,50 @@ app.get("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,res
   }catch(error){res.status(500).json({error:"Não foi possível carregar seus envios."});}
 });
 
+app.get("/api/client/bulk/template",requireAuth,requireRole("CLIENT"),async(_req,res)=>{
+  try {
+    const output=await bulkShipping.template();
+    res.setHeader("Content-Type","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition",'attachment; filename="postal-modelo-postagens-em-massa.xlsx"');
+    res.setHeader("Cache-Control","private,no-store");
+    res.send(Buffer.from(output));
+  } catch(error) {
+    console.error("bulk template error",error.message);
+    res.status(500).json({error:"Não foi possível gerar o modelo da planilha."});
+  }
+});
+
+app.post("/api/client/bulk/parse",requireAuth,requireRole("CLIENT"),async(req,res)=>{
+  try {
+    const parsed=await bulkShipping.parseUpload(req.body||{});
+    const rows=parsed.rows.map(row=>({
+      ...row,
+      bulkRowKey:"bulk:"+crypto.createHash("sha256")
+        .update("postal-bulk-order-v1|"+row.ref).digest("hex")
+    }));
+    await audit(req,"PREVIEW_CLIENT_BULK_FILE","BULK_IMPORT",null,{rows:rows.length,valid:parsed.valid,invalid:parsed.invalid});
+    res.json({rows,valid:parsed.valid,invalid:parsed.invalid});
+  }catch(error){
+    res.status(400).json({error:error.message||"Arquivo de postagens inválido."});
+  }
+});
+
 app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,res)=>{
   let createdOrderId=null;
   let createdCollectionId=null;
   try{
     const body=req.body||{};
+    const bulkRowKey=String(body.bulkRowKey||"").trim();
+    if(bulkRowKey&&!/^bulk:[a-f0-9]{64}$/.test(bulkRowKey)){
+      return res.status(400).json({error:"Identificador do lote inválido."});
+    }
+    if(bulkRowKey){
+      const previous=await clientDb.getClientOrderByBulkKey(req.user.userId,bulkRowKey);
+      if(previous){
+        const wallet=await clientDb.getWallet(req.user.userId);
+        return res.json({ok:true,alreadyCreated:true,order:publicOrderForUser(previous,req.user),balance:Number(wallet?.balance||0)});
+      }
+    }
     const safeSandbox=asaas.isSandbox();
     if (asaas.configured() && !ENABLE_SHIPMENT_CREATION && !safeSandbox) {
       return res.status(503).json({error:"A emissão real ainda está em homologação. Seu saldo não será debitado até a geração real de etiquetas ser liberada."});
@@ -2041,8 +2087,16 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
       postalCompanyId:selection.postalCompanyId,
       carrier:String(body.carrier||""),serviceName:String(selection.service||""),deadline:Number(selection.deadline||0),
       quoteToken:body.selectionToken,sender,recipient,items,invoiceNumber:String(body.invoiceNumber||"").trim(),
+      bulkRowKey,
+      hubTransferFeePerPackage:Number(selection.hubTransferFeePerPackage||0),
+      hubTransferTotal:Number(selection.hubTransferTotal||0),
       packageData:{...selection.package, fiscalDocument:normalizeFiscalReference(body)}
     });
+
+    if(created.alreadyCreated){
+      const existing=await clientDb.getClientOrder(created.order.id,req.user.userId);
+      return res.json({ok:true,alreadyCreated:true,order:publicOrderForUser(existing,req.user),balance:created.balance});
+    }
 
     let collection=null;
     if(firstMileType!=="LATER"){
@@ -2103,6 +2157,13 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
     res.status(201).json({order:publicOrderForUser(complete,req.user),collection,balance:created.balance});
   }catch(error){
     console.error("client shipment error:",error.message);
+    if(error.code==="23505" && req.body?.bulkRowKey){
+      const existing=await clientDb.getClientOrderByBulkKey(req.user.userId,req.body.bulkRowKey).catch(()=>null);
+      if(existing){
+        const wallet=await clientDb.getWallet(req.user.userId);
+        return res.json({ok:true,alreadyCreated:true,order:publicOrderForUser(existing,req.user),balance:Number(wallet?.balance||0)});
+      }
+    }
     if(createdOrderId){
       try{
         const existing=await clientDb.getClientOrder(createdOrderId,req.user.userId);
