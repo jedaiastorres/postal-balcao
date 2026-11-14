@@ -508,7 +508,7 @@ async function createClientOrderAndDebit(order){
         partner_commission,postal_margin,provider_cost,
         first_mile_type,first_mile_fee,package_count,
         postal_company_id,carrier,service_name,deadline,quote_token,
-        sender,recipient,items,invoice_number,package_data,client_bulk_row_key,paid_at
+        sender,recipient,items,invoice_number,package_data,client_bulk_row_key,hub_transfer_fee_per_package,hub_transfer_total,paid_at
       ) VALUES(
         $1,NULL,$2,$3,$4,
         $5,$6,'SALDO','PAID','POSTAL_WALLET',
@@ -518,7 +518,7 @@ async function createClientOrderAndDebit(order){
         0,$12,$13,
         $14,$15,$16,
         $17,$18,$19,$20,$21,
-        $22::jsonb,$23::jsonb,$24::jsonb,$25,$26::jsonb,$27,NOW()
+        $22::jsonb,$23::jsonb,$24::jsonb,$25,$26::jsonb,$27,$28,$29,NOW()
       ) RETURNING *`,
       [
         order.id,order.clientUserId,order.referralStoreId||null,order.referralCommission||0,
@@ -527,7 +527,8 @@ async function createClientOrderAndDebit(order){
         order.firstMileType,order.firstMileFee,order.packageCount,
         order.postalCompanyId||null,order.carrier||"",order.serviceName||"",order.deadline||0,order.quoteToken,
         JSON.stringify(order.sender||{}),JSON.stringify(order.recipient||{}),JSON.stringify(order.items||[]),
-        order.invoiceNumber||"",JSON.stringify(order.packageData||{}),order.bulkRowKey||null
+        order.invoiceNumber||"",JSON.stringify(order.packageData||{}),order.bulkRowKey||null,
+        Number(order.hubTransferFeePerPackage||0),Number(order.hubTransferTotal||0)
       ]
     );
 
