@@ -1187,9 +1187,9 @@ input,select,textarea{accent-color:#d7083b}
 
 /* Identidade oficial Postal e transportadoras, sem carregamento remoto. */
 .official-brand{justify-content:center;gap:0}
-.side-brand.official-brand{margin:0 10px 18px;padding:4px;background:#fff;border-radius:14px;min-height:100px}
+.side-brand.official-brand{margin:0 10px 18px;padding:4px;background:transparent;border-radius:0;min-height:100px}
 .official-brand img{display:block;width:150px;height:100px;object-fit:contain}
-.login-brand.official-brand{background:#fff;border-radius:14px;padding:2px 16px;top:24px}
+.login-brand.official-brand{background:transparent;border-radius:0;padding:2px 16px;top:24px}
 .carrier-logo{display:block;width:100px;height:40px;object-fit:contain;object-position:left center;margin-bottom:8px}
 @media(max-width:820px){.login-brand.official-brand{top:12px;padding:0 12px}.login-brand.official-brand img{width:126px;height:84px}}
 
@@ -1201,3 +1201,22 @@ input,select,textarea{accent-color:#d7083b}
 #pointCollectionCreateCard>.stack{font-size:12px;font-weight:700;gap:8px;margin-bottom:16px}
 #pointCollectionClient,#pointClientsSearch{width:100%;min-height:44px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#f8f9fc;color:var(--ink);font:inherit}
 #pointClientRegistrationResult{overflow-wrap:anywhere}
+
+/* A marca oficial permanece transparente, com contraste pelo ambiente ao redor. */
+:root{--postal:#da0c3b;--postal-dark:#b71b18;--postal-orange:#ea672a;--ink:#27242b;--muted:#6c6268;--line:#eadfe1;--bg:#faf7f6}
+body{background:#faf7f6}
+.sidebar{background:linear-gradient(180deg,#fff2ec 0%,#fff8f6 42%,#fff 100%);border-right:1px solid #eddce0}
+.nav-section{color:#8b5865}
+.nav-item{color:#62535c}
+.nav-item span{color:#a5425b;background:#f4e6e9}
+.nav-item:hover{background:#f9e3e8;color:#a51b40}
+.nav-item.active{background:#da0c3b;border-color:#da0c3b;color:#fff;box-shadow:0 4px 14px #da0c3b1a}
+.nav-item.active span{background:#ffffff24;color:#fff}
+.sidebar-foot .ghost{color:#62535c;border-color:#ead9df;background:transparent}
+.sidebar-foot .ghost:hover{color:#a51b40;background:#f9e3e8}
+.partner-mini{border-color:#ead9df}.partner-mini strong{color:#51434b}.partner-mini span{color:#79636c}
+.login-shell{background:radial-gradient(ellipse at 15% 25%,#ea672a12,transparent 45%),linear-gradient(120deg,#fff0e9 0%,#fff5f2 50%,#faf7f6 50%)}
+.login-shell:before{color:#3b2630}.login-shell:after{color:#8b5865}
+.hero{background:linear-gradient(115deg,#fff 50%,#fff0ec);border-color:#eddce0}
+.login-card{border-color:#eddce0}
+@media(max-width:820px){.login-shell{background:linear-gradient(180deg,#fff0e9 0,#fff0e9 130px,#faf7f6 130px)}}

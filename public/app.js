@@ -76,12 +76,23 @@ async function api(url, options = {}) {
   return data;
 }
 
+function applyDataResetVersion(version){
+  if(!version)return;
+  try{
+    if(localStorage.getItem("postal_data_reset_version")===version)return;
+    state.recent=[];
+    localStorage.removeItem("postal_recent_quotes");
+    localStorage.setItem("postal_data_reset_version",version);
+  }catch{state.recent=[];}
+}
+
 async function loadConfig() {
   const badge = $("#apiBadge");
   badge.className = "status-badge";
   badge.innerHTML = '<span class="dot"></span> Conectando...';
   try {
     state.config = await api("/api/public-config");
+    applyDataResetVersion(state.config.dataResetVersion);
     if (state.config.providerConfigured) {
       badge.className = "status-badge connected";
       badge.innerHTML = '<span class="dot"></span> ConectEnvios conectada';

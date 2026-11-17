@@ -32,3 +32,7 @@ footer strong{color:#303b50}footer a{color:#b60632;text-decoration:none}
 button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid #4361ee;outline-offset:4px}
 @media(max-width:720px){.top{height:86px}.brand img{width:120px;height:80px}.home{display:block;font-size:11px;padding:9px 11px}main{padding:30px 16px 45px}.card{padding:20px}.search input{font-size:15px}.search button{min-height:48px}.section-title{align-items:flex-start;flex-direction:column;gap:8px}.summary{gap:16px}.shipment-info{gap:8px}h1{letter-spacing:-1px}.route-box{padding:14px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+body{background:radial-gradient(ellipse at 50% 0,#fff0e9,transparent 50%),#faf7f6}
+:root{--postal:#da0c3b;--postal-dark:#b71b18;--ink:#27242b;--line:#eadfe1}
+.search:focus-within{border-color:#da0c3b}

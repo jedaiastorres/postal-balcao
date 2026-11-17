@@ -1668,6 +1668,7 @@ app.get("/api/public-config", (_req, res) => {
     fiscalLookupConfigured: fiscalLookupConfigured(),
     fiscalLookupProvider: FISCAL_LOOKUP_PROVIDER,
     version: "1.10.0",
+    dataResetVersion: String(process.env.POSTAL_DATA_RESET_VERSION||""),
     paymentSimulatorEnabled: PAYMENT_SIMULATOR_ENABLED && !asaas.configured(),
     clientPickupFeePerPackage: CLIENT_PICKUP_FEE_PER_PACKAGE,
     pointPickupEarningPerPackage: POINT_PICKUP_EARNING_PER_PACKAGE,

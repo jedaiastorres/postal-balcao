@@ -63,3 +63,10 @@ test('clerk and operations collection responses omit point earnings and splits',
   }
   assert.equal(context.collectionForRole(data,'STORE_OWNER').point_compensation,6);
 });
+test('a new reset version discards browser quote history once',()=>{
+  const data=new Map([['postal_recent_quotes','[{"price":99}]']]);
+  const context=vm.createContext({state:{recent:[{price:99}]},localStorage:{getItem:key=>data.get(key),setItem:(key,value)=>data.set(key,value),removeItem:key=>data.delete(key)}});
+  vm.runInContext(extract(app,'function applyDataResetVersion','async function loadConfig'),context);
+  context.applyDataResetVersion('reset-a');assert.equal(context.state.recent.length,0);assert.equal(data.has('postal_recent_quotes'),false);
+  context.state.recent=[{price:1}];context.applyDataResetVersion('reset-a');assert.equal(context.state.recent.length,1);
+});
