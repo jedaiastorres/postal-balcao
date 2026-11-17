@@ -1133,3 +1133,46 @@ input,select,textarea{transition:border-color .16s,box-shadow .16s,background .1
 .client-spreadsheet-table .bulk-row-state{display:block;max-width:230px;overflow-wrap:anywhere;line-height:1.4}
 .client-spreadsheet-note{margin-top:12px}
 @media(max-width:760px){.client-spreadsheet-heading,.client-spreadsheet-review-head{flex-direction:column;align-items:stretch}.client-spreadsheet-heading a{align-self:flex-start;white-space:normal}.client-spreadsheet-panel{padding:14px}}
+
+/* Postal Balcão: refinamento visual e acessibilidade */
+:root{--muted:#626b7c;--line:#e2e6ed;--bg:#f3f5f9;--shadow:0 8px 28px rgba(23,32,52,.045)}
+body{background:#f3f5f9;line-height:1.5}
+button,a,input,select,textarea{-webkit-tap-highlight-color:transparent}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #4361ee;outline-offset:3px}
+.sidebar{background:#171b28;box-shadow:none}
+.nav-section{color:#a0a9bc;letter-spacing:1.2px}
+.nav-item{font-size:13px;min-height:46px;border:1px solid transparent}
+.nav-item.active{background:#d7083b;border-color:#ed345f;box-shadow:0 5px 16px #0002;color:white}
+.nav-item.active span{background:#ffffff20;color:white}
+.sidebar-foot .ghost{color:#d4d9e4;border-color:#ffffff24;background:#ffffff08}
+.partner-mini span{color:#aeb7c9}
+.topbar{background:#ffffffed;height:82px;border-bottom:1px solid var(--line);box-shadow:none}
+.topbar h2{font-size:21px;letter-spacing:-.6px}
+.page-kicker{color:#737e92}
+.view{padding-top:28px}
+.hero{position:relative;overflow:hidden;background:linear-gradient(115deg,#fff 55%,#fff0f4);border:1px solid #e8dfe5;border-radius:22px;box-shadow:var(--shadow);padding:34px}
+.hero h1{font-size:clamp(26px,2.7vw,39px);max-width:620px;line-height:1.15;letter-spacing:-1.3px;margin:12px 0}
+.hero p{max-width:580px;font-size:14px;color:#626b7c}
+.hero .primary{flex-shrink:0}
+.eyebrow{font-size:10px;letter-spacing:1.8px}
+.primary{background:#d7083b;box-shadow:0 4px 10px #d7083b20;min-height:44px;border-radius:10px;transition:background .15s,box-shadow .15s}
+.primary:hover{background:#b60632;box-shadow:0 6px 16px #d7083b30}
+.ghost,.select-btn{min-height:42px;border-radius:10px}
+.metric-card{border-radius:16px;box-shadow:var(--shadow);padding:24px;border-top:3px solid #cdd4e2}
+.metric-card:nth-child(2){border-top-color:#4361ee}
+.metric-card:nth-child(3){border-top-color:#d7083b}
+.metric-card:nth-child(4){border-top-color:#17b26a}
+.metric-card strong{font-size:30px;font-variant-numeric:tabular-nums;letter-spacing:-1px}
+.metric-card small{color:#6c7586}
+.panel,.quote-panel,.form-panel{border-radius:18px;box-shadow:var(--shadow)}
+.panel h3{font-size:18px;letter-spacing:-.4px}
+.result-card{border-radius:14px;box-shadow:0 3px 12px #17203404}
+input,select,textarea{accent-color:#d7083b}
+.login-shell{background:radial-gradient(ellipse at 10% 10%,#ad123c55,transparent 50%),linear-gradient(120deg,#171b28 0%,#171b28 50%,#f3f5f9 50%)}
+.login-shell:before{content:"Seu balcão. Novas possibilidades.";line-height:1.08;letter-spacing:-2px}
+.login-card{border-radius:24px;box-shadow:0 24px 70px #11141c12}
+.login-card h1{font-size:32px;line-height:1.15}
+@media(max-width:1100px) and (min-width:821px){.hero{align-items:flex-start;flex-direction:column}.cards-4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:820px){.topbar{height:72px}.sidebar{padding-bottom:24px}.hero{padding:24px}.hero h1{font-size:29px}.login-shell{background:linear-gradient(180deg,#171b28 0,#171b28 130px,#f3f5f9 130px)}.login-card{width:100%;max-width:560px;justify-self:center}.status-wrap{gap:8px}.status-badge{font-size:10px;padding:7px 9px}.topbar h2{font-size:18px}}
+@media(max-width:560px){.hero{align-items:stretch;gap:18px}.hero .primary{width:100%}.metric-card{padding:17px}.metric-card strong{font-size:24px}.cards-4{gap:10px}.avatar{display:none}.login-card h1{font-size:28px}.panel-grid{grid-template-columns:minmax(0,1fr)}.recent-item{gap:8px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation:none!important;transition:none!important}}

@@ -112,13 +112,15 @@ app.get("/rastreio", (_req,res)=>{
 
 
 function parseCookies(req) {
-  const raw = req.headers.cookie || "";
-  return Object.fromEntries(
-    raw.split(";").map(v => v.trim()).filter(Boolean).map(part => {
-      const idx = part.indexOf("=");
-      return [decodeURIComponent(part.slice(0, idx)), decodeURIComponent(part.slice(idx + 1))];
-    })
-  );
+  const cookies = Object.create(null);
+  for (const part of String(req.headers.cookie || "").split(";")) {
+    const idx = part.indexOf("=");
+    if (idx < 1) continue;
+    try {
+      cookies[decodeURIComponent(part.slice(0, idx).trim())] = decodeURIComponent(part.slice(idx + 1).trim());
+    } catch { /* Ignore invalid percent encoding from untrusted clients. */ }
+  }
+  return cookies;
 }
 
 function signSession(payload) {
@@ -5071,15 +5073,19 @@ app.post("/api/documento-proxy", requireAuth, async (req, res) => {
 
   try {
     const rawUrl = String(req.body.url || "");
-    const allowedPrefix = `${API_URL}/package/`;
-
-    if (!rawUrl.startsWith(allowedPrefix)) {
+    const allowed = new URL(`${API_URL}/package/`);
+    let documentUrl;
+    try { documentUrl = new URL(rawUrl); } catch {
+      return res.status(400).json({ error: "URL de documento invalida." });
+    }
+    if (documentUrl.origin !== allowed.origin || !documentUrl.pathname.startsWith(allowed.pathname) || documentUrl.username || documentUrl.password) {
       return res.status(400).json({ error: "URL de documento invalida." });
     }
 
-    const response = await fetch(rawUrl, {
+    const response = await fetch(documentUrl.href, {
       method: "GET",
       headers: providerHeaders(),
+      redirect: "error",
       signal: AbortSignal.timeout(30000)
     });
 
@@ -5111,6 +5117,9 @@ async function ensureBootstrapAdmin() {
 
   const existing = await db.findUserByEmail(APP_USER);
   if (!existing) {
+    if (process.env.NODE_ENV === "production" && APP_PASSWORD === "postal123" && !ADMIN_PASSWORD_RESET_HASH.startsWith("pbkdf2$")) {
+      throw new Error("Defina APP_PASSWORD com uma senha própria antes de criar o administrador em produção.");
+    }
     const admin = await db.createUser({
       email: APP_USER,
       name: "Administrador Postal",

@@ -1,9 +1,16 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 
+function loadRecentQuotes() {
+  try {
+    const value = JSON.parse(localStorage.getItem("postal_recent_quotes") || "[]");
+    return Array.isArray(value) ? value.filter(item => item && typeof item === "object").slice(0, 100) : [];
+  } catch { return []; }
+}
+
 const state = {
   config: null,
-  recent: JSON.parse(localStorage.getItem("postal_recent_quotes") || "[]"),
+  recent: loadRecentQuotes(),
   currentQuote: null,
   selectedOption: null,
   shipmentResult: null,
@@ -323,7 +330,16 @@ function navigate(name) {
 
 $$(".nav-item").forEach(btn => btn.addEventListener("click", () => navigate(btn.dataset.view)));
 $$("[data-go]").forEach(btn => btn.addEventListener("click", () => navigate(btn.dataset.go)));
-$("#mobileMenu").addEventListener("click", () => $(".sidebar").classList.toggle("open"));
+$("#mobileMenu").addEventListener("click", () => {
+  const open = $(".sidebar").classList.toggle("open");
+  $("#mobileMenu").setAttribute("aria-expanded", String(open));
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") {
+    $(".sidebar").classList.remove("open");
+    $("#mobileMenu").setAttribute("aria-expanded", "false");
+  }
+});
 
 ["altura","largura","comprimento"].forEach(id => {
   $(`#${id}`).addEventListener("input", () => {
@@ -1215,7 +1231,7 @@ async function openProviderDocument(url) {
   target.document.write("<p style=\"font-family:Arial\">Carregando documento...</p>");
   try {
     const response = await fetch("/api/documento-proxy", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url })
+      method: "POST", headers: { "content-type": "application/json", "x-csrf-token": state.csrfToken }, body: JSON.stringify({ url })
     });
     if (!response.ok) throw new Error("Não foi possível abrir o documento.");
     const blob = await response.blob();

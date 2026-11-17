@@ -55,7 +55,7 @@
   </section>
 
   <div id="appView" class="app-shell hidden">
-    <aside class="sidebar">
+    <aside id="mainNavigation" class="sidebar">
       <div class="side-brand">
         <div class="brand-mark">
           <svg viewBox="0 0 64 48" aria-hidden="true">
@@ -117,7 +117,7 @@
 
     <main class="main">
       <header class="topbar">
-        <button id="mobileMenu" class="mobile-menu" aria-label="Abrir menu">☰</button>
+        <button id="mobileMenu" class="mobile-menu" aria-label="Abrir menu" aria-controls="mainNavigation" aria-expanded="false">☰</button>
         <div>
           <div class="page-kicker">POSTAL SERVIÇOS</div>
           <h2 id="pageTitle">Visão geral</h2>
@@ -133,8 +133,8 @@
         <div class="hero">
           <div>
             <div class="eyebrow">BALCÃO PARCEIRO</div>
-            <h1>Olá! Seu ponto está pronto para vender fretes.</h1>
-            <p>Faça uma cotação e mostre ao cliente preço, prazo e sua comissão de forma simples.</p>
+            <h1>Sua operação, sempre em movimento.</h1>
+            <p>Cote, envie e acompanhe seus resultados. Tudo o que seu balcão precisa, em um só lugar.</p>
           </div>
           <button class="primary" data-go="quote">+ Nova cotação</button>
         </div>
