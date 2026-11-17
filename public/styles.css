@@ -1179,3 +1179,8 @@ input,select,textarea{accent-color:#d7083b}
 .hero{color:var(--ink)}
 .hero .eyebrow{color:#b60632}
 .hero:after{display:none}
+
+/* Ícones vetoriais locais: mesmo traço e alinhamento em todos os perfis. */
+.nav-item span svg{display:block;width:19px;height:19px;flex-shrink:0}
+.nav-item.active span{color:#fff}
+.nav-item:hover span{color:currentColor}
