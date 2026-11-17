@@ -37,3 +37,29 @@ test('ExcelJS conditional formatting works with the patched uuid dependency', as
   await restored.xlsx.load(buffer);
   assert.equal(restored.getWorksheet('Teste').getCell('A1').value, 1);
 });
+test('point operations reject revoked users, changed roles and inactive stores',async()=>{
+  for(const scenario of [
+    {record:{active:false,role:'STORE_OWNER',store_id:'store'},allowed:false},
+    {record:{active:true,role:'OPS',store_id:'store'},allowed:false},
+    {record:{active:true,role:'STORE_OWNER',store_id:'other'},allowed:false},
+    {record:{active:true,role:'STORE_OWNER',store_id:'store'},storeActive:false,allowed:false},
+    {record:{active:true,role:'STORE_OWNER',store_id:'store'},storeActive:true,allowed:true}
+  ]){
+    const context=vm.createContext({db:{getUserById:async()=>scenario.record,getStore:async()=>({active:scenario.storeActive})}});
+    vm.runInContext(extract(server,'async function requireCurrentUser','function requireIntegrationAuth'),context);
+    let next=false,status=0;
+    const res={status(value){status=value;return this;},json(){return this;}};
+    await context.requireCurrentUser({user:{userId:'user',role:'STORE_OWNER',storeId:'store'}},res,()=>{next=true;});
+    assert.equal(next,scenario.allowed);if(!scenario.allowed)assert.equal(status,403);
+  }
+});
+test('clerk and operations collection responses omit point earnings and splits',()=>{
+  const context=vm.createContext({});
+  vm.runInContext(extract(server,'function collectionForRole','app.post("/api/store/collections"'),context);
+  const data={id:'pickup',total_fee:10,point_rate:3,point_compensation:6,postal_compensation:4};
+  for(const role of ['STORE_CLERK','OPS']){
+    const result=context.collectionForRole(data,role);
+    assert.equal(result.point_rate,undefined);assert.equal(result.point_compensation,undefined);assert.equal(result.postal_compensation,undefined);assert.equal(result.total_fee,10);
+  }
+  assert.equal(context.collectionForRole(data,'STORE_OWNER').point_compensation,6);
+});

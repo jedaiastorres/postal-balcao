@@ -55,10 +55,6 @@
         <button class="nav-item" data-view="collections"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M3 6h11v12H3zM14 10h4l3 4v4h-7M3 10h6"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg></span> Coletas</button>
       </nav>
 
-      <div class="international-entry">
-        <a href="https://enviointernacional.com.br/conectenvios" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 6h14M5 18h14"/></svg><span>Envios internacionais<small>Portal ConectEnvios ↗</small></span></a>
-      </div>
-
       <div class="nav-section">FINANCEIRO</div>
       <nav>
         <button class="nav-item" data-view="cash"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 12h.01M18 12h.01"/></svg></span> Meu Caixa</button>
@@ -284,6 +280,7 @@
           </label>
         </section>
 
+        <div id="pointQuoteActions" class="order-actions hidden"><button id="collectionFromQuoteBtn" class="ghost" type="button">+ Criar coleta</button><button class="ghost" data-go="clients" type="button">Cadastrar / escolher cliente</button></div>
         <form id="quoteForm" class="quote-panel">
           <div class="package-type quote-volume-header">
             <div>
@@ -709,6 +706,8 @@
               <p>Use quando o cliente ligar ou solicitar a retirada diretamente ao ponto. Não é necessário o cliente possuir login ou e-mail.</p>
             </div>
           </div>
+          <p class="payment-method-note">Solicitação avulsa: o valor é previsto. Criar ou concluir esta coleta não debita saldo nem gera remuneração sem pagamento vinculado.</p>
+          <label class="stack">Usar cliente cadastrado<select id="pointCollectionClient"><option value="">Informar cliente manualmente</option></select></label>
           <form id="pointCollectionForm" class="inventory-form">
             <div class="form-grid">
               <label>Nome do cliente*<input id="pointCollectionName" required /></label>
@@ -726,15 +725,15 @@
               <label class="span-2">Observações<input id="pointCollectionNotes" placeholder="Ex.: retirar na recepção, ligar antes, volumes grandes..." /></label>
             </div>
             <div class="collection-create-summary">
-              <div><span>Taxa padrão</span><strong>R$ 5,00 / pacote</strong></div>
-              <div><span>Total previsto</span><strong id="pointCollectionTotal">R$ 5,00</strong></div>
+              <div><span>Taxa por pacote</span><strong id="pointCollectionRate">—</strong></div>
+              <div><span>Total previsto</span><strong id="pointCollectionTotal">—</strong></div>
               <button class="primary" type="submit">Criar ordem de coleta</button>
             </div>
           </form>
         </div>
 
         <div id="pickupSettingsCard" class="form-panel hidden">
-          <div class="form-panel-head"><span class="step-number">✓</span><div><h3>Quero realizar coletas</h3><p>Ao aderir, a Postal poderá direcionar coletas próximas ao seu ponto. A remuneração padrão é R$ 3,00 por pacote coletado.</p></div></div>
+          <div class="form-panel-head"><span class="step-number">✓</span><div><h3>Quero realizar coletas</h3><p id="pickupEarningRule">Ao aderir, a Postal poderá direcionar coletas próximas ao seu ponto. A remuneração depende das regras de pagamento e conclusão.</p></div></div>
           <form id="pickupSettingsForm" class="inventory-form">
             <label class="checkline"><input id="pickupEnabled" type="checkbox" /> Disponível para receber coletas</label>
             <label>Raio operacional (km)<input id="pickupRadius" type="number" min="1" step="1" value="10" /></label>
@@ -745,8 +744,31 @@
         <div id="collectionsList" class="orders-list"><div class="empty-state">Carregando coletas...</div></div>
       </section>
 
+      <section id="clientsView" class="view hidden">
+        <div class="orders-head"><div><div class="eyebrow">RELACIONAMENTO</div><h1>Clientes do ponto</h1><p>Cadastre clientes e reutilize os dados em cotações e coletas.</p></div><button id="refreshPointClientsBtn" class="ghost" type="button">Atualizar</button></div>
+        <div class="master-grid">
+          <article class="form-panel">
+            <div class="form-panel-head"><span class="step-number">+</span><div><h3>Cadastrar cliente</h3><p>Crie uma conta de cliente vinculada ao seu ponto. Nenhum saldo é movimentado no cadastro.</p></div></div>
+            <form id="referredClientForm" class="inventory-form">
+              <label>Nome*<input id="referredClientName" required /></label><label>E-mail*<input id="referredClientEmail" type="email" required /></label>
+              <label>Telefone<input id="referredClientPhone" /></label><label>CPF/CNPJ<input id="referredClientDocument" /></label>
+              <label>Senha inicial<input id="referredClientPassword" type="password" minlength="8" placeholder="Deixe vazio para gerar" /></label>
+              <label>CEP<input id="pointClientCep" inputmode="numeric" maxlength="9" /></label>
+              <label>Endereço<input id="pointClientAddress" maxlength="200" /></label>
+              <label>Número<input id="pointClientNumber" maxlength="30" /></label>
+              <label>Bairro<input id="pointClientNeighborhood" maxlength="100" /></label>
+              <label>Complemento<input id="pointClientComplement" maxlength="100" /></label>
+              <label>Cidade/UF<input id="pointClientCity" placeholder="Ex.: Parauapebas/PA" maxlength="100" /></label>
+              <button class="primary" type="submit">Cadastrar e vincular</button>
+            </form>
+            <p id="pointClientRegistrationResult" class="payment-method-note hidden" role="status"></p>
+          </article>
+          <article class="panel"><h3>Clientes cadastrados</h3><label class="stack">Buscar por nome ou e-mail<input id="pointClientsSearch" type="search" /></label><div id="pointClientsList" class="inventory-list"></div></article>
+        </div>
+      </section>
+
       <section id="referralsView" class="view hidden">
-        <div class="orders-head"><div><div class="eyebrow">INDIQUE & GANHE</div><h1>Clientes indicados pelo seu ponto</h1><p>Receba R$ 0,50 por cada envio realizado por um cliente vinculado ao seu link ou cadastro.</p></div></div>
+        <div class="orders-head"><div><div class="eyebrow">INDIQUE & GANHE</div><h1>Clientes indicados pelo seu ponto</h1><p id="referralEarningRule">A remuneração segue os envios emitidos e as regras de indicação da Postal.</p></div></div>
         <div class="cards-4">
           <article class="metric-card"><span>Clientes indicados</span><strong id="refClients">0</strong></article>
           <article class="metric-card"><span>Envios indicados</span><strong id="refShipments">0</strong></article>
@@ -755,15 +777,7 @@
         </div>
         <article class="panel"><div class="panel-head"><div><span class="eyebrow">SEU LINK</span><h3>Compartilhe e acompanhe automaticamente</h3></div></div><div class="referral-link-row"><input id="referralLink" readonly /><button id="copyReferralLinkBtn" class="primary" type="button">Copiar link</button></div></article>
         <div class="master-grid">
-          <article class="form-panel">
-            <div class="form-panel-head"><span class="step-number">+</span><div><h3>Cadastrar cliente</h3><p>Também é possível vincular o cliente diretamente pelo balcão.</p></div></div>
-            <form id="referredClientForm" class="inventory-form">
-              <label>Nome*<input id="referredClientName" required /></label><label>E-mail*<input id="referredClientEmail" type="email" required /></label>
-              <label>Telefone<input id="referredClientPhone" /></label><label>CPF/CNPJ<input id="referredClientDocument" /></label>
-              <label>Senha inicial<input id="referredClientPassword" type="password" minlength="6" placeholder="Deixe vazio para gerar" /></label>
-              <button class="primary" type="submit">Cadastrar e vincular</button>
-            </form>
-          </article>
+          <article class="panel"><h3>Cadastro de clientes</h3><p>Cadastre e consulte clientes na área do seu ponto.</p><button class="primary" data-go="clients" type="button">Abrir Clientes</button></article>
           <article class="panel"><div class="panel-head"><div><span class="eyebrow">CARTEIRA DE CLIENTES</span><h3>Indicados</h3></div></div><div id="referredClientsList" class="inventory-list"><div class="empty-state">Carregando...</div></div></article>
         </div>
       </section>
@@ -1271,6 +1285,7 @@
     </div>
   </div>
 
+  <script src="/point_rules.js"></script>
   <script src="/branding.js"></script>
   <script src="/fiscal_document.js?v=1.17.0"></script>
   <script src="/app.js?v=1.18.0"></script>

@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const core = require("./db");
+const pointRules = require("./public/point_rules");
 
 function database() {
   if (!core.pool) throw new Error("Banco de dados não configurado.");
@@ -176,6 +177,10 @@ async function initClientDb() {
     ALTER TABLE collection_requests ADD COLUMN IF NOT EXISTS requester_document TEXT;
     ALTER TABLE collection_requests ADD COLUMN IF NOT EXISTS created_by_user_id UUID REFERENCES app_users(id) ON DELETE SET NULL;
 
+    ALTER TABLE collection_requests ADD COLUMN IF NOT EXISTS request_key UUID;
+    CREATE UNIQUE INDEX IF NOT EXISTS collection_request_key_uidx
+      ON collection_requests(created_by_user_id,request_key) WHERE request_key IS NOT NULL;
+
     CREATE INDEX IF NOT EXISTS collection_requests_store_idx
       ON collection_requests(assigned_store_id,status,requested_at DESC);
 
@@ -199,6 +204,73 @@ async function initClientDb() {
     CREATE INDEX IF NOT EXISTS point_earnings_store_idx
       ON point_earnings(store_id,created_at DESC);
   `);
+}
+
+async function registerPointClient({storeId,email,name,passwordHash,document,phone,defaultSender={}}) {
+  const conn=await database().connect();
+  try {
+    await conn.query("BEGIN");
+    const store=await conn.query("SELECT id FROM stores WHERE id=$1 AND active=TRUE FOR SHARE",[storeId]);
+    pointRules.assert(store.rows[0],"Ponto inativo ou inexistente.",403);
+    const userId=id();
+    const {rows}=await conn.query(
+      "INSERT INTO app_users(id,email,name,password_hash,role,active) VALUES($1,$2,$3,$4,'CLIENT',TRUE) RETURNING id,email,name",
+      [userId,email,name,passwordHash]);
+    await conn.query("INSERT INTO customer_accounts(user_id,document,phone,referral_store_id,default_sender) VALUES($1,$2,$3,$4,$5::jsonb)",[userId,document,phone,storeId,JSON.stringify(defaultSender)]);
+    await conn.query("COMMIT");
+    return rows[0];
+  } catch(error){await conn.query("ROLLBACK");throw error;} finally{conn.release();}
+}
+
+async function transitionCollection({collectionId,user,status,assignedStoreId,scheduledFor,notes,pickupRate,dropoffRate}) {
+  const conn=await database().connect();
+  try {
+    await conn.query("BEGIN");
+    const result=await conn.query("SELECT * FROM collection_requests WHERE id=$1 FOR UPDATE",[collectionId]);
+    const current=result.rows[0];
+    pointRules.assert(current,"Coleta não encontrada.",404);
+    const admin=["ADMIN","SUPERVISOR"].includes(user.role);
+    pointRules.assert(admin||Boolean(user.storeId&&current.assigned_store_id===user.storeId),"Esta coleta não está atribuída ao seu ponto.",403);
+    const nextStatus=String(status||current.status).toUpperCase();
+    pointRules.assert(pointRules.canTransition(current.service_type,current.status,nextStatus),"Transição de coleta inválida.",409);
+    pointRules.assert(admin||assignedStoreId===undefined||assignedStoreId===current.assigned_store_id,"Somente a administração pode direcionar coletas.",403);
+    const storeId=admin&&assignedStoreId!==undefined?assignedStoreId:current.assigned_store_id;
+    const reassign=storeId!==current.assigned_store_id;
+    pointRules.assert(!reassign||pointRules.canReassign(current.status),"Não é possível redirecionar uma coleta finalizada.",409);
+    let rate=Number(current.point_rate),point=Number(current.point_compensation),postal=Number(current.postal_compensation);
+    if(reassign){
+      if(storeId){
+        const store=await conn.query("SELECT id FROM stores WHERE id=$1 AND active=TRUE AND pickup_enabled=TRUE FOR SHARE",[storeId]);
+        pointRules.assert(store.rows[0],"Ponto inativo ou indisponível para coleta.",400);
+      }
+      rate=storeId?(current.service_type==='PICKUP'?pickupRate:dropoffRate):0;
+      const pricing=pointRules.collectionPricing(Number(current.package_count),Number(current.fee_per_package),rate);
+      point=pricing.pointCompensation;postal=pricing.postalCompensation;
+    }
+    pointRules.assert(!['ASSIGNED','ACCEPTED','EN_ROUTE','COLLECTED','RECEIVED_AT_POINT','COMPLETED'].includes(nextStatus)||storeId,"Atribua um ponto antes de avançar a coleta.");
+    const {rows}=await conn.query(
+      `UPDATE collection_requests SET status=$2,assigned_store_id=$3,point_rate=$4,point_compensation=$5,postal_compensation=$6,
+        scheduled_for=$7,notes=$8,assigned_at=CASE WHEN $3::uuid IS NOT NULL THEN COALESCE(assigned_at,NOW()) ELSE NULL END,
+        completed_at=CASE WHEN $2 IN ('COLLECTED','RECEIVED_AT_POINT','COMPLETED') THEN COALESCE(completed_at,NOW()) ELSE completed_at END,updated_at=NOW()
+       WHERE id=$1 RETURNING *`,
+      [collectionId,nextStatus,storeId,rate,point,postal,scheduledFor===undefined?current.scheduled_for:scheduledFor,notes===undefined?current.notes:notes]);
+    let order=null;
+    if(current.freight_order_id){
+      const r=await conn.query("SELECT * FROM freight_orders WHERE id=$1 FOR UPDATE",[current.freight_order_id]);order=r.rows[0];
+      pointRules.assert(nextStatus!=="CANCELED"||order?.payment_status!=="PAID"||Number(order.first_mile_fee)<=0,"Coleta paga requer fluxo de estorno antes do cancelamento.",409);
+      if(reassign&&order)await conn.query("UPDATE freight_orders SET postal_revenue_total=postal_revenue_total+$2,updated_at=NOW() WHERE id=$1",[order.id,round2(postal-Number(current.postal_compensation))]);
+    }
+    const completed=current.service_type==='PICKUP'?['COLLECTED','COMPLETED'].includes(nextStatus):['RECEIVED_AT_POINT','COMPLETED'].includes(nextStatus);
+    const paymentStatus=pointRules.earningStatus(rows[0],order);
+    if(completed&&paymentStatus){
+      await conn.query(`INSERT INTO point_earnings(id,store_id,client_user_id,earning_type,amount,status,reference_type,reference_id,metadata)
+        VALUES($1,$2,$3,$4,$5,$6,'COLLECTION',$7,$8::jsonb)
+        ON CONFLICT(store_id,earning_type,reference_type,reference_id) DO NOTHING`,
+        [id(),storeId,current.client_user_id,current.service_type==='PICKUP'?'PICKUP':'DROPOFF',point,paymentStatus,collectionId,JSON.stringify({packages:current.package_count,serviceType:current.service_type})]);
+    }
+    await conn.query("COMMIT");
+    return rows[0];
+  } catch(error){await conn.query("ROLLBACK");throw error;} finally{conn.release();}
 }
 
 async function createCustomerAccount({ userId, document="", phone="", companyName="", referralStoreId=null, defaultSender={} }) {
@@ -620,16 +692,18 @@ async function createCollectionRequest(request){
       id,client_user_id,freight_order_id,service_type,status,package_count,
       fee_per_package,total_fee,assigned_store_id,point_rate,point_compensation,postal_compensation,
       address,latitude,longitude,scheduled_for,notes,assigned_at,
-      requester_name,requester_phone,requester_document,created_by_user_id
+      requester_name,requester_phone,requester_document,created_by_user_id,request_key
     ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16,$17,
-      CASE WHEN $9::uuid IS NULL THEN NULL ELSE NOW() END,$18,$19,$20,$21)
+      CASE WHEN $9::uuid IS NULL THEN NULL ELSE NOW() END,$18,$19,$20,$21,$22)
+    ON CONFLICT(created_by_user_id,request_key) WHERE request_key IS NOT NULL
+    DO UPDATE SET request_key=collection_requests.request_key
     RETURNING *`,
     [
       id(),request.clientUserId||null,request.freightOrderId||null,request.serviceType,request.status,request.packageCount,
       request.feePerPackage,request.totalFee,request.assignedStoreId||null,request.pointRate||0,
       request.pointCompensation||0,request.postalCompensation||0,JSON.stringify(request.address||{}),
       request.latitude||null,request.longitude||null,request.scheduledFor||null,request.notes||"",
-      request.requesterName||"",request.requesterPhone||"",request.requesterDocument||"",request.createdByUserId||null
+      request.requesterName||"",request.requesterPhone||"",request.requesterDocument||"",request.createdByUserId||null,request.requestKey||null
     ]
   ); return rows[0];
 }
@@ -827,7 +901,7 @@ async function listEcommerceOrders(userId,limit=100){
 async function listClientsByStore(storeId,limit=100){
   const db=database();
   const {rows}=await db.query(
-    `SELECT u.id,u.email,u.name,c.document,c.phone,c.company_name,c.wallet_balance,c.created_at,
+    `SELECT u.id,u.email,u.name,c.document,c.phone,c.company_name,c.default_sender,c.created_at,
        (SELECT COUNT(*) FROM freight_orders f WHERE f.client_user_id=u.id)::int AS shipments
        FROM customer_accounts c JOIN app_users u ON u.id=c.user_id
       WHERE c.referral_store_id=$1
@@ -1010,7 +1084,7 @@ async function createBulkCollectionsAndDebit({
 }
 
 module.exports={
-  initClientDb,createCustomerAccount,getCustomerAccount,findStoreByReferralCode,
+  registerPointClient,transitionCollection,initClientDb,createCustomerAccount,getCustomerAccount,findStoreByReferralCode,
   listPublicStores,listPickupStores,updateStorePickupSettings,getWallet,listWalletTransactions,creditWallet,debitWallet,
   createTopup,setTopupCheckout,getTopupByCheckoutId,getTopup,listTopups,markTopupPaid,updateTopupStatus,
   insertClientOrder,createClientOrderAndDebit,getClientOrderByBulkKey,listClientOrders,getClientOrder,choosePickupStore,createCollectionRequest,

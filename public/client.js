@@ -9,6 +9,7 @@
     operations: [],
     selectedOperations: new Set(),
     opsStatus: "",
+    pointClients: [],
     pendingImport: null,
     bulkRows: [], bulkBusy:false
   };
@@ -61,16 +62,25 @@
 
   async function onShowApp(user){
     const clientMode=user?.role==="CLIENT";
+    client.pointClients=[];
+    $("#pointClientsList")?.replaceChildren();
+    $("#pointCollectionClient")?.replaceChildren(new Option("Informar cliente manualmente",""));
+    $("#referredClientForm")?.reset();
+    $("#pointCollectionForm")?.reset();
+    if($("#pointCollectionForm"))delete $("#pointCollectionForm").dataset.requestKey;
+    $("#pointClientRegistrationResult")?.classList.add("hidden");
+    if($("#pointClientRegistrationResult"))$("#pointClientRegistrationResult").textContent="";
+    $("#pointQuoteActions")?.classList.toggle("hidden",!["STORE_OWNER","STORE_CLERK"].includes(user?.role)||!user?.storeId);
     $("#clientNavSection")?.classList.toggle("hidden",!clientMode);
     $("#clientTopBalance")?.classList.toggle("hidden",!clientMode);
     document.querySelector('[data-view="inventory"]')?.classList.toggle("hidden",clientMode||!["ADMIN","STORE_OWNER","OPS"].includes(user?.role));
     document.querySelector('[data-view="orders"]')?.classList.toggle("hidden",clientMode);
     document.querySelector('[data-view="credit"]')?.classList.toggle("hidden",clientMode||!["ADMIN","STORE_OWNER","STORE_CLERK"].includes(user?.role));
     document.querySelector('[data-view="cash"]')?.classList.toggle("hidden",clientMode||!["ADMIN","STORE_OWNER"].includes(user?.role));
-    document.querySelector('[data-view="clients"]')?.classList.toggle("hidden",clientMode);
+    document.querySelector('[data-view="clients"]')?.classList.toggle("hidden",!["STORE_OWNER","STORE_CLERK"].includes(user?.role));
     document.querySelector('[data-view="receive"]')?.classList.toggle("hidden",clientMode);
     document.querySelector('[data-view="returns"]')?.classList.toggle("hidden",clientMode);
-    document.querySelector('[data-view="referrals"]')?.classList.toggle("hidden",clientMode||!["STORE_OWNER","STORE_CLERK"].includes(user?.role));
+    document.querySelector('[data-view="referrals"]')?.classList.toggle("hidden",user?.role!=="STORE_OWNER");
     document.querySelector('[data-view="collections"]')?.classList.toggle("hidden",!["ADMIN","STORE_OWNER","STORE_CLERK","OPS","CLIENT"].includes(user?.role));
     document.querySelector('[data-view="connections"]')?.classList.toggle("hidden",!clientMode);
     document.querySelector('[data-view="wallet"]')?.classList.toggle("hidden",!clientMode);
@@ -586,7 +596,7 @@
 
   function renderCollectionCard(x,role){
     const addr=x.address||{};
-    const financialVisible=role!=="STORE_CLERK";
+    const financialVisible=["ADMIN","SUPERVISOR","STORE_OWNER"].includes(role);
     const div=document.createElement("article"); div.className="order-card";
     const customerLine=[
       x.client_name||x.requester_name||"Cliente",
@@ -604,7 +614,7 @@
       '<div><span>Cliente</span><strong>'+escapeHtml(customerLine||"Cliente")+'</strong></div>',
       financialVisible?'<div><span>Taxa cliente</span><strong>'+money(x.total_fee)+'</strong></div>':"",
       '<div><span>Ponto</span><strong>'+escapeHtml(x.store_name||"Aguardando direção")+'</strong></div>',
-      financialVisible?'<div><span>Remuneração ponto</span><strong>'+money(x.point_compensation)+'</strong></div>':"",
+      financialVisible?'<div><span>Remuneração prevista do ponto</span><strong>'+money(x.point_compensation)+'</strong></div>':"",
       '<div><span>Solicitado</span><strong>'+new Date(x.requested_at).toLocaleDateString("pt-BR")+'</strong></div>'
     ].filter(Boolean).join("");
     div.innerHTML=
@@ -613,6 +623,7 @@
       '<p>'+escapeHtml(addressLine)+'</p></div>'+
       '<span class="order-status info">'+escapeHtml(x.status)+'</span></div>'+
       '<div class="order-metrics">'+metricHtml+'</div>'+
+      (!x.freight_order_id?'<p class="payment-method-note">Solicitação avulsa — pagamento não vinculado. Sem débito ou remuneração automática.</p>':"")+
       (x.notes?'<div class="payment-method-note">'+escapeHtml(x.notes)+'</div>':"")+
       '<div class="order-actions"></div>';
     const actions=div.querySelector(".order-actions");
@@ -624,11 +635,11 @@
       };actions.append(sel,btn);
     }else if(["STORE_OWNER","STORE_CLERK","OPS"].includes(role)){
       const stages=x.service_type==="PICKUP"?["ACCEPTED","EN_ROUTE","COLLECTED"]:["RECEIVED_AT_POINT"];
-      stages.forEach(s=>{
+      stages.filter(s=>s!==x.status&&window.PostalPointRules.canTransition(x.service_type,x.status,s)).forEach(s=>{
         const b=document.createElement("button");
         b.className=s.includes("COLLECTED")||s.includes("RECEIVED")?"primary":"ghost";
         b.textContent=s==="ACCEPTED"?"Aceitar":s==="EN_ROUTE"?"A caminho":s==="COLLECTED"?"Coletado":"Recebido no ponto";
-        b.onclick=async()=>{await api("/api/collections/"+x.id,{method:"PATCH",body:JSON.stringify({status:s})});await loadCollections();};
+        b.onclick=async()=>{b.disabled=true;try{await api("/api/collections/"+x.id,{method:"PATCH",body:JSON.stringify({status:s})});await loadCollections();}catch(error){toast(error.message,"error");}finally{b.disabled=false;}};
         actions.appendChild(b);
       });
     }
@@ -636,8 +647,12 @@
   }
 
   function updatePointCollectionTotal(){
-    const qty=Math.max(1,Number($("#pointCollectionPackages")?.value||1));
-    if($("#pointCollectionTotal")) $("#pointCollectionTotal").textContent=money(qty*5);
+    const qty=Number($("#pointCollectionPackages")?.value);
+    const fee=Number(state.config?.clientPickupFeePerPackage);
+    const valid=Number.isInteger(qty)&&qty>=1&&qty<=200&&Number.isFinite(fee)&&fee>=0;
+    if($("#pointCollectionRate"))$("#pointCollectionRate").textContent=Number.isFinite(fee)?money(fee)+" / pacote":"Indisponível";
+    if($("#pointCollectionTotal"))$("#pointCollectionTotal").textContent=valid?money(window.PostalPointRules.collectionPricing(qty,fee,0).totalFee):"—";
+    $("#pointCollectionForm button[type=submit]").disabled=!valid;
   }
 
   async function createPointCollection(event){
@@ -646,15 +661,18 @@
     const button=form.querySelector('button[type="submit"]');
     const original=button.textContent;
     button.disabled=true;button.textContent="Criando...";
+    form.dataset.requestKey ||= crypto.randomUUID();
     try{
       const result=await api("/api/store/collections",{
         method:"POST",
         body:JSON.stringify({
+          requestKey:form.dataset.requestKey,
+          clientUserId:$("#pointCollectionClient").value||null,
           requesterName:$("#pointCollectionName").value.trim(),
           requesterPhone:$("#pointCollectionPhone").value.trim(),
           requesterDocument:$("#pointCollectionDocument").value.trim(),
           packageCount:Number($("#pointCollectionPackages").value||1),
-          scheduledFor:$("#pointCollectionScheduledFor").value||null,
+          scheduledFor:$("#pointCollectionScheduledFor").value?new Date($("#pointCollectionScheduledFor").value).toISOString():null,
           notes:$("#pointCollectionNotes").value.trim(),
           address:{
             address:$("#pointCollectionAddress").value.trim(),
@@ -668,6 +686,8 @@
         })
       });
       form.reset();
+      delete form.dataset.requestKey;
+      $("#pointCollectionClient").value="";
       $("#pointCollectionPackages").value="1";
       updatePointCollectionTotal();
       toast(result.message||"Ordem de coleta criada.");
@@ -683,7 +703,9 @@
     const role=state.user?.role; if(!role)return;
     $("#pickupSettingsCard")?.classList.toggle("hidden",role!=="STORE_OWNER");
     $("#pointCollectionCreateCard")?.classList.toggle("hidden",!["STORE_OWNER","STORE_CLERK"].includes(role));
+    if(["STORE_OWNER","STORE_CLERK"].includes(role)){updatePointCollectionTotal();await loadPointClients();}
     if(role==="STORE_OWNER"){
+      $("#pickupEarningRule").textContent="A remuneração prevista é "+money(state.config?.pointPickupEarningPerPackage)+" por pacote, conforme pagamento e conclusão. Coletas avulsas sem pagamento vinculado não geram ganho automático.";
       const s=await api("/api/store/pickup-settings");
       $("#pickupEnabled").checked=Boolean(s.enabled);$("#pickupRadius").value=s.radiusKm||10;
       $("#pickupLatitude").value=s.latitude??"";$("#pickupLongitude").value=s.longitude??"";
@@ -706,9 +728,73 @@
     client.collections.forEach(x=>host.appendChild(renderCollectionCard(x,role)));
   }
 
+  function populateCollectionClient(customer){
+    const saved=customer?.default_sender||{};
+    const values={Name:customer?.name||saved.name||"",Phone:customer?.phone||saved.phone||"",Document:customer?.document||saved.document||"",Address:saved.address||"",Number:saved.number||"",Complement:saved.complement||"",Neighborhood:saved.neighborhood||"",Cep:saved.cep||"",City:saved.city||""};
+    for(const [field,value] of Object.entries(values))$("#pointCollection"+field).value=value;
+  }
+
+  async function openPointCollection(customer=null,fromQuote=false){
+    if(!["STORE_OWNER","STORE_CLERK"].includes(state.user?.role))return;
+    if(customer)populateCollectionClient(customer);
+    else if(fromQuote){
+      const sender=partyData("sender");
+      populateCollectionClient({name:sender.name,phone:sender.phone,document:sender.document,default_sender:{...sender,cep:$("#cepOrigem").value||sender.cep}});
+      $("#pointCollectionPackages").value=quoteVolumePayloads().length;
+    }
+    navigate("collections");
+    // Refresh failure does not discard the manually entered collection.
+    await loadPointClients();
+    $("#pointCollectionClient").value=customer?.id||"";
+    updatePointCollectionTotal();
+    $("#pointCollectionCreateCard").scrollIntoView({behavior:"smooth",block:"start"});
+    $("#pointCollectionName").focus({preventScroll:true});
+  }
+
+  function renderPointClients(){
+    const host=$("#pointClientsList");if(!host)return;
+    const query=String($("#pointClientsSearch").value||"").trim().toLowerCase();
+    host.replaceChildren();
+    const rows=client.pointClients.filter(c=>(c.name+" "+c.email).toLowerCase().includes(query));
+    if(!rows.length){host.textContent="Nenhum cliente encontrado neste ponto.";return;}
+    for(const customer of rows){
+      const card=document.createElement("article");card.className="point-client-card";
+      const title=document.createElement("strong");title.textContent=customer.name;
+      const contact=document.createElement("small");contact.textContent=[customer.email,customer.phone].filter(Boolean).join(" · ");
+      const actions=document.createElement("div");actions.className="order-actions";
+      const collection=document.createElement("button");collection.type="button";collection.className="ghost";collection.textContent="Criar coleta";collection.onclick=()=>openPointCollection(customer);
+      const quote=document.createElement("button");quote.type="button";quote.className="primary";quote.textContent="Usar como remetente";
+      quote.onclick=()=>{
+        const sender={...(customer.default_sender||{}),name:customer.name,email:customer.email,document:customer.document,phone:customer.phone};
+        for(const [key,value] of Object.entries(sender)){
+          const field=$("#sender"+key.charAt(0).toUpperCase()+key.slice(1));if(field)field.value=value||"";
+        }
+        if(sender.cep)$("#cepOrigem").value=maskCep(sender.cep);
+        state.currentQuote=null;state.selectedOption=null;
+        resetImportedFiscalDocument();
+        $("#resultsWrap").classList.add("hidden");$("#selectionSummary").classList.add("hidden");
+        navigate("quote");toast("Remetente preenchido. Confira o endereço, peso e medidas e calcule o frete.");
+      };
+      actions.append(quote,collection);card.append(title,contact,actions);host.appendChild(card);
+    }
+  }
+
+  async function loadPointClients(){
+    if(!["STORE_OWNER","STORE_CLERK"].includes(state.user?.role))return;
+    try{
+      const result=await api("/api/store/clients");client.pointClients=result.clients||[];
+      renderPointClients();
+      const select=$("#pointCollectionClient"),selected=select.value;
+      select.replaceChildren(new Option("Informar cliente manualmente",""));
+      client.pointClients.forEach(c=>select.add(new Option(c.name+" · "+c.email,c.id)));
+      select.value=selected;
+    }catch(error){client.pointClients=[];renderPointClients();$("#pointCollectionClient").replaceChildren(new Option("Informar cliente manualmente",""));toast(error.message,"error");}
+  }
+
   async function loadReferrals(){
     if(!isPoint()||!["STORE_OWNER","STORE_CLERK"].includes(state.user.role))return;
     const d=await api("/api/store/referral");
+    $("#referralEarningRule").textContent="A indicação prevê "+money(d.earningPerShipment)+" por envio emitido do cliente vinculado. Cadastro não gera comissão; homologação permanece simulada.";
     $("#refClients").textContent=d.stats.referredClients;$("#refShipments").textContent=d.stats.referredShipments;
     $("#refEarnings").textContent=money(d.stats.referralEarnings);
     $("#refLogisticsEarnings").textContent=money(Number(d.stats.pickupEarnings||0)+Number(d.stats.dropoffEarnings||0));
@@ -965,20 +1051,31 @@
     $("#copyReferralLinkBtn")?.addEventListener("click",async()=>{await navigator.clipboard.writeText($("#referralLink").value);toast("Link copiado.");});
     $("#referredClientForm")?.addEventListener("submit",async e=>{
       e.preventDefault();
+      const form=e.currentTarget,button=form.querySelector('button[type="submit"]');button.disabled=true;
+      const result=$("#pointClientRegistrationResult");result.textContent="";result.classList.add("hidden");
       try{
-        const r=await api("/api/store/clients",{method:"POST",body:JSON.stringify({
+        const response=await api("/api/store/clients",{method:"POST",body:JSON.stringify({
           name:$("#referredClientName").value.trim(),email:$("#referredClientEmail").value.trim(),
           phone:$("#referredClientPhone").value,document:$("#referredClientDocument").value,
-          password:$("#referredClientPassword").value||undefined
+          password:$("#referredClientPassword").value||undefined,
+          defaultSender:Object.fromEntries(["Cep","Address","Number","Neighborhood","Complement","City"].map(field=>[field.charAt(0).toLowerCase()+field.slice(1),$("#pointClient"+field).value.trim()]))
         })});
-        toast(r.temporaryPassword?"Cliente criado. Senha inicial: "+r.temporaryPassword:"Cliente criado e vinculado.");
-        e.currentTarget.reset();await loadReferrals();
-      }catch(err){toast(err.message,"error");}
+        form.reset();
+        result.textContent=response.message+(response.temporaryPassword?" Senha inicial: "+response.temporaryPassword+". Entregue ao cliente com segurança.":"");
+        result.classList.remove("hidden");await loadPointClients();
+      }catch(error){toast(error.message,"error");}finally{button.disabled=false;}
     });
+    $("#refreshPointClientsBtn")?.addEventListener("click",loadPointClients);
+    $("#pointClientsSearch")?.addEventListener("input",renderPointClients);
+    $("#pointCollectionClient")?.addEventListener("change",event=>{
+      const customer=client.pointClients.find(c=>c.id===event.target.value);if(customer)populateCollectionClient(customer);
+    });
+    $("#collectionFromQuoteBtn")?.addEventListener("click",()=>openPointCollection(null,true));
+
   }
 
   window.PostalClient={
-    bind,onShowApp,loadClientHome,loadOperations,loadWallet,loadConnections,loadCollections,loadReferrals,
+    bind,onShowApp,loadPointClients,loadClientHome,loadOperations,loadWallet,loadConnections,loadCollections,loadReferrals,
     prepareShipment,submitShipment,refreshFirstMileTotal
   };
   bind();

@@ -11,6 +11,7 @@ const bulkShipping = require("./bulk_shipping");
 const asaas = require("./asaas");
 const ecommerce = require("./ecommerce_connectors");
 const fiscalLookup = require("./fiscal_lookup");
+const pointRules = require("./public/point_rules");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -436,6 +437,20 @@ function requireAuth(req, res, next) {
   if (!session) return res.status(401).json({ error: "Sessão expirada. Entre novamente." });
   req.user = session;
   next();
+}
+
+async function requireCurrentUser(req,res,next){
+  try {
+    const user=await db.getUserById(req.user.userId);
+    if(!user?.active||user.role!==req.user.role||(user.store_id||null)!==(req.user.storeId||null)){
+      return res.status(403).json({error:"Seu acesso foi alterado. Entre novamente."});
+    }
+    if(req.user.storeId){
+      const store=await db.getStore(req.user.storeId);
+      if(!store?.active)return res.status(403).json({error:"Ponto inativo."});
+    }
+    next();
+  }catch(error){return res.status(503).json({error:"Não foi possível validar o acesso. Tente novamente."});}
 }
 
 function requireIntegrationAuth(req, res, next) {
@@ -3101,39 +3116,65 @@ app.get("/api/store/referral", requireAuth, requireRole("STORE_OWNER"), async (r
   }catch(error){res.status(500).json({error:"Não foi possível carregar suas indicações."});}
 });
 
-app.post("/api/store/clients", requireAuth, requireRole("STORE_OWNER"), async (req,res)=>{
-  try{
-    if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
-    const email=String(req.body.email||"").trim().toLowerCase();
-    const name=String(req.body.name||"").trim();
-    if(!email||!name) return res.status(400).json({error:"Nome e e-mail são obrigatórios."});
-    if(await db.findUserByEmail(email)) return res.status(409).json({error:"Já existe uma conta com este e-mail."});
-    const generated=!req.body.password;
-    const password=String(req.body.password||crypto.randomBytes(6).toString("base64url").slice(0,8));
-    const user=await db.createUser({
-      storeId:null,email,name,passwordHash:hashPassword(password),role:"CLIENT",active:true
-    });
-    await clientDb.createCustomerAccount({
-      userId:user.id,document:cleanDigits(req.body.document||""),phone:String(req.body.phone||""),
-      companyName:String(req.body.companyName||""),referralStoreId:req.user.storeId,defaultSender:req.body.defaultSender||{}
-    });
-    await audit(req,"REGISTER_REFERRED_CLIENT","CLIENT",user.id,{email});
-    res.status(201).json({
-      ok:true,client:{id:user.id,email,name},
-      temporaryPassword:generated?password:undefined,
-      message:"Cliente cadastrado e vinculado ao ponto. O ponto receberá R$ 0,50 por envio desse cliente."
-    });
-  }catch(error){res.status(500).json({error:"Não foi possível cadastrar o cliente."});}
+app.get("/api/store/clients", requireAuth, requireRole("STORE_OWNER","STORE_CLERK"), requireCurrentUser, async(req,res)=>{
+  if(!req.user.storeId)return res.status(400).json({error:"Usuário sem ponto vinculado."});
+  try {res.json({clients:await clientDb.listClientsByStore(req.user.storeId,250)});}
+  catch(error){res.status(500).json({error:"Não foi possível carregar os clientes do ponto."});}
 });
 
-app.post("/api/store/collections", requireAuth, requireRole("STORE_OWNER","STORE_CLERK"), async (req,res)=>{
+app.post("/api/store/clients", requireAuth, requireRole("STORE_OWNER","STORE_CLERK"), requireCurrentUser, async (req,res)=>{
+  try{
+    pointRules.assert(req.user.storeId,"Usuário sem ponto vinculado.");
+    const email=String(req.body.email||"").trim().toLowerCase();
+    const name=String(req.body.name||"").trim();
+    const document=cleanDigits(req.body.document||"");
+    const phone=cleanDigits(req.body.phone||"");
+    pointRules.assert(name.length>=2&&name.length<=160&&email.length<=254&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email),"Informe nome e e-mail válidos.");
+    pointRules.assert(!document||[11,14].includes(document.length),"CPF/CNPJ deve conter 11 ou 14 dígitos.");
+    pointRules.assert(!phone||[10,11].includes(phone.length),"Informe telefone com DDD.");
+    const generated=!req.body.password;
+    const password=generated?crypto.randomBytes(12).toString("base64url"):String(req.body.password);
+    pointRules.assert(password.length>=8&&password.length<=128,"A senha deve ter de 8 a 128 caracteres.");
+    const raw=req.body.defaultSender||{};
+    const defaultSender={name,document,phone,email};
+    for(const field of ["address","number","complement","neighborhood","cep","city"]){
+      defaultSender[field]=String(raw[field]||"").trim().slice(0,200);
+    }
+    defaultSender.cep=cleanDigits(defaultSender.cep);
+    pointRules.assert(!defaultSender.cep||defaultSender.cep.length===8,"CEP inválido.");
+    const user=await clientDb.registerPointClient({storeId:req.user.storeId,email,name,passwordHash:hashPassword(password),document,phone,defaultSender});
+    await audit(req,"REGISTER_REFERRED_CLIENT","CLIENT",user.id,{email});
+    res.status(201).json({ok:true,client:user,temporaryPassword:generated?password:undefined,
+      message:"Cliente cadastrado e vinculado ao ponto. O cadastro não movimenta saldo nem gera comissão; a indicação segue as regras dos envios emitidos."});
+  }catch(error){
+    if(error.code==="23505")return res.status(409).json({error:"Já existe uma conta com este e-mail. O vínculo existente foi preservado."});
+    res.status(error.status||500).json({error:error.status?error.message:"Não foi possível cadastrar o cliente."});
+  }
+});
+
+function collectionForRole(collection,role){
+  if(!["STORE_CLERK","OPS"].includes(role))return collection;
+  const safe={...collection};
+  for(const key of ["point_rate","point_compensation","postal_compensation"])delete safe[key];
+  return safe;
+}
+
+app.post("/api/store/collections", requireAuth, requireRole("STORE_OWNER","STORE_CLERK"), requireCurrentUser, async (req,res)=>{
   try{
     if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
     const body=req.body||{};
     const requesterName=String(body.requesterName||"").trim();
-    const requesterPhone=String(body.requesterPhone||"").trim();
+    const requesterPhone=cleanDigits(body.requesterPhone||"");
     const requesterDocument=cleanDigits(body.requesterDocument||"");
-    const packageCount=Math.max(1,Math.min(200,Number(body.packageCount||1)));
+    pointRules.assert(requesterName.length>=2&&requesterName.length<=160,"Informe nome de 2 a 160 caracteres.");
+    pointRules.assert(!requesterDocument||[11,14].includes(requesterDocument.length),"CPF/CNPJ deve conter 11 ou 14 dígitos.");
+    if(body.clientUserId)pointRules.assert(/^[0-9a-f-]{36}$/i.test(String(body.clientUserId)),"Cliente inválido.");
+    const packageCount=Number(body.packageCount??1);
+    const pricing=pointRules.collectionPricing(packageCount,CLIENT_PICKUP_FEE_PER_PACKAGE,POINT_PICKUP_EARNING_PER_PACKAGE);
+    pointRules.assert(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(body.requestKey||"")),"Identificador da solicitação inválido. Atualize a página.");
+    const store=await db.getStore(req.user.storeId);
+    pointRules.assert(store?.active,"Ponto inativo ou inexistente.",403);
+    if(body.scheduledFor)pointRules.assert(Number.isFinite(Date.parse(body.scheduledFor))&&Date.parse(body.scheduledFor)>Date.now(),"Escolha uma data futura para a coleta.");
     const address=body.address&&typeof body.address==="object"?body.address:{};
     const cep=cleanDigits(address.cep||"");
     const street=String(address.address||"").trim();
@@ -3141,19 +3182,21 @@ app.post("/api/store/collections", requireAuth, requireRole("STORE_OWNER","STORE
     const city=String(address.city||"").trim();
 
     if(!requesterName) return res.status(400).json({error:"Informe o nome do cliente."});
-    if(!requesterPhone) return res.status(400).json({error:"Informe o telefone do cliente."});
+    if(![10,11].includes(requesterPhone.length)) return res.status(400).json({error:"Informe telefone com DDD."});
     if(!street||!number||cep.length!==8||!city){
       return res.status(400).json({error:"Informe endereço, número, CEP e cidade para a coleta."});
     }
 
     const feePerPackage=CLIENT_PICKUP_FEE_PER_PACKAGE;
     const pointRate=POINT_PICKUP_EARNING_PER_PACKAGE;
-    const totalFee=round2(feePerPackage*packageCount);
-    const pointCompensation=round2(pointRate*packageCount);
-    const postalCompensation=round2(totalFee-pointCompensation);
+    const {totalFee,pointCompensation,postalCompensation}=pricing;
 
+    if(body.clientUserId){
+      const account=await clientDb.getCustomerAccount(body.clientUserId);
+      pointRules.assert(account?.referral_store_id===req.user.storeId,"Cliente não pertence a este ponto.",403);
+    }
     const collection=await clientDb.createCollectionRequest({
-      clientUserId:null,
+      clientUserId:body.clientUserId||null,
       freightOrderId:null,
       serviceType:"PICKUP",
       status:"ASSIGNED",
@@ -3174,13 +3217,15 @@ app.post("/api/store/collections", requireAuth, requireRole("STORE_OWNER","STORE
         uf:String(address.uf||"").trim().toUpperCase()
       },
       scheduledFor:body.scheduledFor||null,
-      notes:String(body.notes||"").trim(),
+      notes:String(body.notes||"").trim().slice(0,1000),
       requesterName,
       requesterPhone,
       requesterDocument,
-      createdByUserId:req.user.userId
+      createdByUserId:req.user.userId,
+      requestKey:body.requestKey
     });
 
+    pointRules.assert(collection.assigned_store_id===req.user.storeId,"Esta solicitação já foi direcionada a outro ponto.",409);
     await audit(req,"CREATE_STORE_COLLECTION","COLLECTION",collection.id,{
       storeId:req.user.storeId,
       requesterName,
@@ -3189,78 +3234,37 @@ app.post("/api/store/collections", requireAuth, requireRole("STORE_OWNER","STORE
     });
 
     res.status(201).json({
-      collection,
-      pricing:{
-        packageCount,
-        feePerPackage,
-        totalFee
-      },
-      message:"Ordem de coleta criada e vinculada ao ponto."
+      collection:collectionForRole(collection,req.user.role),
+      pricing:{packageCount:collection.package_count,feePerPackage:Number(collection.fee_per_package),totalFee:Number(collection.total_fee)},
+      message:"Coleta registrada. Valor previsto, sem débito ou remuneração automática; pagamento ainda não vinculado."
     });
   }catch(error){
     console.error("store collection create error:",error.message);
-    res.status(500).json({error:"Não foi possível criar a ordem de coleta."});
+    res.status(error.status||500).json({error:error.status?error.message:"Não foi possível criar a ordem de coleta."});
   }
 });
 
-app.get("/api/store/collections", requireAuth, requireRole("STORE_OWNER","STORE_CLERK","OPS"), async (req,res)=>{
+app.get("/api/store/collections", requireAuth, requireRole("STORE_OWNER","STORE_CLERK","OPS"), requireCurrentUser, async (req,res)=>{
   try{
     if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
     const collections=await clientDb.listCollections({storeId:req.user.storeId},100);
-    const earnings=req.user.role==="STORE_CLERK"?[]:await clientDb.listPointEarnings(req.user.storeId,100);
+    const earnings=["STORE_CLERK","OPS"].includes(req.user.role)?[]:await clientDb.listPointEarnings(req.user.storeId,100);
     res.json({
-      collections:collections.map(item=>{
-        if(req.user.role!=="STORE_CLERK") return item;
-        const safe={...item};
-        delete safe.point_rate;
-        delete safe.point_compensation;
-        delete safe.postal_compensation;
-        return safe;
-      }),
+      collections:collections.map(item=>collectionForRole(item,req.user.role)),
       earnings
     });
   }catch(error){res.status(500).json({error:"Não foi possível carregar as coletas."});}
 });
 
-app.patch("/api/collections/:id", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req,res)=>{
-  try{
-    const current=await clientDb.getCollection(req.params.id);
-    if(!current) return res.status(404).json({error:"Coleta não encontrada."});
-    if(!["ADMIN","SUPERVISOR"].includes(req.user.role)&&current.assigned_store_id!==req.user.storeId){
-      return res.status(403).json({error:"Esta coleta não está atribuída ao seu ponto."});
-    }
-    const status=String(req.body.status||current.status).toUpperCase();
-    const allowed=new Set(["REQUESTED","ASSIGNED","ACCEPTED","EN_ROUTE","COLLECTED","WAITING_DROPOFF","RECEIVED_AT_POINT","COMPLETED","DECLINED","CANCELED"]);
-    if(!allowed.has(status)) return res.status(400).json({error:"Status de coleta inválido."});
-    const assignedStoreId=["ADMIN","SUPERVISOR"].includes(req.user.role)&&req.body.assignedStoreId!==undefined
-      ?(req.body.assignedStoreId||null):current.assigned_store_id;
-
-    let pointRate=Number(current.point_rate||0),pointComp=Number(current.point_compensation||0),postalComp=Number(current.postal_compensation||0);
-    if(["ADMIN","SUPERVISOR"].includes(req.user.role)&&assignedStoreId&&assignedStoreId!==current.assigned_store_id){
-      pointRate=current.service_type==="PICKUP"?POINT_PICKUP_EARNING_PER_PACKAGE:POINT_DROPOFF_EARNING_PER_PACKAGE;
-      pointComp=round2(pointRate*Number(current.package_count||1));
-      postalComp=round2(Number(current.total_fee||0)-pointComp);
-    }
-
-    const updated=await clientDb.updateCollection(current.id,{
-      status,assignedStoreId,pointRate,pointCompensation:pointComp,postalCompensation:postalComp,
-      scheduledFor:req.body.scheduledFor,notes:req.body.notes
-    });
-
-    const earnsPickup=current.service_type==="PICKUP"&&["COLLECTED","COMPLETED"].includes(status);
-    const earnsDropoff=current.service_type==="DROPOFF"&&["RECEIVED_AT_POINT","COMPLETED"].includes(status);
-    if((earnsPickup||earnsDropoff)&&updated.assigned_store_id){
-      const order=updated.freight_order_id?await db.getOrder(updated.freight_order_id):null;
-      await clientDb.createPointEarning({
-        storeId:updated.assigned_store_id,clientUserId:updated.client_user_id,
-        earningType:earnsPickup?"PICKUP":"DROPOFF",amount:Number(updated.point_compensation||0),
-        referenceType:"COLLECTION",referenceId:updated.id,status:order?.is_simulation?"SIMULATED":"EARNED",
-        metadata:{packages:Number(updated.package_count||1),serviceType:updated.service_type}
-      });
-    }
-    await audit(req,"UPDATE_COLLECTION","COLLECTION",updated.id,{status,assignedStoreId:updated.assigned_store_id});
-    res.json({collection:updated});
-  }catch(error){res.status(500).json({error:"Não foi possível atualizar a coleta."});}
+app.patch("/api/collections/:id", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), requireCurrentUser, async(req,res)=>{
+  try {
+    if(req.body.scheduledFor)pointRules.assert(Number.isFinite(Date.parse(req.body.scheduledFor))&&Date.parse(req.body.scheduledFor)>Date.now(),"Escolha uma data futura para a coleta.");
+    const updated=await clientDb.transitionCollection({collectionId:req.params.id,user:req.user,status:req.body.status,
+      assignedStoreId:req.body.assignedStoreId,scheduledFor:req.body.scheduledFor,notes:req.body.notes===undefined?undefined:String(req.body.notes).slice(0,1000),
+      pickupRate:POINT_PICKUP_EARNING_PER_PACKAGE,dropoffRate:POINT_DROPOFF_EARNING_PER_PACKAGE});
+    await audit(req,"UPDATE_COLLECTION","COLLECTION",updated.id,{status:updated.status,assignedStoreId:updated.assigned_store_id});
+    res.json({collection:collectionForRole(updated,req.user.role)});
+  }catch(error){res.status(error.status||500).json({error:error.status?error.message:"Não foi possível atualizar a coleta."});}
 });
 
 app.get("/api/admin/collections", requireAuth, requireRole("ADMIN","SUPERVISOR"), async (_req,res)=>{

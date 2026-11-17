@@ -46,7 +46,7 @@ const viewMap = {
   financial: { el: "#financialView", title: "Recebimentos Asaas" },
   storeUsers: { el: "#storeUsersView", title: "Usuários do ponto" },
   cash: { el: "#cashView", title: "Meu Caixa" },
-  clients: { placeholder: ["Clientes", "Cadastro rápido de remetentes frequentes para acelerar o atendimento no balcão."] }
+  clients: { el: "#clientsView", title: "Clientes do ponto" }
 };
 
 function money(v) {
@@ -127,7 +127,7 @@ function showApp(user) {
   document.querySelectorAll(".owner-finance-only").forEach(el => el.classList.toggle("hidden", user?.role !== "STORE_OWNER"));
 
   const clerkPostingOnly = user?.role === "STORE_CLERK";
-  const clerkAllowedViews = new Set(["quote","orders","collections"]);
+  const clerkAllowedViews = new Set(["quote","orders","collections","clients"]);
   document.querySelectorAll(".sidebar .nav-item").forEach(btn => {
     if (clerkPostingOnly && !clerkAllowedViews.has(btn.dataset.view)) {
       btn.dataset.clerkHidden = "1";
@@ -268,8 +268,8 @@ function navigate(name) {
     toast("Área exclusiva da supervisão da rede.", "error");
     return;
   }
-  if (state.user?.role === "STORE_CLERK" && !["quote","shipment","orders","collections"].includes(name)) {
-    toast("Este usuário possui acesso às postagens e coletas do ponto.", "error");
+  if (state.user?.role === "STORE_CLERK" && !["quote","shipment","orders","collections","clients"].includes(name)) {
+    toast("Este usuário possui acesso às postagens, coletas e clientes do ponto.", "error");
     return;
   }
   if (["quote","shipment"].includes(name) && !["ADMIN","STORE_OWNER","STORE_CLERK","CLIENT"].includes(state.user?.role)) {
@@ -291,6 +291,9 @@ function navigate(name) {
   if (name === "referrals" && state.user?.role !== "STORE_OWNER") {
     toast("Área disponível para pontos parceiros.", "error");
     return;
+  }
+  if (name === "clients" && !["STORE_OWNER","STORE_CLERK"].includes(state.user?.role)) {
+    toast("Cadastro disponível para o dono e o atendente do ponto.","error"); return;
   }
   if (name === "collections" && !["ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS","CLIENT"].includes(state.user?.role)) {
     toast("Perfil sem acesso ao painel de coletas.", "error");
@@ -323,8 +326,9 @@ function navigate(name) {
   if (name === "clientOrders") window.PostalClient?.loadOperations?.();
   if (name === "wallet") window.PostalClient?.loadWallet?.();
   if (name === "connections") window.PostalClient?.loadConnections?.();
-  if (name === "collections") window.PostalClient?.loadCollections?.();
+  if (name === "collections") window.PostalClient?.loadCollections?.().catch(error=>toast(error.message,"error"));
   if (name === "referrals") window.PostalClient?.loadReferrals?.();
+  if (name === "clients") window.PostalClient?.loadPointClients?.();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 

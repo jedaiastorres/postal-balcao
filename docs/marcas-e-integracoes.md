@@ -35,7 +35,7 @@ Proteções: consentimento explícito, autenticação, vínculo CPF/CNPJ para cl
 
 Fonte: https://faq.conectenvios.com.br/internacional-orientacoes/
 
-A ConectEnvios orienta operar FedEx, DHL e UPS em https://enviointernacional.com.br/conectenvios. Foi acrescentado acesso explícito a esse portal externo no menu, sem enviar dados automaticamente. Não foi localizado contrato público de cotação/emissão internacional na API V1 usada pelo Balcão; páginas de documentação testadas redirecionam ao login. Por isso não há emissão internacional nativa nem débitos internacionais na carteira Postal. Para integração completa, obter contrato/API e credenciais específicas, campos de país, moeda, HS Code, finalidade, invoice/AWB e regras de coleta e homologar com o provedor.
+A ConectEnvios orienta operar FedEx, DHL e UPS em https://enviointernacional.com.br/conectenvios. O acesso ao portal externo foi removido do menu: internacional não deve ser oferecido enquanto não existir integração nativa. Não foi localizado contrato público de cotação/emissão internacional na API V1 usada pelo Balcão; páginas de documentação testadas redirecionam ao login. Por isso não há emissão internacional nativa nem débitos internacionais na carteira Postal. Para integração completa, obter contrato/API e credenciais específicas, campos de país, moeda, HS Code, finalidade, invoice/AWB e regras de coleta e homologar com o provedor.
 
 ## Rastreio e validação
 
