@@ -10,6 +10,7 @@ const clientDb = require("./client_db");
 const bulkShipping = require("./bulk_shipping");
 const asaas = require("./asaas");
 const ecommerce = require("./ecommerce_connectors");
+const fiscalLookup = require("./fiscal_lookup");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -47,9 +48,12 @@ const REFERRAL_EARNING_PER_SHIPMENT = Math.max(0, Number(process.env.REFERRAL_EA
 const HUB_TRANSFER_FEE_PER_PACKAGE = Math.max(0, Number(process.env.HUB_TRANSFER_FEE_PER_PACKAGE || 5));
 const FISCAL_LOOKUP_URL = String(process.env.FISCAL_LOOKUP_URL || "").trim();
 const FISCAL_LOOKUP_TOKEN = String(process.env.FISCAL_LOOKUP_TOKEN || "").trim();
+const FISCAL_LOOKUP_PROVIDER = String(process.env.FISCAL_LOOKUP_PROVIDER || "AUTHORIZED").toUpperCase();
 const FISCAL_LOOKUP_ENABLED = String(process.env.FISCAL_LOOKUP_ENABLED || "false").toLowerCase() === "true";
 function fiscalLookupConfigured() {
-  if (!FISCAL_LOOKUP_ENABLED || !FISCAL_LOOKUP_URL || !FISCAL_LOOKUP_TOKEN) return false;
+  if (!FISCAL_LOOKUP_ENABLED) return false;
+  if (FISCAL_LOOKUP_PROVIDER === "CONSULTADANFE") return true;
+  if (!FISCAL_LOOKUP_URL || !FISCAL_LOOKUP_TOKEN) return false;
   try {
     const url = new URL(FISCAL_LOOKUP_URL);
     return url.protocol === "https:" && !url.username && !url.password;
@@ -1647,6 +1651,7 @@ app.get("/api/public-config", (_req, res) => {
     paymentsEnvironment: paymentRuntime.environment?.keyEnvironment || "unknown",
     databaseConfigured: Boolean(process.env.DATABASE_URL),
     fiscalLookupConfigured: fiscalLookupConfigured(),
+    fiscalLookupProvider: FISCAL_LOOKUP_PROVIDER,
     version: "1.10.0",
     paymentSimulatorEnabled: PAYMENT_SIMULATOR_ENABLED && !asaas.configured(),
     clientPickupFeePerPackage: CLIENT_PICKUP_FEE_PER_PACKAGE,
@@ -4283,26 +4288,32 @@ app.post("/api/fiscal-documents/lookup", requireAuth, requireRole("ADMIN","SUPER
   if(req.body?.consent!==true) return res.status(403).json({error:"É necessário declarar autorização para consultar o documento."});
   if(!fiscalLookupConfigured()) return res.status(503).json({error:"Consulta fiscal autorizada ainda não configurada. Use a importação de XML ou o preenchimento manual."});
   try {
-    const response=await fetch(FISCAL_LOOKUP_URL,{
-      method:"POST",
-      headers:{"Content-Type":"application/json","Accept":"application/json","Authorization":"Bearer "+FISCAL_LOOKUP_TOKEN},
-      body:JSON.stringify({type,key,purpose:"POSTAL_SHIPPING_QUOTE"}),
-      redirect:"error",
-      signal:AbortSignal.timeout(20000)
-    });
-    if([401,403].includes(response.status))return res.status(403).json({error:"O provedor fiscal não autorizou o acesso a este documento."});
-    if(response.status===404)return res.status(404).json({error:"Documento não encontrado pelo provedor fiscal autorizado."});
-    if(!response.ok)return res.status(502).json({error:"O serviço fiscal está indisponível. Você pode importar o XML ou preencher manualmente."});
-    if(!String(response.headers.get("content-type")||"").toLowerCase().includes("application/json")){
-      return res.status(502).json({error:"O provedor fiscal não retornou dados estruturados válidos."});
+    let doc;
+    if (FISCAL_LOOKUP_PROVIDER === "CONSULTADANFE") {
+      if (type !== "NFE") return res.status(400).json({error:"Consulta DANFE consulta somente NF-e modelo 55 por chave. Para DC-e, importe o XML."});
+      doc = await fiscalLookup.consultDanfe(key);
+    } else {
+      const response=await fetch(FISCAL_LOOKUP_URL,{
+        method:"POST",
+        headers:{"Content-Type":"application/json","Accept":"application/json","Authorization":"Bearer "+FISCAL_LOOKUP_TOKEN},
+        body:JSON.stringify({type,key,purpose:"POSTAL_SHIPPING_QUOTE"}),
+        redirect:"error",
+        signal:AbortSignal.timeout(20000)
+      });
+      if([401,403].includes(response.status))return res.status(403).json({error:"O provedor fiscal não autorizou o acesso a este documento."});
+      if(response.status===404)return res.status(404).json({error:"Documento não encontrado pelo provedor fiscal autorizado."});
+      if(!response.ok)return res.status(502).json({error:"O serviço fiscal está indisponível. Você pode importar o XML ou preencher manualmente."});
+      if(!String(response.headers.get("content-type")||"").toLowerCase().includes("application/json")){
+        return res.status(502).json({error:"O provedor fiscal não retornou dados estruturados válidos."});
+      }
+      const raw=await response.text();
+      if(raw.length>3000000)return res.status(502).json({error:"Documento muito grande para consulta."});
+      const payload=JSON.parse(raw);
+      if(payload.authorized !== true){
+        return res.status(403).json({error:"O provedor não confirmou autorização de acesso ao XML."});
+      }
+      doc=payload.document || payload.data || payload;
     }
-    const raw=await response.text();
-    if(raw.length>3000000)return res.status(502).json({error:"Documento muito grande para consulta."});
-    const payload=JSON.parse(raw);
-    if(payload.authorized !== true){
-      return res.status(403).json({error:"O provedor não confirmou autorização de acesso ao XML."});
-    }
-    const doc=payload.document || payload.data || payload;
     if(String(doc?.type||"").toUpperCase()!==type || cleanDigits(doc?.key)!==key ||
        cleanDigits(doc?.sender?.cep).length!==8 || cleanDigits(doc?.recipient?.cep).length!==8 ||
        !Array.isArray(doc?.items)){
@@ -4326,17 +4337,18 @@ app.post("/api/fiscal-documents/lookup", requireAuth, requireRole("ADMIN","SUPER
       quantity:Number(x.quantity||1),
       value:Number(x.value||0)
     })).filter(x=>x.description&&Number.isFinite(x.quantity)&&x.quantity>0&&Number.isFinite(x.value)&&x.value>=0);
-    await audit(req,"FISCAL_DOCUMENT_LOOKUP","FISCAL_DOCUMENT",type,{type,keySuffix:key.slice(-4),source:"AUTHORIZED"});
+    await audit(req,"FISCAL_DOCUMENT_LOOKUP","FISCAL_DOCUMENT",type,{type,keySuffix:key.slice(-4),source:FISCAL_LOOKUP_PROVIDER});
     return res.json({
       document:{
         type,key,sender:safeParty(doc.sender),recipient:safeParty(doc.recipient),items:safeItems,
         declaredValue:Number.isFinite(Number(doc.declaredValue))?Number(doc.declaredValue):0,
         volumeCount:Math.max(0,Math.min(50,Number(doc.volumeCount)||0))||null,
         grossWeightKg:Number(doc.grossWeightKg)>0?Number(doc.grossWeightKg):null,
-        source:"AUTHORIZED_LOOKUP"
+        source:FISCAL_LOOKUP_PROVIDER === "CONSULTADANFE" ? "CONSULTADANFE_LOOKUP" : "AUTHORIZED_LOOKUP"
       }
     });
   } catch(error){
+    if ([400,404,422,429].includes(error.status)) return res.status(error.status).json({error:error.message});
     console.warn("fiscal lookup failed",String(error?.name||"UnknownError"));
     return res.status(502).json({error:"Não foi possível concluir a consulta autorizada. Importe o XML ou preencha manualmente."});
   }

@@ -25,36 +25,30 @@
     .empty{padding:28px;text-align:center;color:var(--muted)}footer{text-align:center;color:#969aa5;font-size:11px;margin-top:28px}
     @media(max-width:720px){.top{padding:0 18px}.home{display:none}main{padding-top:38px}h1{font-size:33px}.search{grid-template-columns:1fr}.search button{height:48px}.summary{grid-template-columns:1fr}.route,.shipment-info{grid-template-columns:1fr}.arrow{transform:rotate(90deg)}}
   </style>
+  <link rel="stylesheet" href="/tracking.css" />
 </head>
 <body>
   <header class="top">
-    <div class="brand">
-      <div class="mark">
-        <svg viewBox="0 0 64 48" aria-hidden="true">
-          <path d="M6 8h52v32H6z" fill="none" stroke="currentColor" stroke-width="5"/>
-          <path d="M8 11l24 19L56 11" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-      <div><div class="brand-name">POSTAL</div><div class="brand-sub">SERVIÇOS</div></div>
-    </div>
+    <a class="brand" href="/" aria-label="Postal Serviços — início"><img src="/assets/brands/postal.svg" width="150" height="100" alt="Postal Serviços" /></a>
     <a class="home" href="/">Acessar sistema</a>
   </header>
 
   <main>
     <section class="hero">
       <div class="eyebrow">ACOMPANHE SUA ENTREGA</div>
-      <h1>Rastreio Postal</h1>
+      <h1>Cada etapa da sua entrega,<br>mais perto de você.</h1>
       <p>Consulte aqui o andamento da sua encomenda usando o código informado no comprovante de postagem.</p>
     </section>
 
-    <form id="trackingForm" class="search">
-      <input id="trackingCode" autocomplete="off" spellcheck="false" placeholder="Digite o código de rastreio" aria-label="Código de rastreio" />
+    <form id="trackingForm" class="search" aria-busy="false">
+      <input id="trackingCode" required minlength="6" maxlength="40" autocomplete="off" spellcheck="false" placeholder="Digite o código de rastreio" aria-label="Código de rastreio" />
       <button id="trackBtn" type="submit">Rastrear envio</button>
     </form>
 
-    <div id="errorBox" class="error hidden"></div>
+    <p class="search-help">O código está no seu comprovante ou na confirmação do envio.</p>
+    <div id="errorBox" class="error hidden" role="alert" tabindex="-1"></div>
 
-    <section id="trackingResult" class="result hidden">
+    <section id="trackingResult" class="result hidden" aria-live="polite" aria-atomic="true">
       <article class="card">
         <div class="summary">
           <div class="status-wrap">
@@ -69,7 +63,7 @@
           <div class="arrow">→</div>
           <div class="route-box"><span>Destino</span><strong id="destination">—</strong></div>
         </div>
-        <div class="shipment-info">
+        <div id="shipmentInfo" class="shipment-info">
           <div class="route-box"><span>Remetente</span><strong id="senderName">—</strong></div>
           <div class="route-box"><span>Destinatário</span><strong id="recipientName">—</strong><small id="recipientAddress"></small></div>
           <div class="route-box"><span>Pacote</span><strong id="packageSummary">—</strong><small id="packageDeclared"></small></div>
@@ -81,11 +75,11 @@
           <div><div class="eyebrow">HISTÓRICO</div><h2>Movimentações do envio</h2></div>
           <small id="updatedAt"></small>
         </div>
-        <div id="timeline" class="timeline"></div>
+        <div id="timeline" class="timeline" role="list"></div>
       </article>
     </section>
 
-    <footer>Postal Serviços e Transportes · Acompanhe sua encomenda sem sair da Postal.</footer>
+    <footer><strong>Postal Serviços</strong><br>Conectando você ao seu próximo destino.<br><a href="https://postalservicos.com.br" target="_blank" rel="noopener noreferrer">Conheça a Postal ↗</a></footer>
   </main>
   <script src="/rastreio.js?v=1.1.0"></script>
 </body>

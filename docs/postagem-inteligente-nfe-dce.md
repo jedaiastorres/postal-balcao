@@ -50,3 +50,8 @@ O provedor precisa garantir autorização para a chave, limitar requisições e 
 Referências:
 - Portal Nacional da DC-e: https://dfe-portal.svrs.rs.gov.br/Dce/Documentos
 - NT 2014.002 NF-e Distribuição DF-e: https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=VgPuhtPApQo=
+
+
+## Adaptador Consulta DANFE
+
+Além do gateway autorizado, há um adaptador opcional CONSULTADANFE com endpoint fixo e sem token para NF-e modelo 55. Configuração, limites, origem e homologação estão em [marcas-e-integracoes.md](marcas-e-integracoes.md). Este adaptador usa consentimento e checagem local de vínculo fiscal; o fornecedor não retorna o campo authorized do gateway anterior.

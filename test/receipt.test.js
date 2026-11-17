@@ -8,6 +8,7 @@ function renderer(width) {
     escapeHtml:value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),
     money:value=>`R$ ${Number(value||0).toFixed(2)}`,
     maskCep:value=>String(value||'')});
+  vm.runInContext(fs.readFileSync(require.resolve('../public/branding'), 'utf8'),context);
   vm.runInContext(source.slice(source.indexOf('function addressText'),source.indexOf('function showReceiptPreview')),context);
   return context.buildReceiptHtml;
 }
@@ -20,7 +21,8 @@ test('thermal receipts preserve multiple tracking codes and escape customer cont
     assert.ok(html.includes('Ponto &amp; Postal'));
     assert.ok(html.includes('receipt-brand'));
     assert.ok(html.includes('TOTAL PAGO'));
-    assert.ok(!html.includes('<img'));
+    assert.ok(html.includes('data:image/svg+xml;base64,'));
+    assert.ok(!/<img[^>]+src="https?:/.test(html));
   }
 });
 test('missing payment confirmation, previews and simulation are explicitly identified',()=>{

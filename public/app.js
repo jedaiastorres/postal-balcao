@@ -383,7 +383,9 @@ function updateFiscalModePanels() {
   if (mode === "AUTHORIZED") {
     const enabled = Boolean(state.config?.fiscalLookupConfigured);
     $("#fiscalLookupAvailability").textContent = enabled
-      ? "A consulta utiliza somente uma integração fiscal autorizada. O titular do documento deve permitir o acesso."
+      ? (state.config?.fiscalLookupProvider === "CONSULTADANFE"
+        ? "Consulta DANFE: somente NF-e modelo 55. A API gratuita limita datas e quantidade de consultas. Confirme autorização; se não houver dados, importe o XML."
+        : "A consulta utiliza somente uma integração fiscal autorizada. O titular do documento deve permitir o acesso.")
       : "Consulta automática ainda não habilitada: falta configurar acesso fiscal autorizado. Você pode importar o XML ou preencher manualmente.";
   }
 }
@@ -662,6 +664,7 @@ function renderResults(result, payload) {
 
     card.innerHTML = `
       <div class="result-brand">
+        ${globalThis.PostalBrand?.carrierLogo(option.transportadora) ? `<img class="carrier-logo" src="${globalThis.PostalBrand.carrierLogo(option.transportadora)}" alt="" width="100" height="40" />` : ""}
         <strong>${escapeHtml(option.transportadora)}</strong>
         <span>${escapeHtml(option.produto)}</span>
         ${badge ? `<em class="result-badge">${badge}</em>` : ""}
@@ -1144,8 +1147,8 @@ function addressText(p) {
 }
 
 function receiptBrandHtml() {
-  // Marca vetorial já utilizada na interface; sem dependência de imagens remotas.
-  return '<div class="receipt-brand" aria-label="Postal Serviços"><svg viewBox="0 0 64 48" aria-hidden="true" focusable="false"><rect x="6" y="8" width="52" height="32" rx="4" fill="none" stroke="currentColor" stroke-width="5"/><path d="m8 11 24 19 24-19" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg><div><div class="brand">POSTAL</div><div class="brand-sub">SERVIÇOS</div></div></div>';
+  const logo = globalThis.PostalBrand?.receiptLogo;
+  return logo ? `<div class="receipt-brand"><img class="receipt-logo" src="${logo}" alt="Postal Serviços" /></div>` : '<div class="brand">POSTAL SERVIÇOS</div>';
 }
 
 function buildReceiptHtml(data) {
@@ -1182,7 +1185,7 @@ function buildReceiptHtml(data) {
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Comprovante Postal</title>
   <style>
   @page{size:${width}mm auto;margin:2mm}*{box-sizing:border-box}body{width:${inner}mm;margin:0 auto;font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;font-size:10.5px;line-height:1.28}
-  .receipt-brand{display:flex;align-items:center;justify-content:center;gap:2mm;margin:2mm 0 3mm}.receipt-brand svg{width:12mm;height:9mm;flex-shrink:0}.receipt{width:100%;padding:1mm 0;overflow-wrap:anywhere}.row>*,.item>*{min-width:0}.row>span{flex:0 0 43%}.row>b{flex:1}.row b,.item b{text-align:right}.tracking{border:1px solid #000;padding:2mm}.receipt-brand .brand-sub{text-align:left}.center{text-align:center}.brand{font-size:18px;font-weight:900;letter-spacing:.7px}.brand-sub{font-size:9px;font-weight:800;letter-spacing:1.2px}
+  .receipt-brand{display:flex;align-items:center;justify-content:center;gap:2mm;margin:2mm 0 3mm}.receipt-logo{display:block;width:30mm;height:20mm;object-fit:contain;filter:grayscale(1) contrast(2)}.receipt{width:100%;padding:1mm 0;overflow-wrap:anywhere}.row>*,.item>*{min-width:0}.row>span{flex:0 0 48%}.row.total>span{flex-basis:55%}.row>b{flex:1}.row b,.item b{text-align:right}.tracking{border:1px solid #000;padding:2mm}.receipt-brand .brand-sub{text-align:left}.center{text-align:center}.brand{font-size:18px;font-weight:900;letter-spacing:.7px}.brand-sub{font-size:9px;font-weight:800;letter-spacing:1.2px}
   h1{font-size:12px;margin:3mm 0 1mm}.preview{border:1px solid #000;padding:1.5mm;margin:2mm 0;font-weight:900;text-align:center}.dash{border-top:1px dashed #000;margin:2.2mm 0}
   .label{font-size:8px;text-transform:uppercase;font-weight:800}.tracking{font-family:"Courier New",monospace;font-size:17px;font-weight:900;letter-spacing:.5px;word-break:break-all;margin:1mm 0}
   .section{font-weight:900;font-size:10px;margin-bottom:1mm}.person{font-weight:900;font-size:11px}.small{font-size:9px}.tiny{font-size:8px;word-break:break-all}.row,.item{display:flex;justify-content:space-between;gap:2mm;margin:.7mm 0}
@@ -1229,7 +1232,10 @@ function openReceipt(data, autoPrint = false) {
   target.document.open();
   target.document.write(buildReceiptHtml(data));
   target.document.close();
-  if (autoPrint) setTimeout(() => { target.focus(); target.print(); }, 350);
+    if (autoPrint) {
+    Promise.all([...target.document.images].map(img => img.decode().catch(() => {})))
+      .then(() => { if (!target.closed) { target.focus(); target.print(); } });
+  }
 }
 
 async function openProviderDocument(url) {

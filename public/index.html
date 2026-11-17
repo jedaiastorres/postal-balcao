@@ -11,18 +11,7 @@
   <div id="toast" class="toast" aria-live="polite"></div>
 
   <section id="loginView" class="login-shell">
-    <div class="login-brand">
-      <div class="brand-mark large">
-        <svg viewBox="0 0 64 48" aria-hidden="true">
-          <path d="M6 8h52v32H6z" fill="none" stroke="currentColor" stroke-width="5" rx="4"/>
-          <path d="M8 11l24 19L56 11" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-      <div>
-        <div class="brand-name">POSTAL</div>
-        <div class="brand-sub">SERVIÇOS</div>
-      </div>
-    </div>
+    <div class="login-brand official-brand"><img src="/assets/brands/postal.svg" alt="Postal Serviços" width="150" height="100" /></div>
     <div class="login-card">
       <div class="eyebrow">REDE DE PONTOS PARCEIROS</div>
       <h1>Transforme seu balcão em um ponto de envios.</h1>
@@ -56,18 +45,7 @@
 
   <div id="appView" class="app-shell hidden">
     <aside id="mainNavigation" class="sidebar">
-      <div class="side-brand">
-        <div class="brand-mark">
-          <svg viewBox="0 0 64 48" aria-hidden="true">
-            <path d="M6 8h52v32H6z" fill="none" stroke="currentColor" stroke-width="5"/>
-            <path d="M8 11l24 19L56 11" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </div>
-        <div>
-          <div class="brand-name">POSTAL</div>
-          <div class="brand-sub">SERVIÇOS</div>
-        </div>
-      </div>
+      <div class="side-brand official-brand"><img src="/assets/brands/postal.svg" alt="Postal Serviços" width="150" height="100" /></div>
 
       <div class="nav-section">LOGÍSTICA</div>
       <nav>
@@ -76,6 +54,10 @@
         <button class="nav-item" data-view="orders"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="m3 7 9-5 9 5v10l-9 5-9-5zM3 7l9 5 9-5M12 12v10M7.5 4.5l9 5"/></svg></span> Meus Fretes</button>
         <button class="nav-item" data-view="collections"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M3 6h11v12H3zM14 10h4l3 4v4h-7M3 10h6"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg></span> Coletas</button>
       </nav>
+
+      <div class="international-entry">
+        <a href="https://enviointernacional.com.br/conectenvios" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 6h14M5 18h14"/></svg><span>Envios internacionais<small>Portal ConectEnvios ↗</small></span></a>
+      </div>
 
       <div class="nav-section">FINANCEIRO</div>
       <nav>
@@ -1289,6 +1271,7 @@
     </div>
   </div>
 
+  <script src="/branding.js"></script>
   <script src="/fiscal_document.js?v=1.17.0"></script>
   <script src="/app.js?v=1.18.0"></script>
   <script src="/client.js?v=1.18.0"></script>

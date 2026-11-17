@@ -32,8 +32,10 @@ async function track(code){
   clearError();
   const btn=$("#trackBtn");
   btn.disabled=true; btn.textContent="Consultando...";
+  $("#trackingForm").setAttribute("aria-busy","true");
+  $("#trackingResult").classList.add("hidden");
   try{
-    const response=await fetch("/api/public/rastreio/"+encodeURIComponent(clean),{headers:{"accept":"application/json"}});
+    const response=await fetch("/api/public/rastreio/"+encodeURIComponent(clean),{headers:{"accept":"application/json"},signal:AbortSignal.timeout(20000)});
     const data=await response.json().catch(()=>({}));
     if(!response.ok) throw new Error(data.error||"Não foi possível consultar o rastreio.");
     $("#trackingCode").value=data.trackingCode||clean;
@@ -46,6 +48,8 @@ async function track(code){
     const recipientAddress=[data.recipient?.address,data.recipient?.number,data.recipient?.complement,data.recipient?.neighborhood,data.recipient?.city,data.recipient?.cep?formatCep(data.recipient.cep):""].filter(Boolean).join(", ");
     $("#recipientAddress").textContent=recipientAddress;
     const pkg=data.package||{};
+    $("#shipmentInfo").classList.toggle("hidden", !(data.sender?.name || data.recipient?.name || Number(pkg.weightKg)>0 || Number(pkg.declaredValue)>0));
+    $(".route").classList.toggle("hidden", !(data.origin?.city || data.origin?.cep || data.destination?.city || data.destination?.cep));
     const firstVolume=Array.isArray(pkg.volumes)&&pkg.volumes.length?pkg.volumes[0]:null;
     const dims=firstVolume?.dimensions;
     const dimensionsText=dims && (dims.length||dims.width||dims.height)
@@ -61,7 +65,7 @@ async function track(code){
     $("#updatedAt").textContent=data.updatedAt ? "Atualizado em "+dateLabel(data.updatedAt) : "";
     const events=Array.isArray(data.events)?data.events:[];
     $("#timeline").innerHTML=events.length ? events.map(event=>`
-      <div class="event">
+      <div class="event" role="listitem">
         <div class="rail"><i class="pin"></i></div>
         <div>
           <strong>${escapeHtml(event.description||"Atualização do envio")}</strong>
@@ -72,9 +76,10 @@ async function track(code){
     $("#trackingResult").classList.remove("hidden");
     history.replaceState({}, "", "/rastreio?codigo="+encodeURIComponent(data.trackingCode||clean));
   }catch(err){
-    showError(err.message);
+    showError(err.name === "TimeoutError" ? "A consulta demorou mais que o esperado. Tente novamente em instantes." : err.message);
   }finally{
     btn.disabled=false; btn.textContent="Rastrear envio";
+    $("#trackingForm").setAttribute("aria-busy","false");
   }
 }
 $("#trackingForm").addEventListener("submit",event=>{
