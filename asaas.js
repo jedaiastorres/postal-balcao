@@ -190,18 +190,29 @@ async function createCheckout({
 
   if (splits.length) payload.splits = splits;
 
-  if (customerData && customerData.name && customerData.cpfCnpj) {
-    payload.customerData = {
-      name: customerData.name,
-      cpfCnpj: String(customerData.cpfCnpj).replace(/\D/g, ""),
-      email: customerData.email || undefined,
-      phone: String(customerData.phone || "").replace(/\D/g, "") || undefined,
-      address: customerData.address || undefined,
-      addressNumber: customerData.addressNumber || undefined,
-      complement: customerData.complement || undefined,
-      postalCode: String(customerData.postalCode || "").replace(/\D/g, "") || undefined,
-      province: customerData.province || undefined
-    };
+  // O Asaas exige endereço completo quando customerData é informado.
+  // Se o cliente ainda não cadastrou endereço, o Checkout hospedado solicita
+  // esses dados diretamente ao pagador, sem bloquear a criação da recarga.
+  if (customerData) {
+    const name = String(customerData.name || "").trim();
+    const cpfCnpj = String(customerData.cpfCnpj || "").replace(/\D/g, "");
+    const address = String(customerData.address || "").trim();
+    const addressNumber = String(customerData.addressNumber || "").trim();
+    const postalCode = String(customerData.postalCode || "").replace(/\D/g, "");
+    const province = String(customerData.province || "").trim();
+    if (name && cpfCnpj && address && addressNumber && postalCode.length === 8 && province) {
+      payload.customerData = {
+        name,
+        cpfCnpj,
+        email: customerData.email || undefined,
+        phone: String(customerData.phone || "").replace(/\D/g, "") || undefined,
+        address,
+        addressNumber,
+        complement: customerData.complement || undefined,
+        postalCode,
+        province
+      };
+    }
   }
 
   const result = await asaasFetch("/checkouts", {
