@@ -1951,6 +1951,7 @@ app.post("/api/client/wallet/topups", requireAuth, requireRole("CLIENT"), async 
     }
 
     const account=await clientDb.getCustomerAccount(req.user.userId);
+    const billingAddress=account?.default_sender||{};
     const checkout=await asaas.createCheckout({
       orderId:"TOPUP-"+topup.id,
       billingType:paymentMethod,
@@ -1962,7 +1963,12 @@ app.post("/api/client/wallet/topups", requireAuth, requireRole("CLIENT"), async 
         name:account.name||req.user.name||"",
         cpfCnpj:account.document||"",
         email:account.email||req.user.email||"",
-        phone:account.phone||""
+        phone:account.phone||"",
+        address:billingAddress.address||"",
+        addressNumber:billingAddress.number||"",
+        complement:billingAddress.complement||"",
+        postalCode:billingAddress.cep||"",
+        province:billingAddress.neighborhood||""
       } : null
     });
 
