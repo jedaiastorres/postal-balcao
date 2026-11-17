@@ -1,9 +1,16 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 
+function loadRecentQuotes() {
+  try {
+    const value = JSON.parse(localStorage.getItem("postal_recent_quotes") || "[]");
+    return Array.isArray(value) ? value.filter(item => item && typeof item === "object").slice(0, 100) : [];
+  } catch { return []; }
+}
+
 const state = {
   config: null,
-  recent: JSON.parse(localStorage.getItem("postal_recent_quotes") || "[]"),
+  recent: loadRecentQuotes(),
   currentQuote: null,
   selectedOption: null,
   shipmentResult: null,
@@ -39,7 +46,7 @@ const viewMap = {
   financial: { el: "#financialView", title: "Recebimentos Asaas" },
   storeUsers: { el: "#storeUsersView", title: "Usuários do ponto" },
   cash: { el: "#cashView", title: "Meu Caixa" },
-  clients: { placeholder: ["Clientes", "Cadastro rápido de remetentes frequentes para acelerar o atendimento no balcão."] }
+  clients: { el: "#clientsView", title: "Clientes do ponto" }
 };
 
 function money(v) {
@@ -120,7 +127,7 @@ function showApp(user) {
   document.querySelectorAll(".owner-finance-only").forEach(el => el.classList.toggle("hidden", user?.role !== "STORE_OWNER"));
 
   const clerkPostingOnly = user?.role === "STORE_CLERK";
-  const clerkAllowedViews = new Set(["quote","orders","collections"]);
+  const clerkAllowedViews = new Set(["quote","orders","collections","clients"]);
   document.querySelectorAll(".sidebar .nav-item").forEach(btn => {
     if (clerkPostingOnly && !clerkAllowedViews.has(btn.dataset.view)) {
       btn.dataset.clerkHidden = "1";
@@ -261,8 +268,8 @@ function navigate(name) {
     toast("Área exclusiva da supervisão da rede.", "error");
     return;
   }
-  if (state.user?.role === "STORE_CLERK" && !["quote","shipment","orders","collections"].includes(name)) {
-    toast("Este usuário possui acesso às postagens e coletas do ponto.", "error");
+  if (state.user?.role === "STORE_CLERK" && !["quote","shipment","orders","collections","clients"].includes(name)) {
+    toast("Este usuário possui acesso às postagens, coletas e clientes do ponto.", "error");
     return;
   }
   if (["quote","shipment"].includes(name) && !["ADMIN","STORE_OWNER","STORE_CLERK","CLIENT"].includes(state.user?.role)) {
@@ -284,6 +291,9 @@ function navigate(name) {
   if (name === "referrals" && state.user?.role !== "STORE_OWNER") {
     toast("Área disponível para pontos parceiros.", "error");
     return;
+  }
+  if (name === "clients" && !["STORE_OWNER","STORE_CLERK"].includes(state.user?.role)) {
+    toast("Cadastro disponível para o dono e o atendente do ponto.","error"); return;
   }
   if (name === "collections" && !["ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS","CLIENT"].includes(state.user?.role)) {
     toast("Perfil sem acesso ao painel de coletas.", "error");
@@ -316,14 +326,24 @@ function navigate(name) {
   if (name === "clientOrders") window.PostalClient?.loadOperations?.();
   if (name === "wallet") window.PostalClient?.loadWallet?.();
   if (name === "connections") window.PostalClient?.loadConnections?.();
-  if (name === "collections") window.PostalClient?.loadCollections?.();
+  if (name === "collections") window.PostalClient?.loadCollections?.().catch(error=>toast(error.message,"error"));
   if (name === "referrals") window.PostalClient?.loadReferrals?.();
+  if (name === "clients") window.PostalClient?.loadPointClients?.();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 $$(".nav-item").forEach(btn => btn.addEventListener("click", () => navigate(btn.dataset.view)));
 $$("[data-go]").forEach(btn => btn.addEventListener("click", () => navigate(btn.dataset.go)));
-$("#mobileMenu").addEventListener("click", () => $(".sidebar").classList.toggle("open"));
+$("#mobileMenu").addEventListener("click", () => {
+  const open = $(".sidebar").classList.toggle("open");
+  $("#mobileMenu").setAttribute("aria-expanded", String(open));
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") {
+    $(".sidebar").classList.remove("open");
+    $("#mobileMenu").setAttribute("aria-expanded", "false");
+  }
+});
 
 ["altura","largura","comprimento"].forEach(id => {
   $(`#${id}`).addEventListener("input", () => {
@@ -367,7 +387,9 @@ function updateFiscalModePanels() {
   if (mode === "AUTHORIZED") {
     const enabled = Boolean(state.config?.fiscalLookupConfigured);
     $("#fiscalLookupAvailability").textContent = enabled
-      ? "A consulta utiliza somente uma integração fiscal autorizada. O titular do documento deve permitir o acesso."
+      ? (state.config?.fiscalLookupProvider === "CONSULTADANFE"
+        ? "Consulta DANFE: somente NF-e modelo 55. A API gratuita limita datas e quantidade de consultas. Confirme autorização; se não houver dados, importe o XML."
+        : "A consulta utiliza somente uma integração fiscal autorizada. O titular do documento deve permitir o acesso.")
       : "Consulta automática ainda não habilitada: falta configurar acesso fiscal autorizado. Você pode importar o XML ou preencher manualmente.";
   }
 }
@@ -646,6 +668,7 @@ function renderResults(result, payload) {
 
     card.innerHTML = `
       <div class="result-brand">
+        ${globalThis.PostalBrand?.carrierLogo(option.transportadora) ? `<img class="carrier-logo" src="${globalThis.PostalBrand.carrierLogo(option.transportadora)}" alt="" width="100" height="40" />` : ""}
         <strong>${escapeHtml(option.transportadora)}</strong>
         <span>${escapeHtml(option.produto)}</span>
         ${badge ? `<em class="result-badge">${badge}</em>` : ""}
@@ -1087,6 +1110,9 @@ function receiptPayload(preview = false) {
   const r = state.shipmentResult || {};
   return {
     preview,
+    isSimulation: Boolean(r.isSimulation || r.simulator),
+    paymentStatus: r.paymentStatus || "",
+    storeName: state.user?.storeName || "",
     createdAt: r.postedAt || r.createdAt || new Date().toISOString(),
     trackingCode: preview ? "SERA GERADO APOS A POSTAGEM" : (r.trackingCode || ""),
     publicTrackingUrl: preview ? "" : (r.trackingCode ? ("/rastreio?codigo="+encodeURIComponent(r.trackingCode)) : ""),
@@ -1124,8 +1150,13 @@ function addressText(p) {
     .filter(Boolean).join(" - ");
 }
 
+function receiptBrandHtml() {
+  const logo = globalThis.PostalBrand?.receiptLogo;
+  return logo ? `<div class="receipt-brand"><img class="receipt-logo" src="${logo}" alt="Postal Serviços" /></div>` : '<div class="brand">POSTAL SERVIÇOS</div>';
+}
+
 function buildReceiptHtml(data) {
-  const width = Number(state.config?.receiptWidthMm || 80);
+  const width = Number(state.config?.receiptWidthMm) === 58 ? 58 : 80;
   const inner = width === 58 ? 52 : 72;
   const created = new Date(data.createdAt || Date.now()).toLocaleString("pt-BR");
   const sender = data.sender || {};
@@ -1136,7 +1167,7 @@ function buildReceiptHtml(data) {
   const extras = (data.addons || []).map(item =>
     `<div class="item"><span>${escapeHtml(item.name)} x${Number(item.quantity || 1)}</span><b>${money(Number(item.totalPrice || 0))}</b></div>`
   ).join("");
-  const preview = data.preview ? '<div class="preview">PRÉVIA — SEM VALIDADE</div>' : "";
+  const preview = data.preview ? '<div class="preview">PRÉVIA — SEM VALIDADE</div>' : (data.isSimulation ? '<div class="preview">HOMOLOGAÇÃO — SEM VALIDADE LOGÍSTICA</div>' : "");
   const trackingCodes = Array.isArray(data.trackingCodes) && data.trackingCodes.length
     ? data.trackingCodes.filter(Boolean)
     : [data.trackingCode].filter(Boolean);
@@ -1153,18 +1184,18 @@ function buildReceiptHtml(data) {
   const volumeRows = Array.isArray(data.volumes) && data.volumes.length > 1
     ? `<div class="dash"></div><div class="section">VOLUMES</div>${data.volumes.map(v => `<div class="volume"><b>Volume ${v.index}</b><br>${escapeHtml(String(v.weightKg))} kg · ${escapeHtml(v.dimensions)}<br>Valor declarado: ${money(v.declaredValue)}${v.trackingCode ? `<br>Rastreio: <b>${escapeHtml(v.trackingCode)}</b>` : ""}</div>`).join("")}`
     : "";
-  const paidLabel = data.preview ? "PRÉVIA — NÃO PAGO" : (String(data.paymentStatus || "PAID").toUpperCase() === "PAID" ? "PAGO" : String(data.paymentStatus || ""));
+  const paidLabel = data.preview ? "PRÉVIA — NÃO PAGO" : (String(data.paymentStatus || "PENDING").toUpperCase() === "PAID" ? "PAGO" : String(data.paymentStatus || "PENDENTE"));
 
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Comprovante Postal</title>
   <style>
   @page{size:${width}mm auto;margin:2mm}*{box-sizing:border-box}body{width:${inner}mm;margin:0 auto;font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;font-size:10.5px;line-height:1.28}
-  .receipt{width:100%;padding:1mm 0}.center{text-align:center}.brand{font-size:18px;font-weight:900;letter-spacing:.7px}.brand-sub{font-size:9px;font-weight:800;letter-spacing:1.2px}
+  .receipt-brand{display:flex;align-items:center;justify-content:center;gap:2mm;margin:2mm 0 3mm}.receipt-logo{display:block;width:30mm;height:20mm;object-fit:contain;filter:grayscale(1) contrast(2)}.receipt{width:100%;padding:1mm 0;overflow-wrap:anywhere}.row>*,.item>*{min-width:0}.row>span{flex:0 0 48%}.row.total>span{flex-basis:55%}.row>b{flex:1}.row b,.item b{text-align:right}.tracking{border:1px solid #000;padding:2mm}.receipt-brand .brand-sub{text-align:left}.center{text-align:center}.brand{font-size:18px;font-weight:900;letter-spacing:.7px}.brand-sub{font-size:9px;font-weight:800;letter-spacing:1.2px}
   h1{font-size:12px;margin:3mm 0 1mm}.preview{border:1px solid #000;padding:1.5mm;margin:2mm 0;font-weight:900;text-align:center}.dash{border-top:1px dashed #000;margin:2.2mm 0}
   .label{font-size:8px;text-transform:uppercase;font-weight:800}.tracking{font-family:"Courier New",monospace;font-size:17px;font-weight:900;letter-spacing:.5px;word-break:break-all;margin:1mm 0}
   .section{font-weight:900;font-size:10px;margin-bottom:1mm}.person{font-weight:900;font-size:11px}.small{font-size:9px}.tiny{font-size:8px;word-break:break-all}.row,.item{display:flex;justify-content:space-between;gap:2mm;margin:.7mm 0}
   .volume{font-size:8.5px;border-top:1px dotted #000;padding:1.2mm 0}.volume:first-of-type{border-top:0}.total{font-size:14px;font-weight:900}.footer{text-align:center;font-size:8.5px;margin-top:3mm}.no-print{text-align:center;margin-top:4mm}.print-btn{padding:3mm 6mm;border:1px solid #000;background:#fff;font-weight:900}@media print{.no-print{display:none}body{width:${inner}mm}}
   </style></head><body><div class="receipt">
-  <div class="center"><div class="brand">POSTAL</div><div class="brand-sub">SERVIÇOS</div><h1>COMPROVANTE DE PAGAMENTO E POSTAGEM</h1><div class="small">${escapeHtml(created)}</div>${data.storeName ? `<div class="small">Ponto: ${escapeHtml(data.storeName)}</div>` : ""}${data.orderId ? `<div class="tiny">Pedido: ${escapeHtml(String(data.orderId).slice(0,12).toUpperCase())}</div>` : ""}</div>
+  <div class="center">${receiptBrandHtml()}<h1>COMPROVANTE DE PAGAMENTO E POSTAGEM</h1><div class="small">${escapeHtml(created)}</div>${data.storeName ? `<div class="small">Ponto: ${escapeHtml(data.storeName)}</div>` : ""}${data.orderId ? `<div class="tiny">Pedido: ${escapeHtml(String(data.orderId).slice(0,12).toUpperCase())}</div>` : ""}</div>
   ${preview}<div class="dash"></div>
   <div class="center">${trackingBlock}</div>
   <div class="dash"></div><div class="section">REMETENTE</div><div class="person">${escapeHtml(sender.name)}</div><div>Doc.: ${escapeHtml(sender.document)}</div><div>Tel.: ${escapeHtml(sender.phone)}</div>${sender.email ? `<div>E-mail: ${escapeHtml(sender.email)}</div>` : ""}<div class="small">${escapeHtml(addressText(sender))}</div>
@@ -1179,7 +1210,7 @@ function buildReceiptHtml(data) {
   ${Number(data.hubTransferTotal || 0) ? `<div class="row"><span>Transferência ao hub</span><b>${money(data.hubTransferTotal)}</b></div>` : ""}
   ${Number(data.addonsTotal || 0) ? `<div class="row"><span>Adicionais</span><b>${money(data.addonsTotal)}</b></div>` : ""}
   ${Number(data.paymentFee || 0) ? `<div class="row"><span>Taxa pagamento</span><b>${money(data.paymentFee)}</b></div>` : ""}
-  <div class="row total"><span>TOTAL PAGO</span><b>${money(data.salePrice)}</b></div><div class="row"><span>Forma</span><b>${escapeHtml(data.paymentMethod || "-")}</b></div><div class="row"><span>Status</span><b>${escapeHtml(paidLabel)}</b></div>${ids}
+  <div class="row total"><span>${!data.preview && String(data.paymentStatus || "").toUpperCase() === "PAID" ? "TOTAL PAGO" : "TOTAL DO ENVIO"}</span><b>${money(data.salePrice)}</b></div><div class="row"><span>Forma</span><b>${escapeHtml(data.paymentMethod || "-")}</b></div><div class="row"><span>Status</span><b>${escapeHtml(paidLabel)}</b></div>${ids}
   <div class="dash"></div><div class="footer">Guarde este comprovante até a conclusão da entrega.<br>Acompanhe pelo código de rastreio.<br>Este comprovante não substitui documento fiscal.</div>
   <div class="no-print"><button class="print-btn" onclick="window.print()">IMPRIMIR</button></div></div></body></html>`;
 }
@@ -1205,7 +1236,10 @@ function openReceipt(data, autoPrint = false) {
   target.document.open();
   target.document.write(buildReceiptHtml(data));
   target.document.close();
-  if (autoPrint) setTimeout(() => { target.focus(); target.print(); }, 350);
+    if (autoPrint) {
+    Promise.all([...target.document.images].map(img => img.decode().catch(() => {})))
+      .then(() => { if (!target.closed) { target.focus(); target.print(); } });
+  }
 }
 
 async function openProviderDocument(url) {
@@ -1215,7 +1249,7 @@ async function openProviderDocument(url) {
   target.document.write("<p style=\"font-family:Arial\">Carregando documento...</p>");
   try {
     const response = await fetch("/api/documento-proxy", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url })
+      method: "POST", headers: { "content-type": "application/json", "x-csrf-token": state.csrfToken }, body: JSON.stringify({ url })
     });
     if (!response.ok) throw new Error("Não foi possível abrir o documento.");
     const blob = await response.blob();
@@ -1342,6 +1376,7 @@ function receiptPayloadFromOrder(order) {
     : (volumeDetails[0]?.dimensions || "-");
   return {
     preview: false,
+    isSimulation: Boolean(order.isSimulation || order.simulator),
     orderId: order.id || "",
     storeName: order.storeName || state.user?.storeName || "",
     createdAt: order.paidAt || order.shippedAt || order.createdAt || new Date().toISOString(),

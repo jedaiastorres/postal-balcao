@@ -197,3 +197,8 @@ A V1.7 aproxima o portal cliente de uma central de e-commerce:
 Para pedidos importados, a ponte de e-commerce pode enviar no campo payload dados normalizados de remetente, destinatário, pacote e itens. O portal também aceita aliases comuns e abre o pedido para conferência antes da cotação.
 
 A impressão em lote usa PDFs A6 das etiquetas reais quando disponíveis. Em homologação, o sistema gera uma etiqueta A6 claramente marcada como SEM VALIDADE LOGÍSTICA para testar seleção, impressão e expedição sem consumir uma postagem real.
+
+
+## Clientes e coletas diretamente no ponto
+
+O menu Clientes permite ao dono e ao atendente cadastrar uma conta de cliente vinculada ao ponto e reutilizar contato/endereço como remetente ou numa coleta. A tela Coletas contém a criação avulsa; a cotação tem o botão Criar coleta. Solicitações avulsas possuem valor previsto e não debitam carteira nem remuneram o ponto sem pagamento vinculado. Regras, permissões, idempotência e validação estão em [regras-operacao-ponto.md](docs/regras-operacao-ponto.md). Internacional permanece fora da interface até haver integração.

@@ -10,6 +10,8 @@ const clientDb = require("./client_db");
 const bulkShipping = require("./bulk_shipping");
 const asaas = require("./asaas");
 const ecommerce = require("./ecommerce_connectors");
+const fiscalLookup = require("./fiscal_lookup");
+const pointRules = require("./public/point_rules");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -47,9 +49,12 @@ const REFERRAL_EARNING_PER_SHIPMENT = Math.max(0, Number(process.env.REFERRAL_EA
 const HUB_TRANSFER_FEE_PER_PACKAGE = Math.max(0, Number(process.env.HUB_TRANSFER_FEE_PER_PACKAGE || 5));
 const FISCAL_LOOKUP_URL = String(process.env.FISCAL_LOOKUP_URL || "").trim();
 const FISCAL_LOOKUP_TOKEN = String(process.env.FISCAL_LOOKUP_TOKEN || "").trim();
+const FISCAL_LOOKUP_PROVIDER = String(process.env.FISCAL_LOOKUP_PROVIDER || "AUTHORIZED").toUpperCase();
 const FISCAL_LOOKUP_ENABLED = String(process.env.FISCAL_LOOKUP_ENABLED || "false").toLowerCase() === "true";
 function fiscalLookupConfigured() {
-  if (!FISCAL_LOOKUP_ENABLED || !FISCAL_LOOKUP_URL || !FISCAL_LOOKUP_TOKEN) return false;
+  if (!FISCAL_LOOKUP_ENABLED) return false;
+  if (FISCAL_LOOKUP_PROVIDER === "CONSULTADANFE") return true;
+  if (!FISCAL_LOOKUP_URL || !FISCAL_LOOKUP_TOKEN) return false;
   try {
     const url = new URL(FISCAL_LOOKUP_URL);
     return url.protocol === "https:" && !url.username && !url.password;
@@ -112,13 +117,15 @@ app.get("/rastreio", (_req,res)=>{
 
 
 function parseCookies(req) {
-  const raw = req.headers.cookie || "";
-  return Object.fromEntries(
-    raw.split(";").map(v => v.trim()).filter(Boolean).map(part => {
-      const idx = part.indexOf("=");
-      return [decodeURIComponent(part.slice(0, idx)), decodeURIComponent(part.slice(idx + 1))];
-    })
-  );
+  const cookies = Object.create(null);
+  for (const part of String(req.headers.cookie || "").split(";")) {
+    const idx = part.indexOf("=");
+    if (idx < 1) continue;
+    try {
+      cookies[decodeURIComponent(part.slice(0, idx).trim())] = decodeURIComponent(part.slice(idx + 1).trim());
+    } catch { /* Ignore invalid percent encoding from untrusted clients. */ }
+  }
+  return cookies;
 }
 
 function signSession(payload) {
@@ -430,6 +437,20 @@ function requireAuth(req, res, next) {
   if (!session) return res.status(401).json({ error: "Sessão expirada. Entre novamente." });
   req.user = session;
   next();
+}
+
+async function requireCurrentUser(req,res,next){
+  try {
+    const user=await db.getUserById(req.user.userId);
+    if(!user?.active||user.role!==req.user.role||(user.store_id||null)!==(req.user.storeId||null)){
+      return res.status(403).json({error:"Seu acesso foi alterado. Entre novamente."});
+    }
+    if(req.user.storeId){
+      const store=await db.getStore(req.user.storeId);
+      if(!store?.active)return res.status(403).json({error:"Ponto inativo."});
+    }
+    next();
+  }catch(error){return res.status(503).json({error:"Não foi possível validar o acesso. Tente novamente."});}
 }
 
 function requireIntegrationAuth(req, res, next) {
@@ -1645,6 +1666,7 @@ app.get("/api/public-config", (_req, res) => {
     paymentsEnvironment: paymentRuntime.environment?.keyEnvironment || "unknown",
     databaseConfigured: Boolean(process.env.DATABASE_URL),
     fiscalLookupConfigured: fiscalLookupConfigured(),
+    fiscalLookupProvider: FISCAL_LOOKUP_PROVIDER,
     version: "1.10.0",
     paymentSimulatorEnabled: PAYMENT_SIMULATOR_ENABLED && !asaas.configured(),
     clientPickupFeePerPackage: CLIENT_PICKUP_FEE_PER_PACKAGE,
@@ -3094,39 +3116,65 @@ app.get("/api/store/referral", requireAuth, requireRole("STORE_OWNER"), async (r
   }catch(error){res.status(500).json({error:"Não foi possível carregar suas indicações."});}
 });
 
-app.post("/api/store/clients", requireAuth, requireRole("STORE_OWNER"), async (req,res)=>{
-  try{
-    if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
-    const email=String(req.body.email||"").trim().toLowerCase();
-    const name=String(req.body.name||"").trim();
-    if(!email||!name) return res.status(400).json({error:"Nome e e-mail são obrigatórios."});
-    if(await db.findUserByEmail(email)) return res.status(409).json({error:"Já existe uma conta com este e-mail."});
-    const generated=!req.body.password;
-    const password=String(req.body.password||crypto.randomBytes(6).toString("base64url").slice(0,8));
-    const user=await db.createUser({
-      storeId:null,email,name,passwordHash:hashPassword(password),role:"CLIENT",active:true
-    });
-    await clientDb.createCustomerAccount({
-      userId:user.id,document:cleanDigits(req.body.document||""),phone:String(req.body.phone||""),
-      companyName:String(req.body.companyName||""),referralStoreId:req.user.storeId,defaultSender:req.body.defaultSender||{}
-    });
-    await audit(req,"REGISTER_REFERRED_CLIENT","CLIENT",user.id,{email});
-    res.status(201).json({
-      ok:true,client:{id:user.id,email,name},
-      temporaryPassword:generated?password:undefined,
-      message:"Cliente cadastrado e vinculado ao ponto. O ponto receberá R$ 0,50 por envio desse cliente."
-    });
-  }catch(error){res.status(500).json({error:"Não foi possível cadastrar o cliente."});}
+app.get("/api/store/clients", requireAuth, requireRole("STORE_OWNER","STORE_CLERK"), requireCurrentUser, async(req,res)=>{
+  if(!req.user.storeId)return res.status(400).json({error:"Usuário sem ponto vinculado."});
+  try {res.json({clients:await clientDb.listClientsByStore(req.user.storeId,250)});}
+  catch(error){res.status(500).json({error:"Não foi possível carregar os clientes do ponto."});}
 });
 
-app.post("/api/store/collections", requireAuth, requireRole("STORE_OWNER","STORE_CLERK"), async (req,res)=>{
+app.post("/api/store/clients", requireAuth, requireRole("STORE_OWNER","STORE_CLERK"), requireCurrentUser, async (req,res)=>{
+  try{
+    pointRules.assert(req.user.storeId,"Usuário sem ponto vinculado.");
+    const email=String(req.body.email||"").trim().toLowerCase();
+    const name=String(req.body.name||"").trim();
+    const document=cleanDigits(req.body.document||"");
+    const phone=cleanDigits(req.body.phone||"");
+    pointRules.assert(name.length>=2&&name.length<=160&&email.length<=254&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email),"Informe nome e e-mail válidos.");
+    pointRules.assert(!document||[11,14].includes(document.length),"CPF/CNPJ deve conter 11 ou 14 dígitos.");
+    pointRules.assert(!phone||[10,11].includes(phone.length),"Informe telefone com DDD.");
+    const generated=!req.body.password;
+    const password=generated?crypto.randomBytes(12).toString("base64url"):String(req.body.password);
+    pointRules.assert(password.length>=8&&password.length<=128,"A senha deve ter de 8 a 128 caracteres.");
+    const raw=req.body.defaultSender||{};
+    const defaultSender={name,document,phone,email};
+    for(const field of ["address","number","complement","neighborhood","cep","city"]){
+      defaultSender[field]=String(raw[field]||"").trim().slice(0,200);
+    }
+    defaultSender.cep=cleanDigits(defaultSender.cep);
+    pointRules.assert(!defaultSender.cep||defaultSender.cep.length===8,"CEP inválido.");
+    const user=await clientDb.registerPointClient({storeId:req.user.storeId,email,name,passwordHash:hashPassword(password),document,phone,defaultSender});
+    await audit(req,"REGISTER_REFERRED_CLIENT","CLIENT",user.id,{email});
+    res.status(201).json({ok:true,client:user,temporaryPassword:generated?password:undefined,
+      message:"Cliente cadastrado e vinculado ao ponto. O cadastro não movimenta saldo nem gera comissão; a indicação segue as regras dos envios emitidos."});
+  }catch(error){
+    if(error.code==="23505")return res.status(409).json({error:"Já existe uma conta com este e-mail. O vínculo existente foi preservado."});
+    res.status(error.status||500).json({error:error.status?error.message:"Não foi possível cadastrar o cliente."});
+  }
+});
+
+function collectionForRole(collection,role){
+  if(!["STORE_CLERK","OPS"].includes(role))return collection;
+  const safe={...collection};
+  for(const key of ["point_rate","point_compensation","postal_compensation"])delete safe[key];
+  return safe;
+}
+
+app.post("/api/store/collections", requireAuth, requireRole("STORE_OWNER","STORE_CLERK"), requireCurrentUser, async (req,res)=>{
   try{
     if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
     const body=req.body||{};
     const requesterName=String(body.requesterName||"").trim();
-    const requesterPhone=String(body.requesterPhone||"").trim();
+    const requesterPhone=cleanDigits(body.requesterPhone||"");
     const requesterDocument=cleanDigits(body.requesterDocument||"");
-    const packageCount=Math.max(1,Math.min(200,Number(body.packageCount||1)));
+    pointRules.assert(requesterName.length>=2&&requesterName.length<=160,"Informe nome de 2 a 160 caracteres.");
+    pointRules.assert(!requesterDocument||[11,14].includes(requesterDocument.length),"CPF/CNPJ deve conter 11 ou 14 dígitos.");
+    if(body.clientUserId)pointRules.assert(/^[0-9a-f-]{36}$/i.test(String(body.clientUserId)),"Cliente inválido.");
+    const packageCount=Number(body.packageCount??1);
+    const pricing=pointRules.collectionPricing(packageCount,CLIENT_PICKUP_FEE_PER_PACKAGE,POINT_PICKUP_EARNING_PER_PACKAGE);
+    pointRules.assert(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(body.requestKey||"")),"Identificador da solicitação inválido. Atualize a página.");
+    const store=await db.getStore(req.user.storeId);
+    pointRules.assert(store?.active,"Ponto inativo ou inexistente.",403);
+    if(body.scheduledFor)pointRules.assert(Number.isFinite(Date.parse(body.scheduledFor))&&Date.parse(body.scheduledFor)>Date.now(),"Escolha uma data futura para a coleta.");
     const address=body.address&&typeof body.address==="object"?body.address:{};
     const cep=cleanDigits(address.cep||"");
     const street=String(address.address||"").trim();
@@ -3134,19 +3182,21 @@ app.post("/api/store/collections", requireAuth, requireRole("STORE_OWNER","STORE
     const city=String(address.city||"").trim();
 
     if(!requesterName) return res.status(400).json({error:"Informe o nome do cliente."});
-    if(!requesterPhone) return res.status(400).json({error:"Informe o telefone do cliente."});
+    if(![10,11].includes(requesterPhone.length)) return res.status(400).json({error:"Informe telefone com DDD."});
     if(!street||!number||cep.length!==8||!city){
       return res.status(400).json({error:"Informe endereço, número, CEP e cidade para a coleta."});
     }
 
     const feePerPackage=CLIENT_PICKUP_FEE_PER_PACKAGE;
     const pointRate=POINT_PICKUP_EARNING_PER_PACKAGE;
-    const totalFee=round2(feePerPackage*packageCount);
-    const pointCompensation=round2(pointRate*packageCount);
-    const postalCompensation=round2(totalFee-pointCompensation);
+    const {totalFee,pointCompensation,postalCompensation}=pricing;
 
+    if(body.clientUserId){
+      const account=await clientDb.getCustomerAccount(body.clientUserId);
+      pointRules.assert(account?.referral_store_id===req.user.storeId,"Cliente não pertence a este ponto.",403);
+    }
     const collection=await clientDb.createCollectionRequest({
-      clientUserId:null,
+      clientUserId:body.clientUserId||null,
       freightOrderId:null,
       serviceType:"PICKUP",
       status:"ASSIGNED",
@@ -3167,13 +3217,15 @@ app.post("/api/store/collections", requireAuth, requireRole("STORE_OWNER","STORE
         uf:String(address.uf||"").trim().toUpperCase()
       },
       scheduledFor:body.scheduledFor||null,
-      notes:String(body.notes||"").trim(),
+      notes:String(body.notes||"").trim().slice(0,1000),
       requesterName,
       requesterPhone,
       requesterDocument,
-      createdByUserId:req.user.userId
+      createdByUserId:req.user.userId,
+      requestKey:body.requestKey
     });
 
+    pointRules.assert(collection.assigned_store_id===req.user.storeId,"Esta solicitação já foi direcionada a outro ponto.",409);
     await audit(req,"CREATE_STORE_COLLECTION","COLLECTION",collection.id,{
       storeId:req.user.storeId,
       requesterName,
@@ -3182,78 +3234,37 @@ app.post("/api/store/collections", requireAuth, requireRole("STORE_OWNER","STORE
     });
 
     res.status(201).json({
-      collection,
-      pricing:{
-        packageCount,
-        feePerPackage,
-        totalFee
-      },
-      message:"Ordem de coleta criada e vinculada ao ponto."
+      collection:collectionForRole(collection,req.user.role),
+      pricing:{packageCount:collection.package_count,feePerPackage:Number(collection.fee_per_package),totalFee:Number(collection.total_fee)},
+      message:"Coleta registrada. Valor previsto, sem débito ou remuneração automática; pagamento ainda não vinculado."
     });
   }catch(error){
     console.error("store collection create error:",error.message);
-    res.status(500).json({error:"Não foi possível criar a ordem de coleta."});
+    res.status(error.status||500).json({error:error.status?error.message:"Não foi possível criar a ordem de coleta."});
   }
 });
 
-app.get("/api/store/collections", requireAuth, requireRole("STORE_OWNER","STORE_CLERK","OPS"), async (req,res)=>{
+app.get("/api/store/collections", requireAuth, requireRole("STORE_OWNER","STORE_CLERK","OPS"), requireCurrentUser, async (req,res)=>{
   try{
     if(!req.user.storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
     const collections=await clientDb.listCollections({storeId:req.user.storeId},100);
-    const earnings=req.user.role==="STORE_CLERK"?[]:await clientDb.listPointEarnings(req.user.storeId,100);
+    const earnings=["STORE_CLERK","OPS"].includes(req.user.role)?[]:await clientDb.listPointEarnings(req.user.storeId,100);
     res.json({
-      collections:collections.map(item=>{
-        if(req.user.role!=="STORE_CLERK") return item;
-        const safe={...item};
-        delete safe.point_rate;
-        delete safe.point_compensation;
-        delete safe.postal_compensation;
-        return safe;
-      }),
+      collections:collections.map(item=>collectionForRole(item,req.user.role)),
       earnings
     });
   }catch(error){res.status(500).json({error:"Não foi possível carregar as coletas."});}
 });
 
-app.patch("/api/collections/:id", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req,res)=>{
-  try{
-    const current=await clientDb.getCollection(req.params.id);
-    if(!current) return res.status(404).json({error:"Coleta não encontrada."});
-    if(!["ADMIN","SUPERVISOR"].includes(req.user.role)&&current.assigned_store_id!==req.user.storeId){
-      return res.status(403).json({error:"Esta coleta não está atribuída ao seu ponto."});
-    }
-    const status=String(req.body.status||current.status).toUpperCase();
-    const allowed=new Set(["REQUESTED","ASSIGNED","ACCEPTED","EN_ROUTE","COLLECTED","WAITING_DROPOFF","RECEIVED_AT_POINT","COMPLETED","DECLINED","CANCELED"]);
-    if(!allowed.has(status)) return res.status(400).json({error:"Status de coleta inválido."});
-    const assignedStoreId=["ADMIN","SUPERVISOR"].includes(req.user.role)&&req.body.assignedStoreId!==undefined
-      ?(req.body.assignedStoreId||null):current.assigned_store_id;
-
-    let pointRate=Number(current.point_rate||0),pointComp=Number(current.point_compensation||0),postalComp=Number(current.postal_compensation||0);
-    if(["ADMIN","SUPERVISOR"].includes(req.user.role)&&assignedStoreId&&assignedStoreId!==current.assigned_store_id){
-      pointRate=current.service_type==="PICKUP"?POINT_PICKUP_EARNING_PER_PACKAGE:POINT_DROPOFF_EARNING_PER_PACKAGE;
-      pointComp=round2(pointRate*Number(current.package_count||1));
-      postalComp=round2(Number(current.total_fee||0)-pointComp);
-    }
-
-    const updated=await clientDb.updateCollection(current.id,{
-      status,assignedStoreId,pointRate,pointCompensation:pointComp,postalCompensation:postalComp,
-      scheduledFor:req.body.scheduledFor,notes:req.body.notes
-    });
-
-    const earnsPickup=current.service_type==="PICKUP"&&["COLLECTED","COMPLETED"].includes(status);
-    const earnsDropoff=current.service_type==="DROPOFF"&&["RECEIVED_AT_POINT","COMPLETED"].includes(status);
-    if((earnsPickup||earnsDropoff)&&updated.assigned_store_id){
-      const order=updated.freight_order_id?await db.getOrder(updated.freight_order_id):null;
-      await clientDb.createPointEarning({
-        storeId:updated.assigned_store_id,clientUserId:updated.client_user_id,
-        earningType:earnsPickup?"PICKUP":"DROPOFF",amount:Number(updated.point_compensation||0),
-        referenceType:"COLLECTION",referenceId:updated.id,status:order?.is_simulation?"SIMULATED":"EARNED",
-        metadata:{packages:Number(updated.package_count||1),serviceType:updated.service_type}
-      });
-    }
-    await audit(req,"UPDATE_COLLECTION","COLLECTION",updated.id,{status,assignedStoreId:updated.assigned_store_id});
-    res.json({collection:updated});
-  }catch(error){res.status(500).json({error:"Não foi possível atualizar a coleta."});}
+app.patch("/api/collections/:id", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), requireCurrentUser, async(req,res)=>{
+  try {
+    if(req.body.scheduledFor)pointRules.assert(Number.isFinite(Date.parse(req.body.scheduledFor))&&Date.parse(req.body.scheduledFor)>Date.now(),"Escolha uma data futura para a coleta.");
+    const updated=await clientDb.transitionCollection({collectionId:req.params.id,user:req.user,status:req.body.status,
+      assignedStoreId:req.body.assignedStoreId,scheduledFor:req.body.scheduledFor,notes:req.body.notes===undefined?undefined:String(req.body.notes).slice(0,1000),
+      pickupRate:POINT_PICKUP_EARNING_PER_PACKAGE,dropoffRate:POINT_DROPOFF_EARNING_PER_PACKAGE});
+    await audit(req,"UPDATE_COLLECTION","COLLECTION",updated.id,{status:updated.status,assignedStoreId:updated.assigned_store_id});
+    res.json({collection:collectionForRole(updated,req.user.role)});
+  }catch(error){res.status(error.status||500).json({error:error.status?error.message:"Não foi possível atualizar a coleta."});}
 });
 
 app.get("/api/admin/collections", requireAuth, requireRole("ADMIN","SUPERVISOR"), async (_req,res)=>{
@@ -4281,26 +4292,32 @@ app.post("/api/fiscal-documents/lookup", requireAuth, requireRole("ADMIN","SUPER
   if(req.body?.consent!==true) return res.status(403).json({error:"É necessário declarar autorização para consultar o documento."});
   if(!fiscalLookupConfigured()) return res.status(503).json({error:"Consulta fiscal autorizada ainda não configurada. Use a importação de XML ou o preenchimento manual."});
   try {
-    const response=await fetch(FISCAL_LOOKUP_URL,{
-      method:"POST",
-      headers:{"Content-Type":"application/json","Accept":"application/json","Authorization":"Bearer "+FISCAL_LOOKUP_TOKEN},
-      body:JSON.stringify({type,key,purpose:"POSTAL_SHIPPING_QUOTE"}),
-      redirect:"error",
-      signal:AbortSignal.timeout(20000)
-    });
-    if([401,403].includes(response.status))return res.status(403).json({error:"O provedor fiscal não autorizou o acesso a este documento."});
-    if(response.status===404)return res.status(404).json({error:"Documento não encontrado pelo provedor fiscal autorizado."});
-    if(!response.ok)return res.status(502).json({error:"O serviço fiscal está indisponível. Você pode importar o XML ou preencher manualmente."});
-    if(!String(response.headers.get("content-type")||"").toLowerCase().includes("application/json")){
-      return res.status(502).json({error:"O provedor fiscal não retornou dados estruturados válidos."});
+    let doc;
+    if (FISCAL_LOOKUP_PROVIDER === "CONSULTADANFE") {
+      if (type !== "NFE") return res.status(400).json({error:"Consulta DANFE consulta somente NF-e modelo 55 por chave. Para DC-e, importe o XML."});
+      doc = await fiscalLookup.consultDanfe(key);
+    } else {
+      const response=await fetch(FISCAL_LOOKUP_URL,{
+        method:"POST",
+        headers:{"Content-Type":"application/json","Accept":"application/json","Authorization":"Bearer "+FISCAL_LOOKUP_TOKEN},
+        body:JSON.stringify({type,key,purpose:"POSTAL_SHIPPING_QUOTE"}),
+        redirect:"error",
+        signal:AbortSignal.timeout(20000)
+      });
+      if([401,403].includes(response.status))return res.status(403).json({error:"O provedor fiscal não autorizou o acesso a este documento."});
+      if(response.status===404)return res.status(404).json({error:"Documento não encontrado pelo provedor fiscal autorizado."});
+      if(!response.ok)return res.status(502).json({error:"O serviço fiscal está indisponível. Você pode importar o XML ou preencher manualmente."});
+      if(!String(response.headers.get("content-type")||"").toLowerCase().includes("application/json")){
+        return res.status(502).json({error:"O provedor fiscal não retornou dados estruturados válidos."});
+      }
+      const raw=await response.text();
+      if(raw.length>3000000)return res.status(502).json({error:"Documento muito grande para consulta."});
+      const payload=JSON.parse(raw);
+      if(payload.authorized !== true){
+        return res.status(403).json({error:"O provedor não confirmou autorização de acesso ao XML."});
+      }
+      doc=payload.document || payload.data || payload;
     }
-    const raw=await response.text();
-    if(raw.length>3000000)return res.status(502).json({error:"Documento muito grande para consulta."});
-    const payload=JSON.parse(raw);
-    if(payload.authorized !== true){
-      return res.status(403).json({error:"O provedor não confirmou autorização de acesso ao XML."});
-    }
-    const doc=payload.document || payload.data || payload;
     if(String(doc?.type||"").toUpperCase()!==type || cleanDigits(doc?.key)!==key ||
        cleanDigits(doc?.sender?.cep).length!==8 || cleanDigits(doc?.recipient?.cep).length!==8 ||
        !Array.isArray(doc?.items)){
@@ -4324,17 +4341,18 @@ app.post("/api/fiscal-documents/lookup", requireAuth, requireRole("ADMIN","SUPER
       quantity:Number(x.quantity||1),
       value:Number(x.value||0)
     })).filter(x=>x.description&&Number.isFinite(x.quantity)&&x.quantity>0&&Number.isFinite(x.value)&&x.value>=0);
-    await audit(req,"FISCAL_DOCUMENT_LOOKUP","FISCAL_DOCUMENT",type,{type,keySuffix:key.slice(-4),source:"AUTHORIZED"});
+    await audit(req,"FISCAL_DOCUMENT_LOOKUP","FISCAL_DOCUMENT",type,{type,keySuffix:key.slice(-4),source:FISCAL_LOOKUP_PROVIDER});
     return res.json({
       document:{
         type,key,sender:safeParty(doc.sender),recipient:safeParty(doc.recipient),items:safeItems,
         declaredValue:Number.isFinite(Number(doc.declaredValue))?Number(doc.declaredValue):0,
         volumeCount:Math.max(0,Math.min(50,Number(doc.volumeCount)||0))||null,
         grossWeightKg:Number(doc.grossWeightKg)>0?Number(doc.grossWeightKg):null,
-        source:"AUTHORIZED_LOOKUP"
+        source:FISCAL_LOOKUP_PROVIDER === "CONSULTADANFE" ? "CONSULTADANFE_LOOKUP" : "AUTHORIZED_LOOKUP"
       }
     });
   } catch(error){
+    if ([400,404,422,429].includes(error.status)) return res.status(error.status).json({error:error.message});
     console.warn("fiscal lookup failed",String(error?.name||"UnknownError"));
     return res.status(502).json({error:"Não foi possível concluir a consulta autorizada. Importe o XML ou preencha manualmente."});
   }
@@ -5071,15 +5089,19 @@ app.post("/api/documento-proxy", requireAuth, async (req, res) => {
 
   try {
     const rawUrl = String(req.body.url || "");
-    const allowedPrefix = `${API_URL}/package/`;
-
-    if (!rawUrl.startsWith(allowedPrefix)) {
+    const allowed = new URL(`${API_URL}/package/`);
+    let documentUrl;
+    try { documentUrl = new URL(rawUrl); } catch {
+      return res.status(400).json({ error: "URL de documento invalida." });
+    }
+    if (documentUrl.origin !== allowed.origin || !documentUrl.pathname.startsWith(allowed.pathname) || documentUrl.username || documentUrl.password) {
       return res.status(400).json({ error: "URL de documento invalida." });
     }
 
-    const response = await fetch(rawUrl, {
+    const response = await fetch(documentUrl.href, {
       method: "GET",
       headers: providerHeaders(),
+      redirect: "error",
       signal: AbortSignal.timeout(30000)
     });
 
@@ -5111,6 +5133,9 @@ async function ensureBootstrapAdmin() {
 
   const existing = await db.findUserByEmail(APP_USER);
   if (!existing) {
+    if (process.env.NODE_ENV === "production" && APP_PASSWORD === "postal123" && !ADMIN_PASSWORD_RESET_HASH.startsWith("pbkdf2$")) {
+      throw new Error("Defina APP_PASSWORD com uma senha própria antes de criar o administrador em produção.");
+    }
     const admin = await db.createUser({
       email: APP_USER,
       name: "Administrador Postal",
