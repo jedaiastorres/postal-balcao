@@ -71,6 +71,7 @@
           <button class="nav-item" data-view="clientHome"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="m3 10 9-7 9 7v11h-6v-8H9v8H3z"/></svg></span> Início</button>
           <button class="nav-item" data-view="clientOrders"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><rect x="5" y="4" width="14" height="18" rx="2"/><path d="M9 2h6v4H9zM9 11h6M9 16h6"/></svg></span> Pedidos</button>
           <button class="nav-item" data-view="wallet"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M20 8V5H5a2 2 0 0 1 0-4h13v4M3 3v16a2 2 0 0 0 2 2h15V8H5"/><path d="M20 12h-6v5h6M16 14.5h.01"/></svg></span> Saldo</button>
+          <button class="nav-item" data-view="clientProfile"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg></span> Meu cadastro</button>
           <button class="nav-item" data-view="connections"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="m10 13 4-4M8 16l-2 2a4 4 0 0 1-6-6l5-5a4 4 0 0 1 6 0m2 1 2-2a4 4 0 0 1 6 6l-5 5a4 4 0 0 1-6 0" transform="translate(1 0)"/></svg></span> Integrações</button>
         </nav>
       </div>
@@ -363,6 +364,12 @@
             </div>
             <span id="resultsInfo" class="soft-pill"></span>
           </div>
+          <div class="quote-tools">
+            <label>Ordenar opções
+              <select id="quoteSort"><option value="price">Menor preço</option><option value="deadline">Menor prazo</option><option value="carrier">Transportadora</option></select>
+            </label>
+            <button id="shareQuoteBtn" class="ghost" type="button">Compartilhar comparação</button>
+          </div>
           <div id="resultsList" class="results-list"></div>
           <div id="selectionSummary" class="selection-summary hidden">
             <div>
@@ -633,6 +640,7 @@
             <label class="client-ops-search"><span>Buscar</span><input id="clientOpsSearch" placeholder="Pedido, cliente, rastreio..." /></label>
             <label><span>Origem</span><select id="clientOpsSourceFilter"><option value="">Todas</option></select></label>
             <button id="clientOpsRefreshBtn" class="ghost" type="button">Atualizar</button>
+            <button id="clientOpsExportBtn" class="ghost" type="button">Exportar CSV</button>
           </div>
 
           <div id="clientBulkBar" class="client-bulk-bar hidden">
@@ -681,6 +689,57 @@
             </form>
           </article>
           <article class="panel"><div class="panel-head"><div><span class="eyebrow">MOVIMENTAÇÕES</span><h3>Extrato</h3></div></div><div id="walletTransactions" class="inventory-list"><div class="empty-state">Carregando...</div></div></article>
+        </div>
+        <article class="panel master-section">
+          <div class="panel-head"><div><span class="eyebrow">PAGAMENTOS</span><h3>Histórico de recargas</h3><p>Acompanhe recargas pendentes, confirmadas ou não concluídas.</p></div><button id="walletRefreshBtn" class="ghost" type="button">Atualizar</button></div>
+          <div id="walletTopups" class="inventory-list"><div class="empty-state">Carregando...</div></div>
+        </article>
+      </section>
+
+      <section id="clientProfileView" class="view hidden client-only">
+        <div class="orders-head"><div><div class="eyebrow">MINHA CONTA</div><h1>Meu cadastro</h1><p>Deixe seus dados e endereços prontos para agilizar as próximas postagens e recargas.</p></div></div>
+        <div class="master-grid">
+          <article class="form-panel">
+            <div class="form-panel-head"><span class="step-number">1</span><div><h3>Dados de contato e remetente padrão</h3><p>Seu nome, documento e e-mail são protegidos nesta tela.</p></div></div>
+            <form id="clientProfileForm" class="inventory-form">
+              <div class="form-grid">
+                <label class="span-2">Nome / Razão social<input id="profileName" readonly /></label>
+                <label class="span-2">E-mail<input id="profileEmail" readonly /></label>
+                <label>CPF/CNPJ<input id="profileDocument" readonly /></label>
+                <label>Telefone com DDD<input id="profilePhone" required inputmode="tel" /></label>
+                <label class="span-2">Nome fantasia / Empresa<input id="profileCompanyName" /></label>
+                <label>CEP do remetente<input id="profileCep" inputmode="numeric" maxlength="9" /></label>
+                <label>Número<input id="profileNumber" /></label>
+                <label class="span-2">Logradouro<input id="profileAddress" /></label>
+                <label>Bairro<input id="profileNeighborhood" /></label>
+                <label>Complemento<input id="profileComplement" /></label>
+                <label class="span-2">Cidade / UF<input id="profileCity" placeholder="Parauapebas/PA" /></label>
+              </div>
+              <button class="primary" type="submit">Salvar meus dados</button>
+            </form>
+          </article>
+          <article class="form-panel">
+            <div class="form-panel-head"><span class="step-number">2</span><div><h3>Agenda de endereços</h3><p>Salve até 50 remetentes e destinatários reutilizáveis.</p></div></div>
+            <form id="clientAddressForm" class="inventory-form">
+              <div class="form-grid">
+                <label>Tipo<select id="addressKind"><option value="RECIPIENT">Destinatário</option><option value="SENDER">Remetente</option></select></label>
+                <label>Apelido<input id="addressLabel" placeholder="Ex.: Filial Belém" required maxlength="80" /></label>
+                <label class="span-2">Nome / Razão social<input id="addressName" required /></label>
+                <label>CPF/CNPJ<input id="addressDocument" required inputmode="numeric" /></label>
+                <label>Telefone<input id="addressPhone" required inputmode="tel" /></label>
+                <label class="span-2">E-mail<input id="addressEmail" type="email" /></label>
+                <label>CEP<input id="addressCep" required inputmode="numeric" maxlength="9" /></label>
+                <label>Número<input id="addressNumber" required /></label>
+                <label class="span-2">Logradouro<input id="addressAddress" required /></label>
+                <label>Bairro<input id="addressNeighborhood" required /></label>
+                <label>Complemento<input id="addressComplement" /></label>
+                <label class="span-2">Cidade / UF<input id="addressCity" placeholder="Belém/PA" required /></label>
+              </div>
+              <button class="primary" type="submit">Salvar na agenda</button>
+            </form>
+            <div class="panel-head"><div><h3>Endereços salvos</h3></div></div>
+            <div id="clientAddressList" class="inventory-list"><div class="empty-state">Nenhum endereço salvo.</div></div>
+          </article>
         </div>
       </section>
 
@@ -1076,6 +1135,7 @@
           <div class="shipment-grid">
             <article class="form-panel">
               <div class="form-panel-head"><span class="step-number">1</span><div><h3>Remetente</h3><p>Dados de quem está postando.</p></div></div>
+              <label class="client-only hidden" id="savedSenderWrap">Usar remetente salvo<select id="savedSenderSelect"><option value="">Escolher endereço ou remetente padrão...</option></select></label>
               <div class="form-grid">
                 <label class="span-2">Nome completo / Razão social*<input id="senderName" required /></label>
                 <label>CPF/CNPJ*<input id="senderDocument" inputmode="numeric" required /></label>
@@ -1092,6 +1152,7 @@
 
             <article class="form-panel">
               <div class="form-panel-head"><span class="step-number">2</span><div><h3>Destinatário</h3><p>Dados de quem receberá a encomenda.</p></div></div>
+              <label class="client-only hidden" id="savedRecipientWrap">Usar destinatário salvo<select id="savedRecipientSelect"><option value="">Escolher endereço salvo...</option></select></label>
               <div class="form-grid">
                 <label class="span-2">Nome completo / Razão social*<input id="recipientName" required /></label>
                 <label>CPF/CNPJ*<input id="recipientDocument" inputmode="numeric" required /></label>

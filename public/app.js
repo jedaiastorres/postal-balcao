@@ -39,6 +39,7 @@ const viewMap = {
   supervisor: { el: "#supervisorView", title: "Supervisão da Rede" },
   clientHome: { el: "#clientHomeView", title: "Minha Postal" },
   clientOrders: { el: "#clientOrdersView", title: "Pedidos" },
+  clientProfile: { el: "#clientProfileView", title: "Meu cadastro" },
   wallet: { el: "#walletView", title: "Saldo" },
   connections: { el: "#connectionsView", title: "Integrações" },
   collections: { el: "#collectionsView", title: "Coletas" },
@@ -295,7 +296,7 @@ function navigate(name) {
     toast("A conta de recebimento só pode ser alterada pelo dono do ponto.", "error");
     return;
   }
-  if (["clientHome","clientOrders","wallet","connections"].includes(name) && state.user?.role !== "CLIENT") {
+  if (["clientHome","clientOrders","clientProfile","wallet","connections"].includes(name) && state.user?.role !== "CLIENT") {
     toast("Área exclusiva para clientes Postal.", "error");
     return;
   }
@@ -335,6 +336,7 @@ function navigate(name) {
   if (name === "master" && state.user?.role === "ADMIN") loadMaster();
   if (name === "clientHome") window.PostalClient?.loadClientHome?.();
   if (name === "clientOrders") window.PostalClient?.loadOperations?.();
+  if (name === "clientProfile") window.PostalClient?.loadProfile?.();
   if (name === "wallet") window.PostalClient?.loadWallet?.();
   if (name === "connections") window.PostalClient?.loadConnections?.();
   if (name === "collections") window.PostalClient?.loadCollections?.().catch(error=>toast(error.message,"error"));
@@ -636,6 +638,7 @@ $("#quoteForm").addEventListener("submit", async (event) => {
       body: JSON.stringify(payload)
     });
     state.currentQuote = payload;
+    state.lastQuoteResult = result;
     state.selectedOption = null;
     state.shipmentResult = null;
     if (result.commissionPercent != null) {
@@ -657,18 +660,25 @@ $("#quoteForm").addEventListener("submit", async (event) => {
 });
 
 function renderResults(result, payload) {
+  const sort=$("#quoteSort")?.value||"price";
+  const options=[...(result.options||[])].sort((a,b)=>{
+    if(sort==="deadline")return (Number(a.prazoEntrega)||999)-(Number(b.prazoEntrega)||999)||Number(a.precoVenda)-Number(b.precoVenda);
+    if(sort==="carrier")return String(a.transportadora||"").localeCompare(String(b.transportadora||""),"pt-BR");
+    return Number(a.precoVenda)-Number(b.precoVenda);
+  });
+  state.selectedOption=null;
   const speedInfo = Number.isFinite(Number(result.quoteElapsedMs))
     ? ` • ${(Number(result.quoteElapsedMs)/1000).toFixed(1).replace(".",",")}s${Number(result.cacheHits||0)>0?` • ${Number(result.cacheHits)} em cache`:""}`
     : "";
-  $("#resultsInfo").textContent = `${result.options.length} opção(ões) • ${result.volumeCount || payload.volumes?.length || 1} volume(s) • menor preço primeiro${speedInfo}`;
+  $("#resultsInfo").textContent = `${options.length} opção(ões) • ${result.volumeCount || payload.volumes?.length || 1} volume(s) • ${sort==="deadline"?"menor prazo primeiro":sort==="carrier"?"por transportadora":"menor preço primeiro"}${speedInfo}`;
   const list = $("#resultsList");
   list.innerHTML = "";
   $("#selectionSummary")?.classList.add("hidden");
 
-  const minPrice = Math.min(...result.options.map(o => o.precoVenda));
-  const minDays = Math.min(...result.options.map(o => o.prazoEntrega || 999));
+  const minPrice = Math.min(...options.map(o => o.precoVenda));
+  const minDays = Math.min(...options.map(o => o.prazoEntrega || 999));
 
-  result.options.forEach((option, index) => {
+  options.forEach((option, index) => {
     const card = document.createElement("article");
     card.className = "result-card";
     card.dataset.optionIndex = String(index);
@@ -743,6 +753,30 @@ function renderResults(result, payload) {
   $("#resultsWrap").classList.remove("hidden");
   $("#resultsWrap").scrollIntoView({ behavior: "smooth", block: "start" });
 }
+
+$("#quoteSort")?.addEventListener("change",()=>{
+  if(state.lastQuoteResult&&state.currentQuote)renderResults(state.lastQuoteResult,state.currentQuote);
+});
+$("#shareQuoteBtn")?.addEventListener("click",async()=>{
+  const result=state.lastQuoteResult;
+  if(!result?.options?.length||!state.currentQuote)return toast("Faça uma cotação antes de compartilhar.","error");
+  const lines=[
+    "Cotação de frete · Postal Serviços",
+    "Origem: "+state.currentQuote.cepOrigem+" · Destino: "+state.currentQuote.cepDestino,
+    "Volumes: "+(state.currentQuote.volumes?.length||1),
+    ...[...result.options].sort((a,b)=>Number(a.precoVenda)-Number(b.precoVenda)).map(o=>
+      String(o.transportadora)+" · "+String(o.produto)+" · "+money(o.precoVenda)+" · Prazo estimado: "+(o.prazoEntrega||"a confirmar")+" dias"
+    ),
+    "Valores e disponibilidade sujeitos a nova cotação na hora da postagem."
+  ];
+  const message=lines.join("\n");
+  try{
+    if(navigator.share)await navigator.share({title:"Cotação Postal Serviços",text:message});
+    else {await navigator.clipboard.writeText(message);toast("Cotação copiada para compartilhar.");}
+  }catch(error){
+    if(error?.name!=="AbortError")toast("Não foi possível compartilhar. Tente copiar novamente.","error");
+  }
+});
 
 function saveRecent(result, payload) {
   const best = result.options[0];
