@@ -1154,12 +1154,12 @@ async function findStoreForQuoteOrigin(actualCep) {
     `SELECT *
        FROM stores
       WHERE active=TRUE
-        AND NULLIF(quote_origin_cep,'') IS NOT NULL
         AND (
           regexp_replace(COALESCE(address->>'cep',''),'\\D','','g')=$1
           OR LEFT(regexp_replace(COALESCE(address->>'cep',''),'\\D','','g'),5)=LEFT($1,5)
         )
       ORDER BY CASE WHEN regexp_replace(COALESCE(address->>'cep',''),'\\D','','g')=$1 THEN 0 ELSE 1 END,
+               CASE WHEN NULLIF(quote_origin_cep,'') IS NOT NULL THEN 0 ELSE 1 END,
                created_at ASC
       LIMIT 1`,
     [cep]
