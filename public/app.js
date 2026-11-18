@@ -778,6 +778,33 @@ $("#shareQuoteBtn")?.addEventListener("click",async()=>{
   }
 });
 
+$("#shareQuoteLinkBtn")?.addEventListener("click",async event=>{
+  const options=state.lastQuoteResult?.options||[];
+  if(!options.length||!state.currentQuote)return toast("Calcule o frete antes de gerar o link.","error");
+  const button=event.currentTarget;
+  button.disabled=true;button.textContent="Gerando link...";
+  try{
+    const selected=[...options]
+      .filter(option=>typeof option.selectionToken==="string")
+      .sort((a,b)=>Number(a.precoVenda)-Number(b.precoVenda))
+      .slice(0,12)
+      .map(option=>option.selectionToken);
+    const response=await api("/api/quotes/share",{method:"POST",body:JSON.stringify({selectionTokens:selected})});
+    const shareUrl=new URL(response.url,location.origin).href;
+    if(navigator.share){
+      await navigator.share({title:"Cotação de frete · Postal Serviços",url:shareUrl});
+      toast("Link da cotação pronto para compartilhar. Válido por 24 horas.");
+    }else if(navigator.clipboard?.writeText){
+      await navigator.clipboard.writeText(shareUrl);
+      toast("Link copiado! Cotação válida para consulta por 24 horas.");
+    }else{
+      window.prompt("Copie o link de cotação (válido por 24 horas):",shareUrl);
+    }
+  }catch(error){
+    if(error?.name!=="AbortError")toast(error.message||"Não foi possível gerar o link.","error");
+  }finally{button.disabled=false;button.textContent="Criar link da cotação";}
+});
+
 function saveRecent(result, payload) {
   const best = result.options[0];
   state.recent.unshift({

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#d7083b">
+  <title>Cotação de frete | Postal Serviços</title>
+  <style>
+    :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#20232d;background:#f6f6f8}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:linear-gradient(180deg,#fff,#f7f7fa 300px)}
+    header{background:#fff;border-bottom:1px solid #e7e7ee;padding:17px max(22px,calc((100vw - 990px)/2));display:flex;align-items:center;justify-content:space-between;gap:16px}
+    header img{width:145px;height:60px;object-fit:contain}header a{font-size:13px;text-decoration:none;color:#444753;font-weight:700}
+    main{max-width:990px;margin:0 auto;padding:55px 22px 90px}.eyebrow{font-size:11px;color:#bd0b39;font-weight:900;letter-spacing:1.4px}
+    h1{font-size:clamp(29px,4vw,43px);letter-spacing:-1.2px;line-height:1.1;margin:12px 0}p{color:#6d7180;line-height:1.55}
+    .heading{max-width:740px}.summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:28px 0}
+    .card,.option{background:#fff;border:1px solid #e9eaf0;border-radius:18px;box-shadow:0 9px 26px #20253009}
+    .card{padding:20px}.label{display:block;color:#828594;font-size:11px;text-transform:uppercase;font-weight:800;letter-spacing:.7px;margin-bottom:8px}
+    .value{font-weight:850;font-size:17px;overflow-wrap:anywhere}.options{display:grid;gap:12px;margin-top:20px}
+    .option{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,.9fr) minmax(0,1fr);align-items:center;gap:18px;padding:24px}
+    .option:first-child{border-color:#f4a5ba;box-shadow:0 12px 35px #d7083b11}
+    .carrier{font-size:18px;font-weight:850}.service{display:block;color:#747987;font-size:13px;margin-top:5px}
+    .price{font-size:23px;font-weight:900;color:#c60a3d}.pill{display:inline-block;background:#fff0f4;color:#b20838;border-radius:99px;padding:5px 10px;font-size:10px;font-weight:900;margin-top:7px}
+    .notice{margin-top:25px;background:#fffaf0;border:1px solid #f1ddaa;padding:18px 20px;border-radius:16px;font-size:13px;color:#654c1e;line-height:1.6}
+    .actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:25px}.button{border:0;border-radius:12px;background:#ca083b;color:#fff;font-weight:800;text-decoration:none;padding:14px 22px;cursor:pointer;font-size:13px}.button.alt{background:#fff;border:1px solid #e1e2e8;color:#333}
+    #error{padding:24px;border-radius:15px;background:#fff2f5;color:#ad123e;font-weight:650;margin-top:25px}
+    .hidden{display:none!important}footer{text-align:center;color:#9a9daa;font-size:12px;margin-top:50px}
+    @media(max-width:680px){main{padding-top:35px}.summary{grid-template-columns:1fr}.option{grid-template-columns:1fr 1fr}.option>div:first-child{grid-column:span 2}.price{font-size:21px}}
+  </style>
+</head>
+<body>
+  <header>
+    <a href="/" aria-label="Postal Serviços - início"><img src="/assets/brands/postal.svg" alt="Postal Serviços"></a>
+    <a href="/">Acessar minha conta</a>
+  </header>
+  <main>
+    <div class="heading">
+      <div class="eyebrow">POSTAL SERVIÇOS · COTAÇÃO COMPARTILHADA</div>
+      <h1>Escolha o melhor caminho para sua encomenda.</h1>
+      <p>Compare os preços e prazos estimados informados pela Postal Serviços. Esta página não exige cadastro para visualizar a cotação.</p>
+    </div>
+    <div id="loading" class="notice">Consultando a cotação compartilhada...</div>
+    <div id="error" class="hidden" role="alert"></div>
+    <div id="result" class="hidden">
+      <section class="summary" aria-label="Dados da cotação">
+        <div class="card"><span class="label">CEP de origem</span><strong class="value" id="origin">—</strong></div>
+        <div class="card"><span class="label">CEP de destino</span><strong class="value" id="destination">—</strong></div>
+        <div class="card"><span class="label">Volumes</span><strong class="value" id="volumes">—</strong></div>
+      </section>
+      <div class="eyebrow">OPÇÕES PARA SEU ENVIO</div>
+      <div id="options" class="options" aria-live="polite"></div>
+      <p class="notice" id="disclaimer"></p>
+      <div class="actions">
+        <a class="button" href="/cliente">Fazer minha postagem</a>
+        <button class="button alt" id="copyLink" type="button">Copiar link</button>
+      </div>
+    </div>
+    <footer>Postal Serviços · Conectando você ao seu próximo destino.</footer>
+  </main>
+  <script src="/cotacao-compartilhada.js" defer></script>
+</body>
+</html>

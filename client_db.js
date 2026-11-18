@@ -123,6 +123,18 @@ async function initClientDb() {
     CREATE INDEX IF NOT EXISTS customer_saved_addresses_user_idx
       ON customer_saved_addresses(user_id,created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS quote_shares (
+      token_hash TEXT PRIMARY KEY,
+      created_by UUID NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+      quote_data JSONB NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS quote_shares_creator_idx
+      ON quote_shares(created_by,created_at DESC);
+    CREATE INDEX IF NOT EXISTS quote_shares_expires_idx
+      ON quote_shares(expires_at);
+
     CREATE TABLE IF NOT EXISTS ecommerce_connections (
       id UUID PRIMARY KEY,
       user_id UUID NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
@@ -359,6 +371,39 @@ async function deleteCustomerAddress(userId,addressId) {
     [addressId,userId]
   );
   return rowCount>0;
+}
+
+async function createQuoteShare(userId,quoteData){
+  const token=crypto.randomBytes(24).toString("base64url");
+  const tokenHash=crypto.createHash("sha256").update(token).digest("hex");
+  const conn=await database().connect();
+  try{
+    await conn.query("BEGIN");
+    const owner=await conn.query("SELECT id FROM app_users WHERE id=$1 AND active=TRUE FOR UPDATE",[userId]);
+    if(!owner.rows.length)throw Object.assign(new Error("Sua sessão não está ativa."),{status:403});
+    const amount=await conn.query(
+      "SELECT COUNT(*)::int AS total FROM quote_shares WHERE created_by=$1 AND created_at>NOW()-INTERVAL '24 hours'",
+      [userId]
+    );
+    if(Number(amount.rows[0].total)>=100)throw Object.assign(new Error("Limite de 100 links de cotação por dia atingido."),{status:429});
+    await conn.query("DELETE FROM quote_shares WHERE expires_at<NOW()");
+    await conn.query(
+      "INSERT INTO quote_shares(token_hash,created_by,quote_data,expires_at) VALUES($1,$2,$3::jsonb,NOW()+INTERVAL '24 hours')",
+      [tokenHash,userId,JSON.stringify(quoteData)]
+    );
+    await conn.query("COMMIT");
+    return token;
+  }catch(error){await conn.query("ROLLBACK");throw error;}finally{conn.release();}
+}
+
+async function getQuoteShare(token){
+  if(typeof token!=="string"||!/^[A-Za-z0-9_-]{32}$/.test(token))return null;
+  const tokenHash=crypto.createHash("sha256").update(token).digest("hex");
+  const {rows}=await database().query(
+    "SELECT quote_data,expires_at,created_at FROM quote_shares WHERE token_hash=$1 AND expires_at>NOW() LIMIT 1",
+    [tokenHash]
+  );
+  return rows[0]||null;
 }
 
 async function findStoreByReferralCode(code) {
@@ -1142,7 +1187,7 @@ async function createBulkCollectionsAndDebit({
 
 module.exports={
   registerPointClient,transitionCollection,initClientDb,createCustomerAccount,getCustomerAccount,updateCustomerProfile,
-  listCustomerAddresses,createCustomerAddress,deleteCustomerAddress,findStoreByReferralCode,
+  listCustomerAddresses,createCustomerAddress,deleteCustomerAddress,createQuoteShare,getQuoteShare,findStoreByReferralCode,
   listPublicStores,listPickupStores,updateStorePickupSettings,getWallet,listWalletTransactions,creditWallet,debitWallet,
   createTopup,setTopupCheckout,getTopupByCheckoutId,getTopup,listTopups,markTopupPaid,updateTopupStatus,
   insertClientOrder,createClientOrderAndDebit,getClientOrderByBulkKey,listClientOrders,getClientOrder,choosePickupStore,createCollectionRequest,

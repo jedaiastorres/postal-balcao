@@ -40,6 +40,10 @@
         <button class="primary full" type="submit">Criar minha conta</button>
         <button id="backToLoginBtn" class="ghost full" type="button">Voltar ao login</button>
       </form>
+      <div class="login-public-links">
+        <a href="/pontos">Encontrar um ponto Postal</a>
+        <a href="/rastreio">Rastrear encomenda</a>
+      </div>
     </div>
   </section>
 
@@ -369,6 +373,7 @@
               <select id="quoteSort"><option value="price">Menor preço</option><option value="deadline">Menor prazo</option><option value="carrier">Transportadora</option></select>
             </label>
             <button id="shareQuoteBtn" class="ghost" type="button">Compartilhar comparação</button>
+            <button id="shareQuoteLinkBtn" class="ghost" type="button">Criar link da cotação</button>
           </div>
           <div id="resultsList" class="results-list"></div>
           <div id="selectionSummary" class="selection-summary hidden">
@@ -579,6 +584,14 @@
             <button class="ghost" data-go="clientOrders" type="button">Abrir pedidos</button>
           </article>
         </div>
+        <article class="panel master-section">
+          <div class="panel-head"><div><span class="eyebrow">COMECE AQUI</span><h3>Seu primeiro envio em três passos</h3></div></div>
+          <div class="client-start-guide">
+            <div><strong>1. Complete o cadastro</strong><p>Salve o remetente padrão e os endereços que usa com frequência.</p><button class="ghost" data-go="clientProfile" type="button">Meu cadastro</button></div>
+            <div><strong>2. Compare as transportadoras</strong><p>Escolha preço ou prazo e compartilhe a cotação com quem vai pagar.</p><button class="ghost" data-go="quote" type="button">Simular frete</button></div>
+            <div><strong>3. Envie e acompanhe</strong><p>Emita suas etiquetas e encontre um ponto da rede quando precisar.</p><a class="ghost link-like" href="/pontos" target="_blank" rel="noopener">Encontrar ponto Postal</a></div>
+          </div>
+        </article>
       </section>
 
       <section id="clientOrdersView" class="view hidden client-only">
@@ -686,12 +699,13 @@
               </div>
               <button class="primary" type="submit">Adicionar saldo</button>
               <small id="walletModeNote"></small>
+              <small>Pagamento recusado por dados incompletos? <button class="ghost" data-go="clientProfile" type="button">Conferir meu endereço de cobrança</button></small>
             </form>
           </article>
           <article class="panel"><div class="panel-head"><div><span class="eyebrow">MOVIMENTAÇÕES</span><h3>Extrato</h3></div></div><div id="walletTransactions" class="inventory-list"><div class="empty-state">Carregando...</div></div></article>
         </div>
         <article class="panel master-section">
-          <div class="panel-head"><div><span class="eyebrow">PAGAMENTOS</span><h3>Histórico de recargas</h3><p>Acompanhe recargas pendentes, confirmadas ou não concluídas.</p></div><button id="walletRefreshBtn" class="ghost" type="button">Atualizar</button></div>
+          <div class="panel-head"><div><span class="eyebrow">PAGAMENTOS</span><h3>Histórico de recargas</h3><p>Acompanhe recargas pendentes, confirmadas ou não concluídas.</p></div><div class="quote-tools"><button id="walletExportBtn" class="ghost" type="button">Exportar extrato CSV</button><button id="walletRefreshBtn" class="ghost" type="button">Atualizar</button></div></div>
           <div id="walletTopups" class="inventory-list"><div class="empty-state">Carregando...</div></div>
         </article>
       </section>
