@@ -54,7 +54,13 @@ test("public quote page is reachable without login and does not expose purchase 
   assert.ok(server.indexOf('app.post("/api/public/cotacao"')<server.indexOf('app.use("/api", (req, res, next)'));
   assert.match(login, /href="\/cotacao"[^>]*>Calcular frete sem cadastro/);
   assert.match(page, /\/cotacao\.js/);
+  assert.match(page, /<script src="\/branding\.js" defer><\/script>/);
+  assert.ok(page.indexOf('/branding.js')<page.indexOf('/cotacao.js'));
   assert.doesNotMatch(page, /<script(?![^>]*src=)/);
   const client=fs.readFileSync(path.join(__dirname,"../public/cotacao.js"),"utf8");
   assert.match(client,/key==="peso"\?"0\.01":"1"/);
+  assert.match(client,/PostalBrand\?\.carrierLogo\(option\.carrier\)/);
+  assert.match(client,/"Menor preço"/);
+  assert.match(client,/"Mais rápido"/);
+  assert.match(client,/logo\.addEventListener\("error"/);
 });

@@ -2,6 +2,7 @@
 const $=id=>document.getElementById(id);
 const money=value=>new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(Number(value)||0);
 const numbers=value=>String(value||"").replace(/\D/g,"");
+const carrierMonogram=name=>/j\s*&?\s*t|jtexpress/i.test(String(name||""))?"J&T":String(name||"?").replace(/[^\p{L}\p{N} ]/gu,"").trim().slice(0,2).toUpperCase()||"?";
 let volumes=0;
 let latest=null;
 
@@ -60,17 +61,33 @@ $("quoteForm").addEventListener("submit",async event=>{
     const data=await response.json();
     if(!response.ok)throw new Error(data.error||"Não foi possível consultar o frete.");
     latest=data;const host=$("results");host.replaceChildren();
-    for(const option of data.options||[]){
+    const options=data.options||[];
+    const lowestPrice=Math.min(...options.map(option=>Number(option.price)).filter(Number.isFinite));
+    const fastestDeadline=Math.min(...options.map(option=>Number(option.deadline)).filter(days=>Number.isFinite(days)&&days>0));
+    for(const option of options){
       const row=document.createElement("article");row.className="result";
       const name=document.createElement("div"),brand=document.createElement("strong"),service=document.createElement("span");
-      brand.className="carrier";brand.textContent=option.carrier;service.className="service";service.textContent=option.service;name.append(brand,service);
+      name.className="result-brand";
+      const fallback=document.createElement("div");fallback.className="carrier-fallback hidden";fallback.textContent=carrierMonogram(option.carrier);fallback.setAttribute("aria-hidden","true");
+      const logoPath=globalThis.PostalBrand?.carrierLogo(option.carrier);
+      if(logoPath){
+        const logo=document.createElement("img");logo.className="carrier-logo";logo.src=logoPath;logo.alt="";logo.loading="lazy";logo.width=110;logo.height=44;
+        logo.addEventListener("error",()=>{logo.classList.add("hidden");fallback.classList.remove("hidden");});
+        name.append(logo);
+      }else fallback.classList.remove("hidden");
+      brand.className="carrier";brand.textContent=option.carrier;service.className="service";service.textContent=option.service;
+      name.append(fallback,brand,service);
+      const badgeText=Number(option.price)===lowestPrice?"Menor preço":Number(option.deadline)===fastestDeadline?"Mais rápido":"";
+      if(badgeText){const badge=document.createElement("em");badge.className="result-badge";badge.textContent=badgeText;name.append(badge);}
       const deadline=document.createElement("div"),deadlineLabel=document.createElement("span"),deadlineValue=document.createElement("strong");
+      deadline.className="result-block";
       deadlineLabel.className="metric";deadlineLabel.textContent="Prazo estimado";deadlineValue.textContent=option.deadline==null?"A confirmar":option.deadline+" dias";deadline.append(deadlineLabel,deadlineValue);
       const price=document.createElement("div"),priceLabel=document.createElement("span"),priceValue=document.createElement("strong");
+      price.className="result-block";
       priceLabel.className="metric";priceLabel.textContent="Valor do frete";priceValue.className="price";priceValue.textContent=money(option.price);price.append(priceLabel,priceValue);
       row.append(name,deadline,price);host.append(row);
     }
-    $("resultsTitle").textContent=`${data.options.length} opção(ões) para ${data.volumeCount} volume(s)`;
+    $("resultsTitle").textContent=`${options.length} opção(ões) para ${data.volumeCount} volume(s)`;
     $("resultPanel").classList.remove("hidden");showStatus("Cotação concluída! Compare abaixo.",true);
     $("resultPanel").scrollIntoView({behavior:"smooth",block:"start"});
   }catch(error){showStatus(error.message||"Erro temporário na cotação.");}
