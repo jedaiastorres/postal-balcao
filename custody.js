@@ -8,7 +8,7 @@ const stages = Object.freeze({
   DELIVERY_RECORDED: { label:"Entrega registrada internamente", next:[] }
 });
 
-function validateScan({code,stage,idempotencyKey,recipientName},previous=null){
+function validateScan({code,stage,idempotencyKey,recipientName,latitude,longitude,photo},previous=null){
   const trackingCode=String(code||"").trim();
   if(!/^[A-Za-z0-9]{6,40}$/.test(trackingCode))throw Object.assign(new Error("Código de rastreio inválido."),{status:400});
   if(!Object.hasOwn(stages,stage))throw Object.assign(new Error("Etapa operacional inválida."),{status:400});
@@ -17,7 +17,14 @@ function validateScan({code,stage,idempotencyKey,recipientName},previous=null){
   if(previous!==null && !stages[previous]?.next.includes(stage))throw Object.assign(new Error("Etapa fora da sequência operacional ou já registrada."),{status:409});
   const proofName=String(recipientName||"").trim().slice(0,120);
   if(stage==="DELIVERY_RECORDED" && proofName.length<3)throw Object.assign(new Error("Informe o nome de quem recebeu para registrar a entrega interna."),{status:400});
-  return {trackingCode,stage,idempotencyKey,proofName};
+  const hasGeo=latitude!=null||longitude!=null;
+  const lat=latitude==null?null:Number(latitude),lng=longitude==null?null:Number(longitude);
+  if(hasGeo&&(lat===null||lng===null||!Number.isFinite(lat)||!Number.isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180))
+    throw Object.assign(new Error("Coordenadas da entrega inválidas."),{status:400});
+  const picture=String(photo||"");
+  if(picture && (stage!=="DELIVERY_RECORDED"||picture.length>200000||!/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(picture)))
+    throw Object.assign(new Error("Foto inválida. Use uma imagem JPG com até 150 KB."),{status:400});
+  return {trackingCode,stage,idempotencyKey,proofName,latitude:lat,longitude:lng,photo:picture};
 }
 
 module.exports={stages,validateScan};

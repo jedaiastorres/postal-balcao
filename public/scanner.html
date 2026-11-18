@@ -38,6 +38,10 @@
           <label><span>Etapa operacional</span><select id="stage"><option value="RECEIVED_POINT">Recebido no ponto</option><option value="TRANSFERRED">Em transferência</option><option value="RECEIVED_HUB">Recebido no hub</option><option value="OUT_FOR_DELIVERY">Saiu para entrega</option><option value="DELIVERY_RECORDED">Entrega registrada internamente</option></select></label>
           <label id="recipientWrap" class="hidden"><span>Nome de quem recebeu *</span><input id="recipientName" maxlength="120" placeholder="Responsável pelo recebimento"></label>
         </div>
+        <div id="deliveryProofFields" class="hidden">
+          <label><span>Foto do comprovante (opcional; apenas equipe autorizada)</span><input id="deliveryPhoto" type="file" accept="image/jpeg,image/png,image/webp" /></label>
+          <div class="actions"><button id="captureLocation" type="button" class="secondary">Registrar localização da entrega</button><small id="locationStatus">Localização opcional e somente com permissão do aparelho.</small></div>
+        </div>
         <button id="record" type="button">Registrar leitura</button>
         <p class="notice">As movimentações são registros internos e não substituem os eventos oficiais da transportadora ou o comprovante de entrega (POD). Não há movimentação de saldo nem emissão de etiqueta neste processo.</p>
       </div>

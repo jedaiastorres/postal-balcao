@@ -913,6 +913,26 @@ function selectedAddonPayload() {
     .map(([code, quantity]) => ({ code, quantity: Number(quantity) }));
 }
 
+function manualExtraPayload() {
+  return [...document.querySelectorAll("#manualExtraCharges .manual-extra")].map(row=>({
+    description:row.querySelector(".extra-description").value.trim(),
+    amount:row.querySelector(".extra-amount").value.trim().replace(",", ".")
+  })).filter(line=>line.description||line.amount).map(line=>({...line,amount:Number(line.amount||0)}));
+}
+
+function appendManualExtra() {
+  const host=$("#manualExtraCharges");
+  if(!host||host.children.length>=8)return toast("Limite de oito cobranças extras por envio.","error");
+  const row=document.createElement("div");row.className="addon-item manual-extra";
+  row.innerHTML='<label class="addon-main">Descrição do custo*<input class="extra-description" maxlength="100" placeholder="Ex.: manuseio especial" /></label><label class="addon-qty">Valor (R$)*<input class="extra-amount" type="number" step="0.01" min="0.01" max="1000" placeholder="0,00" /></label><button class="ghost extra-remove" type="button" aria-label="Remover custo extra">Remover</button>';
+  row.querySelector(".extra-remove").addEventListener("click",()=>{row.remove();refreshPaymentPreview();});
+  let debounce;
+  row.querySelectorAll("input").forEach(input=>input.addEventListener("input",()=>{clearTimeout(debounce);debounce=setTimeout(refreshPaymentPreview,350);}));
+  host.appendChild(row);
+  row.querySelector(".extra-description").focus();
+}
+$("#addManualExtraBtn")?.addEventListener("click",appendManualExtra);
+
 async function loadShipmentCatalog() {
   const host = $("#addonsCatalog");
   if (!host) return;
@@ -987,10 +1007,12 @@ async function refreshPaymentPreview() {
       const item = state.catalog.find(x => x.code === selected.code);
       return sum + Number(item?.unitPrice || 0) * Number(selected.quantity || 0);
     }, 0);
+    const extraTotal=manualExtraPayload().reduce((s,line)=>s+(Number(line.amount)||0),0);
     $("#paymentAddons").textContent = money(addonsTotal);
+    $("#paymentExtraCharges").textContent=money(extraTotal);
     $("#paymentFee").textContent = "Selecione o pagamento";
-    $("#paymentTotal").textContent = money(Number(option.precoVenda || 0) + addonsTotal);
-    $("#shipPrice").textContent = money(Number(option.precoVenda || 0) + addonsTotal);
+    $("#paymentTotal").textContent = money(Number(option.precoVenda || 0) + addonsTotal + extraTotal);
+    $("#shipPrice").textContent = money(Number(option.precoVenda || 0) + addonsTotal + extraTotal);
     return;
   }
 
@@ -1000,7 +1022,8 @@ async function refreshPaymentPreview() {
       body: JSON.stringify({
         selectionToken: option.selectionToken,
         paymentMethod: method,
-        addons: selectedAddonPayload()
+        addons: selectedAddonPayload(),
+        extraCharges:manualExtraPayload()
       })
     });
     state.paymentPreview = preview;
@@ -1008,7 +1031,8 @@ async function refreshPaymentPreview() {
     $("#paymentFreight").textContent = money(Number(preview.freightPrice||0)-hubTransfer);
     $("#paymentHubTransfer").textContent = money(hubTransfer);
     $("#paymentHubTransferRow").classList.toggle("hidden",hubTransfer<=0);
-    $("#paymentAddons").textContent = money(preview.addonsTotal);
+    $("#paymentAddons").textContent = money(preview.addonsTotal - (preview.extraChargesTotal||0));
+    $("#paymentExtraCharges").textContent=money(preview.extraChargesTotal||0);
     $("#paymentFee").textContent = money(preview.paymentFee);
     $("#paymentTotal").textContent = money(preview.total);
     $("#shipPrice").textContent = money(preview.total);
@@ -1200,14 +1224,14 @@ function receiptPayload(preview = false) {
     hubTransferTotal: Number(state.paymentPreview?.hubTransferTotal ?? o.hubTransferTotal ?? r.hubTransferTotal ?? 0),
     addonsTotal: state.paymentPreview?.addonsTotal || 0,
     paymentFee: state.paymentPreview?.paymentFee || 0,
-    addons: selectedAddonPayload().map(selected => {
+    addons: [...selectedAddonPayload().map(selected => {
       const item = state.catalog.find(x => x.code === selected.code);
       return {
         name: item?.name || selected.code,
         quantity: selected.quantity,
         totalPrice: Number(item?.unitPrice || 0) * Number(selected.quantity || 0)
       };
-    }),
+    }), ...manualExtraPayload().map(line=>({name:line.description,quantity:1,totalPrice:Number(line.amount||0)}))],
     declaredValue: Number(q.vlDeclarado || 0),
     weightKg: Number(q.peso || 0),
     dimensions: `${q.comprimento || "-"} x ${q.largura || "-"} x ${q.altura || "-"} cm`,
@@ -2686,7 +2710,8 @@ $("#shipmentForm")?.addEventListener("submit", async event => {
     invoiceNumber: currentInvoiceNumber(),
     ...fiscalFormDocumentMetadata(),
     paymentMethod,
-    addons: selectedAddonPayload()
+    addons: selectedAddonPayload(),
+    extraCharges:manualExtraPayload()
   };
 
   try {
