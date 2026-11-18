@@ -1223,3 +1223,10 @@ body{background:#faf7f6}
 .quote-tools{display:flex;align-items:end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0 18px}
 .quote-tools label{display:grid;gap:5px;font-size:.82rem;font-weight:600;min-width:180px}
 .quote-tools select{min-height:40px;padding:7px 12px;border:1px solid var(--border,#dedede);border-radius:10px;background:#fff}
+.login-public-links{display:flex;gap:14px;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:19px}
+.login-public-links a{font-size:12px;color:#bd0a38;font-weight:750;text-decoration:underline;text-underline-offset:3px}
+.client-start-guide{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.client-start-guide>div{border:1px solid #ede9ee;border-radius:15px;padding:18px;background:#fff}
+.client-start-guide strong{font-size:14px}.client-start-guide p{font-size:12px;line-height:1.5;color:#737683;min-height:44px}
+.client-start-guide .ghost{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+@media(max-width:800px){.client-start-guide{grid-template-columns:1fr}.client-start-guide p{min-height:0}}

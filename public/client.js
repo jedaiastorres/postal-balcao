@@ -1,6 +1,8 @@
 (() => {
   const client = {
     walletBalance: 0,
+    walletTransactions: [],
+    walletTopups: [],
     points: [],
     collections: [],
     connections: [],
@@ -199,6 +201,20 @@
           btn.addEventListener("click",()=>printLabels([item.id]));
           actions.appendChild(btn);
         }
+        if(item.trackingCode&&!item.isSimulation){
+          const btn=document.createElement("button");btn.className="ghost";btn.type="button";btn.textContent="Compartilhar rastreio";
+          btn.addEventListener("click",async()=>{
+            const url=new URL("/rastreio?codigo="+encodeURIComponent(item.trackingCode),location.origin).href;
+            const message="Acompanhe seu envio Postal Serviços: "+url;
+            try{
+              if(navigator.share)await navigator.share({title:"Rastreio Postal Serviços",text:message,url});
+              else if(navigator.clipboard?.writeText){
+                await navigator.clipboard.writeText(message);toast("Rastreio copiado para compartilhar.");
+              }else window.prompt("Copie o link de rastreio:",url);
+            }catch(error){if(error?.name!=="AbortError")toast("Não foi possível compartilhar o rastreio.","error");}
+          });
+          actions.appendChild(btn);
+        }
       }
       row.querySelector("[data-op-select]")?.addEventListener("change",e=>{
         if(e.target.checked)client.selectedOperations.add(item.id);else client.selectedOperations.delete(item.id);
@@ -235,6 +251,7 @@
       ["Rastreio","trackingCode"],["Valor (R$)","total"]
     ];
     const safeCell=value=>{
+      if(typeof value==="number"&&Number.isFinite(value))return String(value).replace(".",",");
       let valueText=String(value??"");
       if(/^[\s]*[=+@-]/.test(valueText))valueText="'"+valueText;
       return '"'+valueText.replace(/"/g,'""')+'"';
@@ -410,6 +427,8 @@
   async function loadWallet(){
     if(!isClient())return;
     const d=await api("/api/client/wallet");
+    client.walletTransactions=d.transactions||[];
+    client.walletTopups=d.topups||[];
     client.walletBalance=Number(d.balance||0);
     $("#walletBalanceHero").textContent=money(d.balance);
     $("#clientTopBalance strong").textContent=money(d.balance);
@@ -449,6 +468,32 @@
         '</strong></div>'+(canPay?'<div><a href="'+escapeHtml(safeCheckout)+'" target="_blank" rel="noopener noreferrer">Continuar pagamento</a></div>':"")+
         '</div>';
     }).join(""):'<div class="empty-state">Nenhuma recarga solicitada ainda.</div>';
+  }
+
+  function exportWalletCsv(){
+    const lines=[
+      ["Registro","Data","Descrição","Método","Valor de crédito (R$)","Taxa (R$)","Total cobrado (R$)","Status"],
+      ...client.walletTransactions.map(t=>[
+        "Movimentação",t.createdAt,t.description||t.type,"",t.amount,"","",t.status
+      ]),
+      ...client.walletTopups.map(t=>[
+        "Recarga",t.createdAt,"Recarga de saldo",t.paymentMethod,t.amount,t.fee,t.totalAmount,t.status
+      ])
+    ];
+    if(lines.length===1)return toast("Ainda não há movimentações para exportar.","error");
+    const cell=value=>{
+      if(typeof value==="number"&&Number.isFinite(value))return String(value).replace(".",",");
+      let str=String(value??"");
+      if(/^[\s]*[=+@-]/.test(str))str="'"+str;
+      return '"'+str.replace(/"/g,'""')+'"';
+    };
+    const contents="\uFEFF"+lines.map(row=>row.map(cell).join(";")).join("\r\n");
+    const url=URL.createObjectURL(new Blob([contents],{type:"text/csv;charset=utf-8"}));
+    const link=document.createElement("a");link.href=url;
+    link.download="postal-extrato-recente-"+new Date().toISOString().slice(0,10)+".csv";
+    document.body.appendChild(link);link.click();link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),5000);
+    toast("Extrato recente exportado. Inclui as últimas 100 movimentações e 50 recargas.");
   }
 
   const addressFields=["name","document","phone","email","cep","number","address","neighborhood","complement","city"];
@@ -1135,6 +1180,7 @@
     $("#walletTopupAmount")?.addEventListener("input",previewTopup);
     $("#walletTopupMethod")?.addEventListener("change",previewTopup);
     $("#walletRefreshBtn")?.addEventListener("click",()=>loadWallet().catch(error=>toast(error.message,"error")));
+    $("#walletExportBtn")?.addEventListener("click",exportWalletCsv);
     $("#clientProfileForm")?.addEventListener("submit",saveProfile);
     $("#clientAddressForm")?.addEventListener("submit",saveAddress);
     $("#savedSenderSelect")?.addEventListener("change",()=>applySavedAddress("Sender"));

@@ -12,6 +12,9 @@ const asaas = require("./asaas");
 const ecommerce = require("./ecommerce_connectors");
 const fiscalLookup = require("./fiscal_lookup");
 const pointRules = require("./public/point_rules");
+const trackingPrivacy = require("./public_tracking_privacy");
+const publicQuotes = require("./public_quotes");
+const publicPoints = require("./public_points");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -113,6 +116,16 @@ app.use(express.static(path.join(__dirname, "public"), { etag: false, maxAge: 0 
 app.get("/rastreio", (_req,res)=>{
   res.setHeader("Cache-Control","no-store");
   res.sendFile(path.join(__dirname,"public","rastreio.html"));
+});
+
+app.get("/cotacao-compartilhada", (_req,res)=>{
+  res.setHeader("Cache-Control","no-store");
+  res.sendFile(path.join(__dirname,"public","cotacao-compartilhada.html"));
+});
+
+app.get("/pontos", (_req,res)=>{
+  res.setHeader("Cache-Control","no-store");
+  res.sendFile(path.join(__dirname,"public","pontos.html"));
 });
 
 
@@ -1946,6 +1959,48 @@ app.delete("/api/client/addresses/:id",requireAuth,requireRole("CLIENT"),async(r
     if(!removed)return res.status(404).json({error:"Endereço não encontrado."});
     res.json({ok:true});
   }catch(error){res.status(500).json({error:"Não foi possível excluir o endereço."});}
+});
+
+app.post("/api/quotes/share",requireAuth,requireRole("ADMIN","STORE_OWNER","STORE_CLERK","CLIENT"),async(req,res)=>{
+  try{
+    const tokens=req.body?.selectionTokens;
+    if(!Array.isArray(tokens)||!tokens.length||tokens.length>12){
+      return res.status(400).json({error:"Compartilhe de 1 a 12 opções de uma mesma cotação."});
+    }
+    const selections=tokens.map(token=>typeof token==="string"&&token.length<50000?verifySelectionToken(token):null);
+    if(selections.some(p=>!p))return res.status(400).json({error:"Cotação vencida ou inválida. Calcule os fretes novamente."});
+    const quoteData=publicQuotes.buildPublicQuote(selections);
+    const token=await clientDb.createQuoteShare(req.user.userId,quoteData);
+    await audit(req,"SHARE_QUOTE","QUOTE_SHARE",null,{options:quoteData.options.length});
+    const base=String(process.env.APP_PUBLIC_URL||"").replace(/\/$/,"");
+    const url=(base||"")+"/cotacao-compartilhada?c="+encodeURIComponent(token);
+    res.status(201).json({url,expiresAt:quoteData.expiresAt});
+  }catch(error){
+    console.error("share quote error:",error.message);
+    res.status(error.status||500).json({error:error.status?error.message:"Não foi possível compartilhar a cotação."});
+  }
+});
+
+app.get("/api/public/quotes/:token",async(req,res)=>{
+  try{
+    const snapshot=await clientDb.getQuoteShare(String(req.params.token||""));
+    if(!snapshot)return res.status(404).json({error:"Cotação não encontrada ou expirada. Solicite uma nova cotação."});
+    res.setHeader("Cache-Control","private,no-store");
+    res.json({quote:snapshot.quote_data});
+  }catch(error){
+    res.status(503).json({error:"Não foi possível consultar esta cotação agora."});
+  }
+});
+
+app.get("/api/public/points",async(_req,res)=>{
+  try{
+    const stores=await clientDb.listPublicStores();
+    res.setHeader("Cache-Control","public,max-age=120");
+    res.json({points:stores.map(publicPoints.sanitizePoint)});
+  }catch(error){
+    console.error("public points error:",error.message);
+    res.status(503).json({error:"Os pontos estão temporariamente indisponíveis."});
+  }
 });
 
 app.get("/api/client/dashboard", requireAuth, requireRole("CLIENT"), async (req,res)=>{
@@ -3980,6 +4035,8 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
       const selectionToken = signSelectionToken({
         exp: Date.now() + 2 * 60 * 60 * 1000,
         postalCompanyId: option.postalCompanyId,
+        carrierName:option.transportadora,
+        demo:Boolean(demo),
         service: option.produto,
         deadline: option.prazoEntrega,
         salePrice: salePriceWithHub,
@@ -5070,29 +5127,11 @@ app.get("/api/public/rastreio/:stamp", async (req,res)=>{
       statusLabel:String(status),
       operator:"Postal Serviços",
       service:postalServiceLabel(order.service_name),
-      sender:{
-        name:String(sender.name||""),
-        city:String(sender.city||""),
-        cep:String(sender.cep||"").replace(/\D/g,"")
-      },
-      recipient:{
-        name:String(recipient.name||""),
-        address:String(recipient.address||""),
-        number:String(recipient.number||""),
-        complement:String(recipient.complement||""),
-        neighborhood:String(recipient.neighborhood||""),
-        city:String(recipient.city||""),
-        cep:String(recipient.cep||"").replace(/\D/g,"")
-      },
-      origin:{
-        city:String(sender.city||""),
-        cep:String(sender.cep||"").replace(/\D/g,"")
-      },
-      destination:{
-        city:String(recipient.city||""),
-        cep:String(recipient.cep||"").replace(/\D/g,"")
-      },
-      package:{
+      sender:trackingPrivacy.publicParty(sender),
+      recipient:trackingPrivacy.publicParty(recipient),
+      origin:trackingPrivacy.publicRoute(sender),
+      destination:trackingPrivacy.publicRoute(recipient),
+      package:trackingPrivacy.publicPackage({
         volumeCount:Number(order.package_count||packageVolumes.length||1),
         weightKg:Number((totalWeightGrams/1000).toFixed(3)),
         declaredValue:Number(totalDeclared||0),
@@ -5106,7 +5145,7 @@ app.get("/api/public/rastreio/:stamp", async (req,res)=>{
           },
           declaredValue:Number(v.declaredValue||0)
         }))
-      },
+      }),
       events:normalizedEvents,
       updatedAt
     });
