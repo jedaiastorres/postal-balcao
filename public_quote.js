@@ -33,8 +33,10 @@ function publicQuoteResponse(aggregated, { volumes, cepFrom, cepTo, hubTransferT
     options: aggregated.slice(0, 20).map(option => ({
       carrier: String(option.transportadora || "Transportadora").slice(0, 90),
       service: String(option.produto || "Serviço").slice(0, 90),
+      recommended: Boolean(option.recommended),
+      estimatedDeadline: Boolean(option.prazoEstimado),
       deadline: Number(option.prazoEntrega) || null,
-      price: Math.round((Number(option.precoVenda || 0) + hubTransferTotal + Number.EPSILON) * 100) / 100
+      price: Math.round((Number(option.precoVenda || 0) + (option.carrierMode==="POSTAL_OWN"?0:hubTransferTotal) + Number.EPSILON) * 100) / 100
     }))
   };
 }

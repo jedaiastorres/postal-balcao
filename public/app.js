@@ -684,7 +684,8 @@ function renderResults(result, payload) {
     card.dataset.optionIndex = String(index);
 
     let badge = "";
-    if (option.precoVenda === minPrice) badge = "Menor preço";
+    if (option.recommended) badge = "Postal recomenda";
+    else if (option.precoVenda === minPrice) badge = "Menor preço";
     else if (option.prazoEntrega === minDays) badge = "Mais rápido";
 
     card.innerHTML = `
@@ -697,6 +698,7 @@ function renderResults(result, payload) {
       <div class="result-block">
         <span>Prazo</span>
         <strong>${option.prazoEntrega || "—"} dias</strong>
+        ${option.prazoEstimado ? '<small>Referência do parceiro mais rápido; sujeito à confirmação operacional</small>' : ''}
       </div>
       <div class="result-block result-price price-reveal" tabindex="0" role="button"
            aria-label="Preço ao cliente ${money(option.precoVenda)}. Passe o mouse ou toque para ver a comissão do ponto.">

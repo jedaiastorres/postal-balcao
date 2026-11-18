@@ -1,7 +1,7 @@
 /* Arquivos de marca locais. Origem documentada em docs/marcas-e-integracoes.md. */
 (function(global){
   "use strict";
-  const logos = {"correios": "correios.svg", "jadlog": "jadlog.svg", "azul": "azul-cargo.png", "loggi": "loggi.svg", "fedex": "fedex.svg", "ups": "ups.svg", "dhl": "dhl.svg"};
+  const logos = {"postal": "postal.svg", "correios": "correios.svg", "jadlog": "jadlog.svg", "azul": "azul-cargo.png", "loggi": "loggi.svg", "fedex": "fedex.svg", "ups": "ups.svg", "dhl": "dhl.svg"};
   function carrierLogo(name) {
     const text = String(name || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const key = Object.keys(logos).find(key => key === "ups" ? /\bups\b/.test(text) : text.includes(key));

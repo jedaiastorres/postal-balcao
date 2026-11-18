@@ -77,11 +77,12 @@ $("quoteForm").addEventListener("submit",async event=>{
       }else fallback.classList.remove("hidden");
       brand.className="carrier";brand.textContent=option.carrier;service.className="service";service.textContent=option.service;
       name.append(fallback,brand,service);
-      const badgeText=Number(option.price)===lowestPrice?"Menor preço":Number(option.deadline)===fastestDeadline?"Mais rápido":"";
+      const badgeText=option.recommended?"Postal recomenda":Number(option.price)===lowestPrice?"Menor preço":Number(option.deadline)===fastestDeadline?"Mais rápido":"";
       if(badgeText){const badge=document.createElement("em");badge.className="result-badge";badge.textContent=badgeText;name.append(badge);}
       const deadline=document.createElement("div"),deadlineLabel=document.createElement("span"),deadlineValue=document.createElement("strong");
       deadline.className="result-block";
-      deadlineLabel.className="metric";deadlineLabel.textContent="Prazo estimado";deadlineValue.textContent=option.deadline==null?"A confirmar":option.deadline+" dias";deadline.append(deadlineLabel,deadlineValue);
+      deadlineLabel.className="metric";deadlineLabel.textContent=option.estimatedDeadline?"Prazo de referência":"Prazo estimado";deadlineValue.textContent=option.deadline==null?"A confirmar":option.deadline+" dias";deadline.append(deadlineLabel,deadlineValue);
+      if(option.estimatedDeadline){const note=document.createElement("small");note.textContent="Meta baseada no parceiro mais rápido; confirmar prazo operacional.";deadline.append(note);}
       const price=document.createElement("div"),priceLabel=document.createElement("span"),priceValue=document.createElement("strong");
       price.className="result-block";
       priceLabel.className="metric";priceLabel.textContent="Valor do frete";priceValue.className="price";priceValue.textContent=money(option.price);price.append(priceLabel,priceValue);
