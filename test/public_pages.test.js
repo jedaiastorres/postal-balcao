@@ -18,12 +18,14 @@ test("tracking and point finder show Postal identity, partner logos and verified
   for(const name of ["rastreio","pontos"]){
     const html=fs.readFileSync(path.resolve(__dirname,"../public",name+".html"),"utf8");
     assert.match(html,/assets\/brands\/postal\.svg/);
-    assert.match(html,/assets\/brands\/loggi\.svg/);
-    assert.match(html,/assets\/brands\/jadlog\.svg/);
-    assert.match(html,/assets\/brands\/azul-cargo\.png/);
-    assert.match(html,/assets\/brands\/correios\.svg/);
     assert.match(html,/5594991683301/);
     assert.match(html,/31\.306\.215\/0001-69/);
+  }
+  const pointsPage=fs.readFileSync(path.resolve(__dirname,"../public/pontos.html"),"utf8");
+  assert.doesNotMatch(pointsPage,/TRANSPORTADORAS DA REDE DE COTAÇÃO/);
+  const trackingPage=fs.readFileSync(path.resolve(__dirname,"../public/rastreio.html"),"utf8");
+  for(const asset of ["loggi.svg","jadlog.svg","azul-cargo.png","correios.svg"]){
+    assert.ok(trackingPage.includes("/assets/brands/"+asset));
   }
   const tracking=fs.readFileSync(path.resolve(__dirname,"../public/rastreio.js"),"utf8");
   assert.match(tracking,/PostalBrand\?\.carrierLogo\(name\)/);
