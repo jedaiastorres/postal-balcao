@@ -225,6 +225,20 @@ async function initDb() {
 
     CREATE INDEX IF NOT EXISTS order_events_order_idx ON order_events(order_id,created_at);
 
+    CREATE TABLE IF NOT EXISTS custody_scans (
+      id UUID PRIMARY KEY,
+      order_id UUID NOT NULL REFERENCES freight_orders(id) ON DELETE CASCADE,
+      tracking_code TEXT NOT NULL,
+      stage TEXT NOT NULL CHECK (stage IN ('RECEIVED_POINT','TRANSFERRED','RECEIVED_HUB','OUT_FOR_DELIVERY','DELIVERY_RECORDED')),
+      actor_user_id UUID NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+      actor_store_id UUID REFERENCES stores(id) ON DELETE SET NULL,
+      idempotency_key TEXT NOT NULL,
+      proof JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+      UNIQUE(actor_user_id,idempotency_key)
+    );
+    CREATE INDEX IF NOT EXISTS custody_scans_code_idx ON custody_scans(tracking_code,created_at DESC);
+
     CREATE TABLE IF NOT EXISTS credit_partners (
       id UUID PRIMARY KEY,
       code TEXT UNIQUE NOT NULL,
@@ -1213,6 +1227,63 @@ async function addOrderEvent(orderId,eventType,title,detail="",metadata={}) {
   return rows[0];
 }
 
+async function listCustodyScans(orderId,trackingCode){
+  const {rows}=await requireDb().query(
+    `SELECT id,tracking_code,stage,created_at FROM custody_scans
+       WHERE order_id=$1 AND tracking_code=$2 ORDER BY created_at,id`,
+    [orderId,trackingCode]
+  );
+  return rows;
+}
+
+async function recordCustodyScan({orderId,trackingCode,stage,actorUserId,actorStoreId,idempotencyKey,proofName}){
+  const crypto=require("node:crypto");
+  const {validateScan,stages}=require("./custody");
+  const connection=await requireDb().connect();
+  try{
+    await connection.query("BEGIN");
+    const locked=await connection.query(
+      `SELECT id,payment_status,is_simulation FROM freight_orders WHERE id=$1
+         AND (tracking_code=$2 OR EXISTS (
+           SELECT 1 FROM jsonb_array_elements(COALESCE(shipment_volumes,'[]'::jsonb)) AS v
+           WHERE COALESCE(v->>'trackingCode',v->>'tracking_code')=$2
+         )) FOR UPDATE`,[orderId,trackingCode]);
+    if(!locked.rows.length)throw Object.assign(new Error("Envio não encontrado."),{status:404});
+    if(locked.rows[0].payment_status!=="PAID"||locked.rows[0].is_simulation){
+      throw Object.assign(new Error("Somente envios reais e pagos podem ter movimentação de custódia."),{status:409});
+    }
+    const existing=await connection.query("SELECT * FROM custody_scans WHERE actor_user_id=$1 AND idempotency_key=$2",[actorUserId,idempotencyKey]);
+    if(existing.rows.length){
+      const previous=existing.rows[0];
+      if(previous.order_id!==orderId||previous.tracking_code!==trackingCode||previous.stage!==stage){
+        throw Object.assign(new Error("Identificador de leitura reutilizado para outro evento."),{status:409});
+      }
+      await connection.query("COMMIT");
+      return {scan:previous,replayed:true};
+    }
+    const previous=await connection.query(
+      `SELECT stage FROM custody_scans WHERE order_id=$1 AND tracking_code=$2 ORDER BY created_at DESC,id DESC LIMIT 1`,
+      [orderId,trackingCode]
+    );
+    validateScan({code:trackingCode,stage,idempotencyKey,recipientName:proofName},previous.rows[0]?.stage||null);
+    const scanId=crypto.randomUUID();
+    const proof=stage==="DELIVERY_RECORDED"?{recipientName:proofName}:{};
+    const inserted=await connection.query(
+      `INSERT INTO custody_scans(id,order_id,tracking_code,stage,actor_user_id,actor_store_id,idempotency_key,proof)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb) RETURNING *`,
+      [scanId,orderId,trackingCode,stage,actorUserId,actorStoreId||null,idempotencyKey,JSON.stringify(proof)]
+    );
+    await connection.query(
+      `INSERT INTO order_events(id,order_id,event_type,title,detail,metadata)
+       VALUES($1,$2,'CUSTODY_SCAN',$3,$4,$5::jsonb)`,
+      [crypto.randomUUID(),orderId,stages[stage].label,"Leitura interna da rede Postal",JSON.stringify({scanId,trackingCode,stage})]
+    );
+    await connection.query("COMMIT");
+    return {scan:inserted.rows[0],replayed:false};
+  }catch(error){await connection.query("ROLLBACK");throw error;}
+  finally{connection.release();}
+}
+
 async function saveSimulatedShipment(id, trackingCode) {
   const db = requireDb();
   const { rows } = await db.query(
@@ -1428,6 +1499,8 @@ module.exports = {
   getOrder,
   getOrderByCheckoutId,
   findOrderByTrackingCode,
+  recordCustodyScan,
+  listCustodyScans,
   setCheckout,
   markPaid,
   updateStatus,

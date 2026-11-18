@@ -5,7 +5,7 @@ const path=require("node:path");
 const vm=require("node:vm");
 
 test("public quote and point pages load scripts allowed by the production CSP",()=>{
-  for(const name of ["pontos","cotacao-compartilhada"]){
+  for(const name of ["pontos","cotacao-compartilhada","cotacao","scanner"]){
     const html=fs.readFileSync(path.resolve(__dirname,"../public",name+".html"),"utf8");
     const js=fs.readFileSync(path.resolve(__dirname,"../public",name+".js"),"utf8");
     assert.match(html,new RegExp('<script src="/'+name+'\\.js" defer></script>'));

@@ -1225,6 +1225,7 @@ body{background:#faf7f6}
 .quote-tools select{min-height:40px;padding:7px 12px;border:1px solid var(--border,#dedede);border-radius:10px;background:#fff}
 .login-public-links{display:flex;gap:14px;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:19px}
 .login-public-links a{font-size:12px;color:#bd0a38;font-weight:750;text-decoration:underline;text-underline-offset:3px}
+.scanner-launch{display:inline-block;margin-top:12px;padding:9px 13px;border:1px solid #d7083b;border-radius:10px;color:#b50836;font-size:13px;text-decoration:none;font-weight:800;background:#fff}
 .client-start-guide{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
 .client-start-guide>div{border:1px solid #ede9ee;border-radius:15px;padding:18px;background:#fff}
 .client-start-guide strong{font-size:14px}.client-start-guide p{font-size:12px;line-height:1.5;color:#737683;min-height:44px}
