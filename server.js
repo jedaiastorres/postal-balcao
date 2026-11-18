@@ -16,6 +16,7 @@ const trackingPrivacy = require("./public_tracking_privacy");
 const publicQuotes = require("./public_quotes");
 const publicPoints = require("./public_points");
 const publicQuote = require("./public_quote");
+const custody = require("./custody");
 
 const app = express();
 // Railway terminates the public connection at a reverse proxy.
@@ -137,6 +138,11 @@ app.get("/pontos", (_req,res)=>{
 app.get("/cotacao", (_req,res)=>{
   res.setHeader("Cache-Control","no-store");
   res.sendFile(path.join(__dirname,"public","cotacao.html"));
+});
+
+app.get("/scanner", (_req,res)=>{
+  res.setHeader("Cache-Control","no-store");
+  res.sendFile(path.join(__dirname,"public","scanner.html"));
 });
 
 
@@ -4578,6 +4584,54 @@ app.get("/api/orders/:id", requireAuth, async (req, res) => {
   } catch (error) {
     console.error("get order error:", error.message);
     res.status(503).json({ error: "Não foi possível consultar o frete." });
+  }
+});
+
+// Operational proof of internal hand-offs; it never changes the carrier's POD
+// or triggers payment, shipment creation or external tracking mutations.
+const scannerRoles=["ADMIN","SUPERVISOR","OPS","STORE_OWNER","STORE_CLERK"];
+app.get("/api/ops/scanner-session",requireAuth,requireRole(...scannerRoles),requireCurrentUser,(req,res)=>{
+  res.setHeader("Cache-Control","no-store");
+  res.json({csrfToken:String(req.user.csrf||""),role:req.user.role,stages:custody.stages});
+});
+
+async function scopedScanOrder(req,trackingCode){
+  const order=await db.findOrderByTrackingCode(trackingCode);
+  if(!order)return null;
+  return db.getOrder(order.id,scopeForUser(req.user));
+}
+
+app.get("/api/ops/scans/:code",requireAuth,requireRole(...scannerRoles),requireCurrentUser,async(req,res)=>{
+  try{
+    const code=String(req.params.code||"").trim();
+    if(!/^[A-Za-z0-9]{6,40}$/.test(code))return res.status(400).json({error:"Código inválido."});
+    const order=await scopedScanOrder(req,code);
+    if(!order)return res.status(404).json({error:"Envio não encontrado ou sem permissão para consulta."});
+    const scans=await db.listCustodyScans(order.id,code);
+    res.setHeader("Cache-Control","no-store");
+    res.json({trackingCode:code,carrier:order.carrier||"Postal Serviços",paymentConfirmed:order.payment_status==="PAID"&&!order.is_simulation,
+      scans:scans.map(scan=>({id:scan.id,stage:scan.stage,label:custody.stages[scan.stage]?.label||scan.stage,createdAt:scan.created_at}))});
+  }catch(error){console.error("scan history error",error.message);res.status(503).json({error:"Não foi possível consultar a movimentação."});}
+});
+
+app.post("/api/ops/scans",requireAuth,requireRole(...scannerRoles),requireCurrentUser,async(req,res)=>{
+  try{
+    const body=req.body||{};
+    // Check the physical scan against a real order within this user's scope.
+    const code=String(body.trackingCode||"").trim();
+    if(!/^[A-Za-z0-9]{6,40}$/.test(code))return res.status(400).json({error:"Código inválido."});
+    const order=await scopedScanOrder(req,code);
+    if(!order)return res.status(404).json({error:"Envio não encontrado ou sem permissão para leitura."});
+    const result=await db.recordCustodyScan({orderId:order.id,trackingCode:code,stage:String(body.stage||""),
+      actorUserId:req.user.userId,actorStoreId:req.user.storeId,idempotencyKey:String(body.idempotencyKey||""),
+      proofName:String(body.recipientName||"")});
+    if(!result.replayed)await audit(req,"CUSTODY_SCAN","FREIGHT_ORDER",order.id,{trackingCode:code,stage:body.stage});
+    res.status(result.replayed?200:201).json({ok:true,replayed:result.replayed,
+      stage:result.scan.stage,label:custody.stages[result.scan.stage]?.label,createdAt:result.scan.created_at});
+  }catch(error){
+    if(error.status)return res.status(error.status).json({error:error.message});
+    console.error("scan record error",error.message);
+    res.status(503).json({error:"Não foi possível registrar a leitura. Tente novamente sem duplicar o evento."});
   }
 });
 

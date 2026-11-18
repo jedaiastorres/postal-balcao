@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR"><head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#d7083b"><title>Leitura operacional | Postal Serviços</title>
+  <style>
+    :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#252937;background:#f6f7fa}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:#f6f7fa}
+    header{background:#fff;border-bottom:1px solid #e6e7ec;padding:16px max(20px,calc((100vw - 900px)/2));display:flex;align-items:center;justify-content:space-between;gap:12px}header img{width:135px;height:58px}header a{color:#ad0a36;font-weight:800;font-size:13px;text-decoration:none}
+    main{max-width:900px;margin:auto;padding:35px 20px 70px}h1{font-size:clamp(28px,5vw,40px);margin:8px 0;letter-spacing:-1px}h2{font-size:18px;margin:0 0 15px}
+    p{color:#707582;line-height:1.6}.eyebrow{font-size:11px;font-weight:900;letter-spacing:1.3px;color:#be0638}
+    .panel{background:#fff;border:1px solid #e6e7ec;border-radius:19px;padding:23px;margin:18px 0;box-shadow:0 8px 28px #13182509}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}label{display:block;font-weight:800;font-size:13px;color:#454b59}label span{display:block;margin:0 0 7px}
+    input,select{width:100%;border:1px solid #d9dce4;border-radius:11px;padding:13px;font-size:16px;margin-bottom:12px;background:white}
+    button{border:0;border-radius:12px;background:#c9083d;color:white;padding:13px 18px;font-size:14px;font-weight:800;cursor:pointer}button:disabled{opacity:.5;cursor:wait}.secondary{background:#fff;border:1px solid #ebbdc9;color:#bb0a38}
+    .actions{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 16px}video{display:block;width:100%;max-height:330px;object-fit:cover;background:#1d1e24;border-radius:13px}
+    .hidden{display:none!important}.notice{font-size:13px;line-height:1.5;padding:14px;border-radius:11px;background:#fff7e5;color:#745517}.status{font-size:13px;background:#fff1f4;color:#9f0934;padding:13px;border-radius:11px}.success{background:#eff9f3;color:#18743c}
+    .history{list-style:none;padding:0;display:grid;gap:10px}.history li{background:#fafbfc;padding:14px;border-radius:11px;display:flex;justify-content:space-between;gap:15px;flex-wrap:wrap;font-size:13px}.history strong{color:#a40932}
+    @media(max-width:580px){.grid{grid-template-columns:1fr}.panel{padding:17px}}
+  </style>
+</head><body>
+  <header><a href="/" aria-label="Voltar ao painel"><img src="/assets/brands/postal.svg" alt="Postal Serviços"></a><a href="/">Voltar ao painel</a></header>
+  <main>
+    <div class="eyebrow">OPERAÇÃO POSTAL · CADEIA DE CUSTÓDIA</div><h1>Leitor de pacotes</h1>
+    <p>Leia o QR Code ou o código de barras da etiqueta para registrar recebimento, transferências e movimentações internas do pacote.</p>
+    <div id="auth" class="status">Verificando seu acesso operacional...</div>
+    <section id="work" class="hidden">
+      <div class="panel">
+        <h2>Identificar pacote</h2>
+        <div class="actions"><button id="openCamera" type="button">Abrir câmera</button><button id="closeCamera" type="button" class="secondary hidden">Desligar câmera</button></div>
+        <video id="camera" playsinline muted class="hidden" aria-label="Câmera para ler etiqueta"></video>
+        <p id="cameraHint" class="notice">Se seu aparelho não permitir a leitura automática, digite ou cole o código abaixo. A câmera não envia imagens ao servidor.</p>
+        <label><span>Código de rastreio</span><input id="trackingCode" autocomplete="off" placeholder="Escaneie ou digite o código" maxlength="50"></label>
+        <button id="search" type="button" class="secondary">Consultar histórico do pacote</button>
+      </div>
+      <div class="panel">
+        <h2>Registrar movimentação</h2>
+        <div class="grid">
+          <label><span>Etapa operacional</span><select id="stage"><option value="RECEIVED_POINT">Recebido no ponto</option><option value="TRANSFERRED">Em transferência</option><option value="RECEIVED_HUB">Recebido no hub</option><option value="OUT_FOR_DELIVERY">Saiu para entrega</option><option value="DELIVERY_RECORDED">Entrega registrada internamente</option></select></label>
+          <label id="recipientWrap" class="hidden"><span>Nome de quem recebeu *</span><input id="recipientName" maxlength="120" placeholder="Responsável pelo recebimento"></label>
+        </div>
+        <button id="record" type="button">Registrar leitura</button>
+        <p class="notice">As movimentações são registros internos e não substituem os eventos oficiais da transportadora ou o comprovante de entrega (POD). Não há movimentação de saldo nem emissão de etiqueta neste processo.</p>
+      </div>
+      <div class="panel"><h2>Histórico interno do pacote</h2><p id="carrier"></p><ul id="history" class="history"><li>Consulte um código para carregar as etapas.</li></ul></div>
+      <div id="status" class="status hidden" role="status"></div>
+    </section>
+  </main>
+  <script src="/scanner.js" defer></script>
+</body></html>

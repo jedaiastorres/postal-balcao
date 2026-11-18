@@ -75,6 +75,7 @@
     $("#pointClientRegistrationResult")?.classList.add("hidden");
     if($("#pointClientRegistrationResult"))$("#pointClientRegistrationResult").textContent="";
     $("#pointQuoteActions")?.classList.toggle("hidden",!["STORE_OWNER","STORE_CLERK"].includes(user?.role)||!user?.storeId);
+    $("#scannerLaunch")?.classList.toggle("hidden",clientMode);
     $("#clientNavSection")?.classList.toggle("hidden",!clientMode);
     $("#clientTopBalance")?.classList.toggle("hidden",!clientMode);
     document.querySelector('[data-view="inventory"]')?.classList.toggle("hidden",clientMode||!["ADMIN","STORE_OWNER","OPS"].includes(user?.role));
