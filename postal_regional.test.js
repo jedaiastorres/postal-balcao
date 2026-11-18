@@ -18,6 +18,7 @@ test("não oferta para trecho de origem externa ou estado diferente",()=>{
   assert.equal(postal.coveredRoute({city:"Redenção",uf:"PA"},{city:"Redenção",uf:"SC"}),null);
   assert.equal(postal.parseLocation({data:{city:"Pau D'Arco",state:"Pará"}})?.uf,"PA");
   assert.equal(postal.parseLocation({data:{localidade:"Xinguara",uf:"PA"}})?.city,"Xinguara");
+  assert.deepEqual(postal.parseLocation({data:{city_title:"Canaã dos Carajás",state_abbreviation:"PA"}}),{city:"Canaã dos Carajás",uf:"PA"});
 });
 
 test("tarifa regional igual à menor cotação final e prazo igual ao mais rápido",()=>{
