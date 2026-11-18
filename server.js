@@ -15,8 +15,11 @@ const pointRules = require("./public/point_rules");
 const trackingPrivacy = require("./public_tracking_privacy");
 const publicQuotes = require("./public_quotes");
 const publicPoints = require("./public_points");
+const publicQuote = require("./public_quote");
 
 const app = express();
+// Railway terminates the public connection at a reverse proxy.
+app.set("trust proxy", 1);
 const PORT = Number(process.env.PORT || 3000);
 
 const API_URL = (process.env.CONECTENVIOS_API_URL || "https://app.conectenvios.com.br/api/v1").replace(/\/$/, "");
@@ -54,6 +57,9 @@ const FISCAL_LOOKUP_URL = String(process.env.FISCAL_LOOKUP_URL || "").trim();
 const FISCAL_LOOKUP_TOKEN = String(process.env.FISCAL_LOOKUP_TOKEN || "").trim();
 const FISCAL_LOOKUP_PROVIDER = String(process.env.FISCAL_LOOKUP_PROVIDER || "AUTHORIZED").toUpperCase();
 const FISCAL_LOOKUP_ENABLED = String(process.env.FISCAL_LOOKUP_ENABLED || "false").toLowerCase() === "true";
+const PUBLIC_QUOTE_ENABLED = String(process.env.PUBLIC_QUOTE_ENABLED || "true").toLowerCase() === "true";
+const visitorQuoteLimiter = publicQuote.makeVisitorLimiter();
+let publicQuotesInFlight = 0;
 function fiscalLookupConfigured() {
   if (!FISCAL_LOOKUP_ENABLED) return false;
   if (FISCAL_LOOKUP_PROVIDER === "CONSULTADANFE") return true;
@@ -126,6 +132,11 @@ app.get("/cotacao-compartilhada", (_req,res)=>{
 app.get("/pontos", (_req,res)=>{
   res.setHeader("Cache-Control","no-store");
   res.sendFile(path.join(__dirname,"public","pontos.html"));
+});
+
+app.get("/cotacao", (_req,res)=>{
+  res.setHeader("Cache-Control","no-store");
+  res.sendFile(path.join(__dirname,"public","cotacao.html"));
 });
 
 
@@ -621,7 +632,7 @@ async function resolveOperationalQuoteOrigin(user, actualCepFrom) {
   let store = null;
   if (user?.storeId) {
     store = await db.getStore(user.storeId);
-  } else if (user?.role === "CLIENT" && user?.userId) {
+  } else if (user?.role === "PUBLIC" || (user?.role === "CLIENT" && user?.userId)) {
     // O CEP real define o hub. Não usar automaticamente um ponto indicador
     // de outra cidade como origem do pacote.
     try { store = await db.findStoreForQuoteOrigin(actualCepFrom); } catch {}
@@ -1710,6 +1721,7 @@ app.get("/api/public-config", (_req, res) => {
     databaseConfigured: Boolean(process.env.DATABASE_URL),
     fiscalLookupConfigured: fiscalLookupConfigured(),
     fiscalLookupProvider: FISCAL_LOOKUP_PROVIDER,
+    publicQuoteEnabled: PUBLIC_QUOTE_ENABLED && Boolean(TOKEN),
     version: "1.10.0",
     dataResetVersion: String(process.env.POSTAL_DATA_RESET_VERSION||""),
     paymentSimulatorEnabled: PAYMENT_SIMULATOR_ENABLED && !asaas.configured(),
@@ -1860,6 +1872,45 @@ app.post("/api/client/register", async (req, res) => {
     console.error("client register error:", error.message);
     res.status(500).json({ error: "Não foi possível criar a conta cliente." });
   }
+});
+
+// Public quotations do not grant a purchase token and are rate-limited.
+// This route is intentionally before the session/CSRF middleware.
+app.post("/api/public/cotacao", async (req,res)=>{
+  if (!PUBLIC_QUOTE_ENABLED) return res.status(503).json({error:"Cotação pública temporariamente indisponível."});
+  if (!TOKEN) return res.status(503).json({error:"Cotação em tempo real indisponível. Tente novamente mais tarde."});
+  let input;
+  try { input = publicQuote.validatePublicQuote(req.body,parseQuoteVolumes); }
+  catch (error) { return res.status(400).json({error:error.message}); }
+  const limit = visitorQuoteLimiter(String(req.ip || req.socket?.remoteAddress || "unknown"));
+  if (!limit.ok) {
+    res.setHeader("Retry-After",String(limit.retryAfter));
+    return res.status(429).json({error:"Muitas cotações realizadas. Aguarde alguns minutos para consultar novamente."});
+  }
+  if (publicQuotesInFlight >= 4) {
+    res.setHeader("Retry-After","15");
+    return res.status(503).json({error:"Estamos consultando muitos fretes. Tente novamente em alguns segundos."});
+  }
+  publicQuotesInFlight++;
+  try {
+    const {cepFrom,cepTo,volumes}=input;
+    const origin=await resolveOperationalQuoteOrigin({role:"PUBLIC"},cepFrom);
+    const hubTransferTotal=origin.overridden?round2(HUB_TRANSFER_FEE_PER_PACKAGE*volumes.length):0;
+    const quoteSets=await mapWithConcurrency(volumes,Math.min(3,CONECTENVIO_QUOTE_CONCURRENCY),async volume=>{
+      const quoted=await fetchProviderQuoteCached(origin.providerCepFrom,cepTo,volume);
+      if(quoted.data?.error===true){
+        const error=new Error("A transportadora não conseguiu atender esta rota.");error.status=422;throw error;
+      }
+      return normalizeQuote(quoted.data,0);
+    });
+    const options=aggregateVolumeQuoteSets(quoteSets);
+    if(!options.length)return res.status(422).json({error:"Nenhuma transportadora disponível para as medidas e CEPs informados."});
+    res.setHeader("Cache-Control","no-store");
+    res.json(publicQuote.publicQuoteResponse(options,{volumes,cepFrom,cepTo,hubTransferTotal,demo:false}));
+  }catch(error){
+    console.error("public quote error:",error.status,error.message);
+    res.status(error.status===422?422:502).json({error:error.status===422?error.message:"Não foi possível consultar as transportadoras agora. Tente novamente."});
+  }finally{publicQuotesInFlight--;}
 });
 
 // CSRF para mutações autenticadas do painel. Webhooks e API externa usam autenticação própria.
