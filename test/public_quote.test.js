@@ -55,4 +55,6 @@ test("public quote page is reachable without login and does not expose purchase 
   assert.match(login, /href="\/cotacao"[^>]*>Calcular frete sem cadastro/);
   assert.match(page, /\/cotacao\.js/);
   assert.doesNotMatch(page, /<script(?![^>]*src=)/);
+  const client=fs.readFileSync(path.join(__dirname,"../public/cotacao.js"),"utf8");
+  assert.match(client,/key==="peso"\?"0\.01":"1"/);
 });

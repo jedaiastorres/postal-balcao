@@ -21,7 +21,7 @@ function addVolume(){
   const fields=document.createElement("div");fields.className="volume-grid";
   for(const [key,label,value,step] of [["peso","Peso (kg)","1","0.01"],["comprimento","Comp. (cm)","20","0.1"],["largura","Larg. (cm)","15","0.1"],["altura","Altura (cm)","10","0.1"],["vlDeclarado","Valor (R$)","100","0.01"]]){
     const wrap=document.createElement("label"),span=document.createElement("span"),input=document.createElement("input");
-    span.textContent=label;input.name=key;input.type="number";input.min=key==="vlDeclarado"?"0":"0.01";input.max=key==="peso"?"30":key==="vlDeclarado"?"50000":"200";input.step=step;input.value=value;input.required=true;
+    span.textContent=label;input.name=key;input.type="number";input.min=key==="vlDeclarado"?"0":key==="peso"?"0.01":"1";input.max=key==="peso"?"30":key==="vlDeclarado"?"50000":"200";input.step=step;input.value=value;input.required=true;
     wrap.append(span,input);fields.append(wrap);
   }
   card.append(heading,fields);$("volumes").append(card);
