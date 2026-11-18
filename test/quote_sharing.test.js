@@ -8,7 +8,7 @@ const {randomUUID}=require("node:crypto");
 const {PGlite}=require("@electric-sql/pglite");
 const {buildPublicQuote}=require("../public_quotes");
 const {maskName,publicParty,publicRoute,publicPackage}=require("../public_tracking_privacy");
-const {sanitizePoint}=require("../public_points");
+const {sanitizePoint,isPublishablePoint}=require("../public_points");
 
 function load(file,overrides){
   const filename=path.resolve(__dirname,"..",file),module={exports:{}};
@@ -78,6 +78,13 @@ test("public point locator omits internal financial and referral fields",()=>{
   for(const forbidden of ["secret","commission_percent","referral_code","privateNote"]){
     assert.ok(!serialized.includes(forbidden),forbidden);
   }
+});
+
+test("public point locator hides test records and incomplete addresses without deleting them",()=>{
+  assert.equal(isPublishablePoint(sanitizePoint({name:"TESTE",address:{cep:"68515000"}})),false);
+  assert.equal(isPublishablePoint(sanitizePoint({name:"Ponto Teste Centro",address:{address:"Rua A",city:"Parauapebas",uf:"PA"}})),false);
+  assert.equal(isPublishablePoint(sanitizePoint({name:"Postal Centro",address:{city:"Parauapebas",uf:"PA",cep:"68515000"}})),false);
+  assert.equal(isPublishablePoint(sanitizePoint({name:"Postal Centro",address:{address:"Rua A",city:"Parauapebas",uf:"PA"}})),true);
 });
 
 test("PostgreSQL shared links use hashed tokens, expire and do not touch the wallet",async()=>{

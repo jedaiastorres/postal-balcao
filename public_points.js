@@ -32,4 +32,13 @@ function sanitizePoint(store){
   };
 }
 
-module.exports={sanitizePoint};
+// Não publique cadastros de teste ou unidades sem endereço suficiente para
+// orientar um cliente até o local. Não apaga nem altera o cadastro interno.
+function isPublishablePoint(point){
+  const name=String(point?.name||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
+  if(/\b(teste|test|demo|homologacao|exemplo|sandbox|mock)\b/i.test(name))return false;
+  const address=point?.address||{};
+  return Boolean(String(address.street||"").trim()&&String(address.city||"").trim()&&String(address.state||"").trim());
+}
+
+module.exports={sanitizePoint,isPublishablePoint};
