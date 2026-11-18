@@ -106,7 +106,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 <div class="grid2" style="margin-top:12px">
 <div class="card"><b>Alertas do CFO</b>
 <div class="alert high"><b>Setembro exige diagnóstico</b>Resultado de -R$ 197,1 mil na competência 09/2026. A tela final permitirá abrir por cliente, rota, cidade, natureza e lançamento.</div>
-<div class="alert medium"><b>Outubro ainda é parcial</b>Inter está atualizado até 10/10 e Banco do Brasil até 14/10. O painel mostrará o corte de cada banco sempre no topo.</div>
+<div class="alert medium"><b>Outubro ainda é parcial</b>Inter está atualizado até 17/11 e Banco do Brasil até 14/10. O painel mostrará o corte de cada banco sempre no topo.</div>
 <div class="alert"><b>Classificação IBPO aprendida</b>IBPO Serviços Financeiros = BPO financeiro, despesa administrativa, competência igual ao mês do pagamento.</div>
 </div>
 <div class="card"><b>Qualidade da base</b>
@@ -215,7 +215,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 <div class="title"><div><h2>DRE Oficial</h2><div class="sub">Modelo mensal + acumulado + AV%, com todos os grupos preenchidos a partir das classificações atuais: pessoal, ocupação, terceiros/sistemas, administrativos, frota, fretes/redespachos, financeiro e impostos.</div></div><div class="toolbar"><button class="btn secondary" onclick="window.print()">Gerar PDF</button><button class="btn secondary" onclick="exportDreCSV()">Exportar Excel</button></div></div>
 <div class="dre-shell">
 <div class="dre-head">
-<div><h2>Demonstrativo de Resultado</h2><div class="sub">Postal Serviços e Transportes LTDA · Competência gerencial · Inter até 10/10/2026 · BB até 14/10/2026</div></div>
+<div><h2>Demonstrativo de Resultado</h2><div class="sub">Postal Serviços e Transportes LTDA · Competência gerencial · Inter até 17/11/2026 · BB até 14/10/2026</div></div>
 <div class="dre-meta"><span class="dre-chip">Ano: 2026</span><span class="dre-chip">Mensal + Acumulado</span><span class="dre-chip">AV% sobre Receita Bruta</span></div>
 </div>
 <div class="dre-toolbar">
@@ -373,7 +373,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 <section class="page" id="cfo">
 <div class="title"><div><h2>Agente CFO IA</h2><div class="sub">Análise contínua da saúde financeira da Postal</div></div></div>
 <div class="grid2"><div class="card"><textarea rows="7" placeholder="Ex.: Qual cliente está com pior rentabilidade? Qual rota precisa de reajuste? Quanto combustível representa da receita?"></textarea><button class="btn" style="margin-top:10px" onclick="document.getElementById('answer').textContent='Prévia: o CFO usará os filtros ativos, DRE, lançamentos e regras aprendidas para separar fatos, alertas, hipóteses e ações recomendadas. Ele também acompanhará o corte dos bancos e avisará quando um mês estiver parcial.'">Analisar</button></div><div class="card"><pre class="answer" id="answer">O CFO IA ficará integrado ao mesmo banco de dados do sistema e analisará os números conforme os filtros do BI.</pre></div></div>
-<div class="card" style="margin-top:12px"><b>Memória CFO</b><div class="memory">Banco do Brasil atualizado até 14/10/2026.</div><div class="memory">Banco Inter atualizado até 10/10/2026.</div><div class="memory">IBPO é BPO financeiro e usa competência do mês do pagamento.</div><div class="memory">Custos compartilhados só devem ser rateados com base objetiva.</div></div>
+<div class="card" style="margin-top:12px"><b>Memória CFO</b><div class="memory">Banco do Brasil atualizado até 14/10/2026.</div><div class="memory">Banco Inter atualizado até 17/11/2026.</div><div class="memory">IBPO é BPO financeiro e usa competência do mês do pagamento.</div><div class="memory">Custos compartilhados só devem ser rateados com base objetiva.</div></div>
 </section>
 </main></div>
 <div id="toast" style="position:fixed;right:18px;bottom:18px;background:#101828;color:white;padding:12px 16px;border-radius:10px;display:none;z-index:99;max-width:360px"></div>
@@ -395,17 +395,26 @@ function loadJson(k,fallback){try{const v=localStorage.getItem(k);return v?JSON.
 let clients=loadJson(CLIENT_KEY,defaultClients);
 let avulsos=loadJson(AVULSO_KEY,[]);
 const defaultRules=[
- {id:'rule-ibpo',party:'IBPO Serviços Financeiros',nature:'BPO financeiro / serviços financeiros',group:'Despesas Operacionais',subgroup:'Despesas administrativas',include:'Sim',compMode:'payment_month',clients:['CORPORATIVO / TODOS'],routes:['CORPORATIVO / TODOS'],cities:[],note:'Competência igual ao mês do pagamento.'}
+ {id:'rule-ibpo',matchType:'exact',party:'IBPO Serviços Financeiros',nature:'BPO financeiro / serviços financeiros',group:'Despesas Operacionais',subgroup:'Despesas administrativas',include:'Sim',compMode:'payment_month',clients:['CORPORATIVO / TODOS'],routes:['CORPORATIVO / TODOS'],cities:[],note:'Competência igual ao mês do pagamento.'},
+ {id:'rule-rmexpress',matchType:'exact',party:'RM EXPRESS',nature:'Custos operacionais — Fretes de terceiros / parceiro',group:'Custos dos Serviços',subgroup:'Custos operacionais',include:'Sim',compMode:'payment_month',clients:['A RATEAR POR VOLUME'],routes:['ROTA REDENÇÃO'],cities:['MÚLTIPLAS CIDADES — ROTA REDENÇÃO'],note:'Usuário confirmou RM Express na Rota Redenção.'},
+ {id:'rule-boleto112',matchType:'prefix',party:'112/',nature:'Receita operacional — Fretes e serviços logísticos',group:'Receita Bruta',subgroup:'Receita operacional',include:'Sim',compMode:'payment_month',clients:['IMA'],routes:['MÚLTIPLAS ROTAS / IMA'],cities:['MÚLTIPLAS CIDADES'],note:'Usuário confirmou que boletos prefixo 112 pertencem ao cliente IMA.'}
 ];
 let learnedRules=loadJson(RULE_KEY,defaultRules);
 let dupBlocked=Number(localStorage.getItem(DUP_KEY)||0);
 let importedTx=loadJson(IMPORTED_KEY,[]);
 let importHistoryData=loadJson(IMPORT_HISTORY_KEY,[]);
 let bankUpdates=loadJson(BANK_UPDATE_KEY,{
- 'Banco Inter':{statementThrough:'2026-10-10',importedAt:'2026-10-15T00:00:00-03:00'},
+ 'Banco Inter':{statementThrough:'2026-11-17',importedAt:'2026-11-18T00:00:00-03:00'},
  'Banco do Brasil':{statementThrough:'2026-10-14',importedAt:'2026-10-15T00:00:00-03:00'}
 });
 let importPreview=[]; let importPreviewMeta=null;
+const SYSTEM_SEED_URL='https://cdn.jsdelivr.net/gh/jedaiastorres/postal-balcao@17eacdeda9b4114f7ba907466bb5a5ffdc834c21/public/cfo/data/inter-2026-11-17.json';
+const SYSTEM_SEED_BATCH='inter-2026-10-11_2026-11-17-v2';
+// Ensure new permanent rules reach browsers that already had older local storage.
+for(const dr of defaultRules){
+  if(!learnedRules.some(r=>r.id===dr.id || (normKey(r.party)===normKey(dr.party) && (r.matchType||'exact')===(dr.matchType||'exact')))) learnedRules.push(dr);
+}
+localStorage.setItem(RULE_KEY,JSON.stringify(learnedRules));
 function saveClients(){localStorage.setItem(CLIENT_KEY,JSON.stringify(clients));renderClients();renderClientSuggestions()}
 function saveAvulsos(){localStorage.setItem(AVULSO_KEY,JSON.stringify(avulsos));renderAvulsos();renderDuplicateCount()}
 function saveRules(){localStorage.setItem(RULE_KEY,JSON.stringify(learnedRules));renderRulesLocal()}
@@ -414,7 +423,7 @@ function normKey(s){return String(s||'').normalize('NFD').replace(/[\u0300-\u036
 function avFingerprint(a){return [a.date,a.flow,Number(a.value||0).toFixed(2),normKey(a.party),a.competence].join('|')}
 function isDuplicateAvulso(a){const fp=avFingerprint(a);return avulsos.some(x=>avFingerprint(x)===fp)}
 function monthCompetence(date){if(!date||date.length<7)return'';return date.slice(5,7)+'/'+date.slice(0,4)}
-function findRuleByParty(party){const k=normKey(party);return learnedRules.find(r=>normKey(r.party)===k)}
+function findRuleByParty(party){const k=normKey(party);return learnedRules.find(r=>{const rk=normKey(r.party);return (r.matchType==='prefix')?k.startsWith(rk):rk===k})}
 function applyLearnedRule(){const r=findRuleByParty(document.getElementById('avParty')?.value);if(!r)return false;
  avNature.value=r.nature||'';avGroup.value=r.group||'Despesas Operacionais';avInclude.value=r.include||'Sim';
  avClients.value=(r.clients||[]).join('; ');avRoutes.value=(r.routes||[]).join('; ');avCities.value=(r.cities||[]).join('; ');
@@ -448,6 +457,28 @@ function formatDate(d){if(!d)return'';const p=d.split('-');return p.length===3?`
 function saveImported(){localStorage.setItem(IMPORTED_KEY,JSON.stringify(importedTx))}
 function saveImportHistory(){localStorage.setItem(IMPORT_HISTORY_KEY,JSON.stringify(importHistoryData));renderImportHistory()}
 function saveBankUpdates(){localStorage.setItem(BANK_UPDATE_KEY,JSON.stringify(bankUpdates));renderBankUpdates()}
+async function loadServerSeed(){
+ try{
+   const resp=await fetch(SYSTEM_SEED_URL+'?v=20261118',{cache:'no-store'});
+   if(!resp.ok) throw new Error('HTTP '+resp.status);
+   const seed=await resp.json();
+   const map=new Map(importedTx.map(t=>[String(t.id||importFp(t)),t]));
+   for(const t of (seed.transactions||[])) map.set(String(t.id||importFp(t)),t);
+   importedTx=[...map.values()];
+   saveImported();
+   if(seed.statementThrough){
+     const old=bankUpdates['Banco Inter']?.statementThrough||'';
+     bankUpdates['Banco Inter']={statementThrough:seed.statementThrough>old?seed.statementThrough:old,importedAt:new Date().toISOString()};
+     saveBankUpdates();
+   }
+   if(!importHistoryData.some(x=>x.batchId===seed.batchId)){
+     importHistoryData.push({id:seed.batchId,batchId:seed.batchId,file:'Carga oficial classificada — Inter 11/10 a 17/11/2026',bank:'Banco Inter',maxDate:seed.statementThrough,parsed:(seed.transactions||[]).length,inserted:(seed.transactions||[]).length,duplicates:0,auto:(seed.transactions||[]).filter(t=>t.status==='Confirmado').length,pending:(seed.transactions||[]).filter(t=>t.status==='Pendente').length,importedAt:new Date().toISOString()});
+     saveImportHistory();
+   }
+   rebuildDreData();renderOfficialDre();updateExecutiveFromDre();renderAllTransactions();renderRulesLocal();renderBankUpdates();
+   return true;
+ }catch(e){console.error('Falha ao carregar carga oficial',e);return false}
+}
 function renderBankUpdates(){
  const fmt=d=>formatDate(d);
  const inter=bankUpdates['Banco Inter']?.statementThrough||'2026-10-10', bb=bankUpdates['Banco do Brasil']?.statementThrough||'2026-10-14';
@@ -591,52 +622,90 @@ const DRE_ROWS=[
  {label:'(-) Custos Variáveis / Operacionais',key:'custosVariaveis',type:'section'},
  {label:'4 - Fretes de Terceiros / Redespachos / Operação',key:'fretesTerceiros',type:'detail'},
  {label:'5 - Custos de Frota',key:'frota',type:'detail'},
+ {label:'6 - Indenizações / Perdas de Carga',key:'indenizacoes',type:'detail'},
  {label:'(=) Margem de Contribuição',key:'margemContribuicao',type:'result'},
  {label:'(=) % Margem de Contribuição',key:'percMargemContribuicao',type:'percent',percent:true},
  {label:'(-) Custos Fixos / Estrutura',key:'custosFixos',type:'section'},
- {label:'6 - Gastos com Pessoal',key:'pessoal',type:'detail'},
- {label:'7 - Gastos com Ocupação',key:'ocupacao',type:'detail'},
- {label:'8 - Gastos com Serviços de Terceiros / Sistemas',key:'terceiros',type:'detail'},
- {label:'9 - Gastos Administrativos Gerais',key:'administrativos',type:'detail'},
- {label:'10 - Gastos com Marketing',key:'marketing',type:'detail'},
+ {label:'7 - Gastos com Pessoal',key:'pessoal',type:'detail'},
+ {label:'8 - Gastos com Ocupação',key:'ocupacao',type:'detail'},
+ {label:'9 - Gastos com Serviços de Terceiros / Sistemas',key:'terceiros',type:'detail'},
+ {label:'10 - Gastos Administrativos Gerais',key:'administrativos',type:'detail'},
+ {label:'11 - Gastos com Marketing',key:'marketing',type:'detail'},
  {label:'(=) Resultado Operacional',key:'resultadoOperacional',type:'result'},
  {label:'Resultado Não Operacional / Financeiro',key:'resultadoNaoOperacional',type:'section'},
- {label:'11 - Receitas não Operacionais / Financeiras',key:'receitasNaoOperacionais',type:'detail'},
- {label:'12 - Gastos Financeiros / Não Operacionais',key:'gastosNaoOperacionais',type:'detail'},
+ {label:'12 - Receitas não Operacionais / Financeiras',key:'receitasNaoOperacionais',type:'detail'},
+ {label:'13 - Gastos Financeiros / Não Operacionais',key:'gastosNaoOperacionais',type:'detail'},
  {label:'(=) Lucro Antes do Imposto de Renda (LAIR)',key:'lair',type:'result'},
  {label:'(-) Imposto de Renda e CSLL',key:'ircsll',type:'section'},
- {label:'13 - Imposto de Renda e CSLL',key:'ircsllDetalhe',type:'detail'},
+ {label:'14 - Imposto de Renda e CSLL',key:'ircsllDetalhe',type:'detail'},
  {label:'(=) Lucro Líquido',key:'lucroLiquido',type:'result'},
  {label:'(=) % Margem Líquida',key:'percMargemLiquida',type:'percent',percent:true}
 ];
 // Snapshot de demonstração: usamos os valores mensais já consolidados disponíveis.
 // As sublinhas sem informação suficiente permanecem zeradas até o backend fazer o mapeamento pelo plano de contas.
-const DRE_DATA={
+const DRE_BASE={
  receitaBruta:{mai:4600.00,jun:83690.32,jul:131473.85,ago:456443.55,set:93655.32,out:495.82},
  receitaFretes:{mai:4600.00,jun:83690.32,jul:131473.85,ago:456443.55,set:93655.32,out:495.82},
  deducoes:{mai:0,jun:0,jul:25991.07,ago:24496.27,set:0,out:0},
  impostosVendas:{mai:0,jun:0,jul:25991.07,ago:24496.27,set:0,out:0},
  outrasDeducoes:{mai:0,jun:0,jul:0,ago:0,set:0,out:0},
- receitaLiquida:{mai:4600.00,jun:83690.32,jul:105482.78,ago:431947.28,set:93655.32,out:495.82},
  custosVariaveis:{mai:0,jun:34202.89,jul:33426.65,ago:133167.18,set:185113.51,out:12174.77},
  fretesTerceiros:{mai:0,jun:34202.89,jul:31227.20,ago:100365.65,set:155902.75,out:2451.76},
  frota:{mai:0,jun:0,jul:2199.45,ago:32801.53,set:29210.76,out:9723.01},
- margemContribuicao:{mai:4600.00,jun:49487.43,jul:72056.13,ago:298780.10,set:-91458.19,out:-11678.95},
+ indenizacoes:{},
  custosFixos:{mai:0,jun:0,jul:60751.73,ago:144138.88,set:103572.45,out:3948.86},
  pessoal:{mai:0,jun:0,jul:51841.67,ago:129375.83,set:76788.76,out:1075.39},
  ocupacao:{mai:0,jun:0,jul:0,ago:10800.18,set:5921.91,out:0},
  terceiros:{mai:0,jun:0,jul:0,ago:2790.46,set:4621.06,out:1620.00},
  administrativos:{mai:0,jun:0,jul:8910.06,ago:1172.41,set:16240.72,out:1253.47},
- marketing:{mai:0,jun:0,jul:0,ago:0,set:0,out:0},
- resultadoOperacional:{mai:4600.00,jun:49487.43,jul:11304.40,ago:154641.22,set:-195030.64,out:-15627.81},
- resultadoNaoOperacional:{mai:0,jun:0,jul:0,ago:-2094.32,set:-2061.80,out:-1571.76},
- receitasNaoOperacionais:{mai:0,jun:0,jul:0,ago:0,set:0,out:0},
- gastosNaoOperacionais:{mai:0,jun:0,jul:0,ago:2094.32,set:2061.80,out:1571.76},
- lair:{mai:4600.00,jun:49487.43,jul:11304.40,ago:152546.90,set:-197092.44,out:-17199.57},
- ircsll:{mai:0,jun:0,jul:0,ago:0,set:0,out:0},
- ircsllDetalhe:{mai:0,jun:0,jul:0,ago:0,set:0,out:0},
- lucroLiquido:{mai:4600.00,jun:49487.43,jul:11304.40,ago:152546.90,set:-197092.44,out:-17199.57}
+ marketing:{},
+ receitasNaoOperacionais:{},
+ gastosNaoOperacionais:{ago:2094.32,set:2061.80,out:1571.76},
+ ircsll:{},ircsllDetalhe:{}
 };
+let DRE_DATA={};
+function cloneDreBase(){const out={};for(const [k,v] of Object.entries(DRE_BASE))out[k]={...v};return out}
+function monthKeyFromComp(c){const mm=String(c||'').slice(0,2);return ({'01':'jan','02':'fev','03':'mar','04':'abr','05':'mai','06':'jun','07':'jul','08':'ago','09':'set','10':'out','11':'nov','12':'dez'})[mm]||''}
+function addDre(key,m,val){if(!m||!isFinite(val))return;if(!DRE_DATA[key])DRE_DATA[key]={};DRE_DATA[key][m]=Number(DRE_DATA[key][m]||0)+Number(val||0)}
+function applyTxToDre(t){
+ if(String(t.include||'')!=='Sim'||String(t.status||'')==='Pendente')return;
+ const m=monthKeyFromComp(t.competence);if(!m)return;
+ const value=Math.abs(Number(t.value||0));if(!value)return;
+ const inflow=String(t.flow)==='Entrada';const rev=inflow?value:-value;const cost=inflow?-value:value;
+ const g=normKey(t.group),sg=normKey(t.subgroup),n=normKey(t.nature);
+ if(g==='RECEITA BRUTA'){addDre('receitaBruta',m,rev);addDre('receitaFretes',m,rev);return}
+ if(g==='DEDUCOES DA RECEITA'){
+   addDre('deducoes',m,cost);
+   if(n.includes('IMPOST')||n.includes('TRIBUTO')||sg.includes('IMPOST'))addDre('impostosVendas',m,cost);else addDre('outrasDeducoes',m,cost);return
+ }
+ if(g==='CUSTOS DOS SERVICOS'){
+   if(sg.includes('PESSOAL')||n.includes('PESSOAL')||n.includes('RESCISAO')){addDre('pessoal',m,cost);addDre('custosFixos',m,cost);return}
+   if(sg.includes('FROTA')||n.includes('COMBUST')||n.includes('MANUTENCAO')){addDre('frota',m,cost);addDre('custosVariaveis',m,cost);return}
+   if(sg.includes('INDENIZA')||n.includes('INDENIZA')){addDre('indenizacoes',m,cost);addDre('custosVariaveis',m,cost);return}
+   addDre('fretesTerceiros',m,cost);addDre('custosVariaveis',m,cost);return
+ }
+ if(g==='DESPESAS OPERACIONAIS'){
+   addDre('custosFixos',m,cost);
+   if(sg.includes('PESSOAL')||n.includes('PRO LABORE')||n.includes('PESSOAL'))addDre('pessoal',m,cost);
+   else if(n.includes('ALUGUEL')||n.includes('OCUPA')||sg.includes('OCUPA'))addDre('ocupacao',m,cost);
+   else if(n.includes('MARKETING')||sg.includes('MARKETING'))addDre('marketing',m,cost);
+   else if(n.includes('BPO')||n.includes('SERVIC')||n.includes('SISTEMA')||n.includes('CONTABIL'))addDre('terceiros',m,cost);
+   else addDre('administrativos',m,cost);return
+ }
+ if(g==='RESULTADO FINANCEIRO'||g==='OUTROS RESULTADOS'){
+   if(inflow)addDre('receitasNaoOperacionais',m,value);else addDre('gastosNaoOperacionais',m,value);return
+ }
+ if(g==='IR/CSLL'){addDre('ircsll',m,cost);addDre('ircsllDetalhe',m,cost)}
+}
+function rebuildDreData(){
+ DRE_DATA=cloneDreBase();
+ for(const t of [...importedTx,...avulsos])applyTxToDre(t);
+ for(const m of dreMonths){
+   const rb=Number(DRE_DATA.receitaBruta?.[m]||0),ded=Number(DRE_DATA.deducoes?.[m]||0),cv=Number(DRE_DATA.custosVariaveis?.[m]||0),cf=Number(DRE_DATA.custosFixos?.[m]||0),rn=Number(DRE_DATA.receitasNaoOperacionais?.[m]||0),gn=Number(DRE_DATA.gastosNaoOperacionais?.[m]||0),tax=Number(DRE_DATA.ircsll?.[m]||0);
+   addDreDerived('receitaLiquida',m,rb-ded);addDreDerived('margemContribuicao',m,rb-ded-cv);addDreDerived('resultadoOperacional',m,rb-ded-cv-cf);addDreDerived('resultadoNaoOperacional',m,rn-gn);addDreDerived('lair',m,rb-ded-cv-cf+rn-gn);addDreDerived('lucroLiquido',m,rb-ded-cv-cf+rn-gn-tax);
+ }
+}
+function addDreDerived(key,m,val){if(!DRE_DATA[key])DRE_DATA[key]={};DRE_DATA[key][m]=val}
 function dreVal(key,m){return Number((DRE_DATA[key]||{})[m]||0)}
 function moneyCell(v){if(!v)return '-';return v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}
 function pctCell(v){if(!isFinite(v))return '-';return Math.round(v*100)+'%'}
@@ -644,6 +713,20 @@ function calcDreRow(row,m){
  if(row.key==='percMargemContribuicao'){const rb=dreVal('receitaBruta',m),mc=dreVal('margemContribuicao',m);return rb?mc/rb:0}
  if(row.key==='percMargemLiquida'){const rb=dreVal('receitaBruta',m),ll=dreVal('lucroLiquido',m);return rb?ll/rb:0}
  return dreVal(row.key,m)
+}
+function updateExecutiveFromDre(){
+ const cards=[...document.querySelectorAll('#dashboard .kpis .kpi')];
+ const fmt=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+ const margin=(m)=>{const r=dreVal('receitaBruta',m),l=dreVal('lucroLiquido',m);return r?l/r:0};
+ if(cards[0])cards[0].querySelector('b').textContent=fmt(dreVal('receitaBruta','ago'));
+ if(cards[1]){cards[1].querySelector('b').textContent=fmt(dreVal('lucroLiquido','ago'));cards[1].querySelector('small').textContent='margem '+(margin('ago')*100).toFixed(2).replace('.',',')+'%'}
+ if(cards[2])cards[2].querySelector('b').textContent=fmt(dreVal('receitaBruta','set'));
+ if(cards[3]){cards[3].querySelector('b').textContent=fmt(dreVal('lucroLiquido','set'));cards[3].querySelector('small').textContent='margem '+(margin('set')*100).toFixed(2).replace('.',',')+'%'}
+ if(cards[4]){cards[4].querySelector('b').textContent=fmt(dreVal('lucroLiquido','out'));cards[4].querySelector('small').textContent='parcial: Inter até 17/11; BB até 14/10'}
+ const total=dreMonths.reduce((s,m)=>s+dreVal('lucroLiquido',m),0),rev=dreMonths.reduce((s,m)=>s+dreVal('receitaBruta',m),0);
+ if(cards[5]){cards[5].querySelector('b').textContent=fmt(total);cards[5].querySelector('small').textContent='margem acumulada '+(rev?total/rev*100:0).toFixed(2).replace('.',',')+'%'}
+ if(window.trendChart){window.trendChart.data.labels=['Ago/26','Set/26','Out/26 MTD','Nov/26 MTD'];window.trendChart.data.datasets[0].data=['ago','set','out','nov'].map(m=>dreVal('receitaBruta',m));window.trendChart.data.datasets[1].data=['ago','set','out','nov'].map(m=>dreVal('lucroLiquido',m));window.trendChart.update()}
+ if(window.marginChart){window.marginChart.data.labels=['Ago/26','Set/26','Out/26 MTD','Nov/26 MTD'];window.marginChart.data.datasets[0].data=['ago','set','out','nov'].map(m=>margin(m)*100);window.marginChart.update()}
 }
 function renderOfficialDre(){
  const body=document.getElementById('dreOfficialBody'); if(!body)return;
@@ -667,10 +750,11 @@ function exportDreCSV(){
  const blob=new Blob(['\ufeff'+rows],{type:'text/csv;charset=utf-8;'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='DRE_Postal_2026.csv';a.click();URL.revokeObjectURL(url);
  toast('DRE exportado em formato compatível com Excel.');
 }
-renderOfficialDre();
+rebuildDreData();renderOfficialDre();updateExecutiveFromDre();
 
-new Chart(document.getElementById('trend'),{type:'bar',data:{labels:['Ago/26','Set/26','Out/26 MTD'],datasets:[{label:'Receita Bruta',data:[456443.55,93655.32,495.82]},{label:'Resultado Líquido',data:[152546.90,-197092.44,-17199.57]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
-new Chart(document.getElementById('margin'),{type:'line',data:{labels:['Ago/26','Set/26','Out/26 MTD'],datasets:[{label:'Margem %',data:[33.42,-210.44,-3468.91],tension:.25}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
-if(document.getElementById('cashChart')) new Chart(document.getElementById('cashChart'),{type:'bar',data:{labels:['Ago/26','Set/26','Out/26 MTD'],datasets:[{label:'Entradas',data:[456443.55,93655.32,495.82]},{label:'Saídas',data:[303896.65,290747.76,17695.39]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
+window.trendChart=new Chart(document.getElementById('trend'),{type:'bar',data:{labels:['Ago/26','Set/26','Out/26 MTD'],datasets:[{label:'Receita Bruta',data:[456443.55,93655.32,495.82]},{label:'Resultado Líquido',data:[152546.90,-197092.44,-17199.57]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
+window.marginChart=new Chart(document.getElementById('margin'),{type:'line',data:{labels:['Ago/26','Set/26','Out/26 MTD'],datasets:[{label:'Margem %',data:[33.42,-210.44,-3468.91],tension:.25}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
+if(document.getElementById('cashChart')) window.cashChart=new Chart(document.getElementById('cashChart'),{type:'bar',data:{labels:['Ago/26','Set/26','Out/26 MTD'],datasets:[{label:'Entradas',data:[456443.55,93655.32,495.82]},{label:'Saídas',data:[303896.65,290747.76,17695.39]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
+loadServerSeed().then(()=>{rebuildDreData();renderOfficialDre();updateExecutiveFromDre();renderAllTransactions();renderBankUpdates();renderImportHistory();renderRulesLocal()});
 </script>
 </body></html>
