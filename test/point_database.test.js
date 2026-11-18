@@ -1,4 +1,5 @@
 const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const vm=require('node:vm');const path=require('node:path');const{createRequire}=require('node:module');const{randomUUID}=require('node:crypto');const{PGlite}=require('@electric-sql/pglite');
+const operationalMetrics=require('../operational_metrics');
 function load(file,overrides){const filename=path.resolve(__dirname,'..',file),module={exports:{}};const local=createRequire(filename);const context={module,exports:module.exports,require:name=>overrides[name]||local(name),process:{env:{DATABASE_URL:'postgresql://test-only'}},console,Buffer};vm.runInNewContext(fs.readFileSync(filename,'utf8'),context,{filename});return module.exports;}
 test('PostgreSQL: customer isolation, atomic registration, collection idempotency and financial transitions',async t=>{
  const pg=new PGlite();await pg.waitReady;
@@ -63,6 +64,23 @@ test('PostgreSQL: customer isolation, atomic registration, collection idempotenc
     const earnings=(await pool.query('SELECT * FROM point_earnings WHERE reference_id=$1',[c.id])).rows;
     assert.equal(earnings.length,1);assert.equal(earnings[0].status,simulated?'SIMULATED':'EARNED');assert.equal(Number(earnings[0].amount),6);
    }
+  });
+  await t.test('operational report counts distinct scanned parcels and scopes each point',async()=>{
+   const tracked=randomUUID(),foreign=randomUUID();
+   for(const [id,storeId] of [[tracked,store],[foreign,otherStore]]){
+    await pool.query(`INSERT INTO freight_orders(id,store_id,partner_email,status,payment_status,payment_method,sale_price,partner_commission,postal_margin,provider_cost,sender,recipient,items,package_data,package_count)
+      VALUES($1,$2,'ops@test.local','LABEL_AVAILABLE','PAID','PIX',40,5,5,30,'{}','{}','[]','{}',2)`,[id,storeId]);
+   }
+   for(const [stage,key] of [['RECEIVED_POINT',randomUUID()],['TRANSFERRED',randomUUID()],['DELIVERY_RECORDED',randomUUID()]]){
+    await pool.query(`INSERT INTO custody_scans(id,order_id,tracking_code,stage,actor_user_id,actor_store_id,idempotency_key)
+      VALUES($1,$2,'PKG123456',$3,$4,$5,$6)`,[randomUUID(),tracked,stage,owner,store,key]);
+   }
+   const result=await pool.query(operationalMetrics.custodyReportSql("f.store_id=$1 AND f.payment_status='PAID' AND f.is_simulation=FALSE"),[store]);
+   const row=result.rows.find(r=>r.id===tracked);
+   assert.ok(row);
+   assert.equal(Number(row.scanned_codes),1);
+   assert.equal(Number(row.delivered_codes),1);
+   assert.ok(result.rows.every(r=>r.id!==foreign));
   });
  }finally{await pg.close();}
 });

@@ -238,6 +238,7 @@ async function initDb() {
       UNIQUE(actor_user_id,idempotency_key)
     );
     CREATE INDEX IF NOT EXISTS custody_scans_code_idx ON custody_scans(tracking_code,created_at DESC);
+    CREATE INDEX IF NOT EXISTS custody_scans_order_idx ON custody_scans(order_id,created_at DESC);
 
     CREATE TABLE IF NOT EXISTS credit_partners (
       id UUID PRIMARY KEY,

@@ -572,6 +572,15 @@ nav{display:grid;gap:5px;margin-bottom:18px}
 .analytics-filters label{display:grid;gap:5px;font-size:9px;font-weight:850;text-transform:uppercase;letter-spacing:.45px;color:var(--muted)}
 .analytics-filters select,.analytics-filters input{height:40px;border:1px solid var(--line);border-radius:10px;background:#fff;padding:0 10px;color:#20242d;outline:none}
 .analytics-kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+.ops-health{display:grid;gap:15px}
+.ops-health .analytics-toolbar-head{margin-bottom:0}
+.ops-health .analytics-toolbar-head h3{margin:5px 0 0}
+.ops-health .ops-health-kpis{grid-template-columns:repeat(4,minmax(0,1fr))}
+.ops-health .metric-card{box-shadow:none;background:#fafbfc}
+.ops-health-note{font-size:12px;line-height:1.6;color:var(--muted);margin:0}
+.ops-attention-title{font-size:15px!important;margin:0!important}
+.ops-health .panel-head small{font-size:11px;color:var(--muted)}
+.ops-health .ghost{color:var(--postal);text-decoration:none;font-size:12px;text-align:center}
 .analytics-grid{display:grid;grid-template-columns:1.35fr .65fr;gap:16px}
 .analytics-grid>article:nth-child(n+3){grid-column:auto}
 .chart-wrap{position:relative;width:100%;height:300px}
@@ -599,11 +608,13 @@ nav{display:grid;gap:5px;margin-bottom:18px}
   .analytics-grid{grid-template-columns:1fr}
   .analytics-filters{grid-template-columns:repeat(2,1fr)}
   .analytics-kpis{grid-template-columns:repeat(2,1fr)}
+  .ops-health .ops-health-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
   .chart-wrap{height:260px}
 }
 @media(max-width:560px){
   .analytics-toolbar-head{align-items:flex-start;flex-direction:column}
   .analytics-filters,.analytics-kpis{grid-template-columns:1fr}
+  .ops-health .ops-health-kpis{grid-template-columns:1fr}
   .chart-wrap{height:230px}
 }
 
