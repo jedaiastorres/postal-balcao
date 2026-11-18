@@ -20,7 +20,9 @@ const publicQuote = require("./public_quote");
 const custody = require("./custody");
 const quotePricing = require("./quote_pricing");
 const operationalMetrics = require("./operational_metrics");
+const postalOperations = require("./postal_operations");
 const postalRegional = require("./postal_regional");
+const { resolveExtraCharges } = require("./extra_charges");
 
 const app = express();
 // Railway terminates the public connection at a reverse proxy.
@@ -148,6 +150,10 @@ app.get("/cotacao", (_req,res)=>{
 app.get("/scanner", (_req,res)=>{
   res.setHeader("Cache-Control","no-store");
   res.sendFile(path.join(__dirname,"public","scanner.html"));
+});
+app.get("/operacao",requireAuth,requireRole("ADMIN","SUPERVISOR","STORE_OWNER","OPS"),(_req,res)=>{
+  res.setHeader("Cache-Control","private,no-store");
+  res.sendFile(path.join(__dirname,"public","operacao.html"));
 });
 
 
@@ -750,13 +756,16 @@ async function resolveRegionalCityByCep(cep) {
   return location; // Nunca inferir município apenas pelo prefixo do CEP.
 }
 
-async function offerPostalRegional(partnerOptions, cepFrom, cepTo, hubTransferTotal,volumes) {
-  if (!TOKEN || !partnerOptions.length || !postalRegional.eligibleVolumes(volumes)) return null;
+async function offerPostalRegional(partnerOptions, cepFrom, cepTo, hubTransferTotal,volumes,commissionRate=PARTNER_COMMISSION) {
+  if (!postalRegional.eligibleVolumes(volumes)) return null;
   const [origin,destination] = await Promise.all([
     resolveRegionalCityByCep(cepFrom),resolveRegionalCityByCep(cepTo)
   ]);
   const route=postalRegional.coveredRoute(origin,destination);
-  return postalRegional.regionalOption(partnerOptions,route,{hubTransferTotal});
+  if(!route)return null;
+  if(partnerOptions.length)return postalRegional.regionalOption(partnerOptions,route,{hubTransferTotal});
+  const tariff=await db.getPostalTariff(route.originCity,route.destinationCity);
+  return postalRegional.tariffOption(route,tariff,{volumeCount:volumes.length,commissionRate});
 }
 
 async function mapWithConcurrency(items, limit, worker) {
@@ -1976,16 +1985,16 @@ app.post("/api/public/cotacao", async (req,res)=>{
     const partnerCommissionRate=quotePricing.pointCommissionRate(origin.store,PARTNER_COMMISSION);
     const hubTransferTotal=origin.overridden?round2(HUB_TRANSFER_FEE_PER_PACKAGE*volumes.length):0;
     const quoteSets=await mapWithConcurrency(volumes,Math.min(3,CONECTENVIO_QUOTE_CONCURRENCY),async volume=>{
-      const quoted=await fetchProviderQuoteCached(origin.providerCepFrom,cepTo,volume);
-      if(quoted.data?.error===true){
-        const error=new Error("A transportadora não conseguiu atender esta rota.");error.status=422;throw error;
-      }
+      let quoted;
+      try{quoted=await fetchProviderQuoteCached(origin.providerCepFrom,cepTo,volume);}
+      catch(error){if(error.status===422)return [];throw error;}
+      if(quoted.data?.error===true)return [];
       return normalizeQuote(quoted.data,partnerCommissionRate);
     });
     const options=aggregateVolumeQuoteSets(quoteSets);
-    if(!options.length)return res.status(422).json({error:"Nenhuma transportadora disponível para as medidas e CEPs informados."});
-    const own=await offerPostalRegional(options,cepFrom,cepTo,hubTransferTotal,volumes);
+    const own=await offerPostalRegional(options,cepFrom,cepTo,hubTransferTotal,volumes,partnerCommissionRate);
     if(own)options.unshift(own);
+    if(!options.length)return res.status(422).json({error:"Nenhuma tarifa de transportadora ou da Postal está disponível para esta rota."});
     res.setHeader("Cache-Control","no-store");
     res.json(publicQuote.publicQuoteResponse(options,{volumes,cepFrom,cepTo,hubTransferTotal,demo:false}));
   }catch(error){
@@ -3001,6 +3010,74 @@ app.get("/api/analytics/custody.csv",requireAuth,requireRole("ADMIN","SUPERVISOR
     console.error("custody CSV error",error.message);
     res.status(error.status||503).json({error:error.status?error.message:"Não foi possível exportar as movimentações."});
   }
+});
+
+app.get("/api/postal/tariffs",requireAuth,requireRole("ADMIN","SUPERVISOR"),async(_req,res)=>{
+  try{
+    res.setHeader("Cache-Control","no-store");
+    res.json({cities:postalRegional.cities,tariffs:await db.listPostalTariffs(false)});
+  }catch(error){console.error("regional tariffs list",error.message);res.status(503).json({error:"Não foi possível consultar a tabela regional."});}
+});
+
+app.put("/api/postal/tariffs",requireAuth,requireRole("ADMIN"),requireCurrentUser,async(req,res)=>{
+  try{
+    const body=req.body||{};
+    const canonicalCity=value=>postalRegional.cities.find(city=>postalRegional.canonical(city)===postalRegional.canonical(value));
+    const originCity=canonicalCity(body.originCity),destinationCity=canonicalCity(body.destinationCity);
+    const price=Number(body.price),deadlineDays=Number(body.deadlineDays);
+    const estimatedOperatingCost=Number(body.estimatedOperatingCost??0);
+    if(!originCity||!destinationCity||!Number.isFinite(price)||price<=0||price>10000||
+      !Number.isInteger(deadlineDays)||deadlineDays<1||deadlineDays>30||
+      !Number.isFinite(estimatedOperatingCost)||estimatedOperatingCost<0||estimatedOperatingCost>10000||
+      typeof body.active!=="boolean"){
+      return res.status(400).json({error:"Informe cidades atendidas, preço por volume, prazo, custo estimado e situação válida."});
+    }
+    const tariff=await db.savePostalTariff({originCity,destinationCity,price:round2(price),deadlineDays,
+      estimatedOperatingCost:round2(estimatedOperatingCost),active:body.active,userId:req.user.userId});
+    await audit(req,"SAVE_POSTAL_ROUTE_TARIFF","POSTAL_TARIFF",tariff.id,{originCity,destinationCity,active:body.active,price:round2(price),deadlineDays});
+    res.json({ok:true,tariff});
+  }catch(error){console.error("regional tariffs save",error.message);res.status(503).json({error:"Não foi possível salvar a tabela regional."});}
+});
+
+async function readPostalDispatch(req){
+  const scoped=["STORE_OWNER"].includes(req.user.role);
+  if(scoped&&!req.user.storeId)throw Object.assign(new Error("Conta sem ponto vinculado."),{status:403});
+  const {rows}=await db.pool.query(postalOperations.dispatchSql(scoped),scoped?[req.user.storeId]:[]);
+  return postalOperations.summarizeDispatch(rows);
+}
+
+app.get("/api/postal/dispatch",requireAuth,requireRole("ADMIN","SUPERVISOR","STORE_OWNER","OPS"),requireCurrentUser,async(req,res)=>{
+  try{
+    res.setHeader("Cache-Control","no-store");res.json(await readPostalDispatch(req));
+  }catch(error){console.error("postal dispatch",error.message);res.status(error.status||503).json({error:error.status?error.message:"Não foi possível consultar a expedição."});}
+});
+app.get("/api/postal/dispatch.csv",requireAuth,requireRole("ADMIN","SUPERVISOR","STORE_OWNER","OPS"),requireCurrentUser,async(req,res)=>{
+  try{
+    const report=await readPostalDispatch(req);
+    res.setHeader("Cache-Control","private,no-store");res.type("text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition",'attachment; filename="postal-expedicao.csv"');
+    res.send(postalOperations.dispatchCsv(report.shipments));
+  }catch(error){res.status(error.status||503).json({error:error.status?error.message:"Não foi possível exportar a expedição."});}
+});
+
+app.post("/api/postal/orders/:id/operating-costs",requireAuth,requireRole("ADMIN"),requireCurrentUser,async(req,res)=>{
+  try{
+    if(!/^[\da-f-]{36}$/i.test(req.params.id))return res.status(400).json({error:"Pedido inválido."});
+    const order=await db.getOrder(req.params.id);
+    if(!order||order.package_data?.carrierMode!=="POSTAL_OWN"||order.payment_status!=="PAID"||order.is_simulation)
+      return res.status(409).json({error:"Registre custo somente em frete Postal próprio, real e pago."});
+    const description=String(req.body?.description||"").trim().replace(/\s+/g," ");
+    const amount=Number(req.body?.amount);
+    const idempotencyKey=String(req.body?.idempotencyKey||"");
+    if(description.length<3||description.length>120||!Number.isFinite(amount)||amount<=0||amount>100000||
+      Math.abs(amount*100-Math.round(amount*100))>0.000001||!/^[\da-f-]{36}$/i.test(idempotencyKey))
+      return res.status(400).json({error:"Informe descrição, custo em reais (duas casas) e identificador de lançamento."});
+    const cost=await db.addPostalOperatingCost({orderId:order.id,description,amount:round2(amount),actorUserId:req.user.userId,idempotencyKey});
+    if(cost.order_id!==order.id||cost.description!==description||Number(cost.amount)!==round2(amount))
+      return res.status(409).json({error:"Identificador de lançamento já utilizado em outro custo."});
+    await audit(req,"REGISTER_POSTAL_OPERATING_COST","FREIGHT_ORDER",order.id,{costId:cost.id,amount:round2(amount)});
+    res.status(201).json({ok:true,cost:{id:cost.id,amount:Number(cost.amount),createdAt:cost.created_at}});
+  }catch(error){console.error("postal operating cost",error.message);res.status(503).json({error:"Não foi possível registrar o custo operacional."});}
 });
 
 app.get("/api/analytics/overview", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER"), async (req,res)=>{
@@ -4198,6 +4275,7 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
           try {
             providerQuote = await fetchProviderQuoteCached(providerCepFrom, cepTo, volume);
           } catch (error) {
+            if(error.status===422)return [];
             error.message = `Volume ${volume.index}: ${error.message || "falha na cotação"}`;
             throw error;
           }
@@ -4205,9 +4283,7 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
           if (providerQuote.cached) cacheHits++;
 
           if (providerData && providerData.error === true) {
-            const err = new Error(`A ConectEnvios recusou a cotação do volume ${volume.index}.`);
-            err.status = 422;
-            throw err;
+            return [];
           }
         }
         return normalizeQuote(providerData, partnerCommissionRate);
@@ -4215,7 +4291,7 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
     );
 
     const aggregated = aggregateVolumeQuoteSets(quoteSets);
-    const ownOption=await offerPostalRegional(aggregated,cepFrom,cepTo,hubTransferTotal,volumes);
+    const ownOption=await offerPostalRegional(aggregated,cepFrom,cepTo,hubTransferTotal,volumes,partnerCommissionRate);
     if(ownOption)aggregated.unshift(ownOption);
     const totalWeightGrams = volumes.reduce((sum,v)=>sum + Number(v.weightGrams || 0),0);
     const totalDeclaredValue = round2(volumes.reduce((sum,v)=>sum + Number(v.declaredValue || 0),0));
@@ -4402,12 +4478,18 @@ app.post("/api/payment-preview", requireAuth, requireRole("ADMIN","STORE_OWNER",
       return res.status(400).json({ error: "Selecione a forma de pagamento." });
     }
 
-    const addons = await resolveRequestedAddons(inventoryOwner(req.user), body.addons);
+    if(Array.isArray(body.extraCharges)&&body.extraCharges.length&&!req.user.storeId)
+      return res.status(400).json({error:"Custos extras diversos exigem um ponto Postal vinculado ao pedido."});
+    const addons = [
+      ...await resolveRequestedAddons(inventoryOwner(req.user), body.addons),
+      ...resolveExtraCharges(body.extraCharges)
+    ];
     const financials = summarizeFinancials(selection, addons, paymentMethod);
 
     res.json({
       freightPrice: financials.freightPrice,
       addonsTotal: financials.addonsTotal,
+      extraChargesTotal: round2(addons.filter(a=>a.metadata?.source==="POINT_MANUAL_EXTRA").reduce((s,a)=>s+a.totalPrice,0)),
       subtotal: financials.customerSubtotal,
       paymentFee: financials.paymentSurcharge,
       total: financials.totalToCustomer,
@@ -4754,7 +4836,11 @@ app.get("/api/ops/scans/:code",requireAuth,requireRole(...scannerRoles),requireC
     const scans=await db.listCustodyScans(order.id,code);
     res.setHeader("Cache-Control","no-store");
     res.json({trackingCode:code,carrier:order.carrier||"Postal Serviços",paymentConfirmed:order.payment_status==="PAID"&&!order.is_simulation,
-      scans:scans.map(scan=>({id:scan.id,stage:scan.stage,label:custody.stages[scan.stage]?.label||scan.stage,createdAt:scan.created_at}))});
+      scans:scans.map(scan=>({id:scan.id,stage:scan.stage,label:custody.stages[scan.stage]?.label||scan.stage,createdAt:scan.created_at,
+        proof:scan.stage==="DELIVERY_RECORDED"?{
+          recipientName:scan.proof?.recipientName||"",latitude:scan.proof?.latitude??null,longitude:scan.proof?.longitude??null,
+          hasPhoto:Boolean(scan.proof?.photo)
+        }:null}))});
   }catch(error){console.error("scan history error",error.message);res.status(503).json({error:"Não foi possível consultar a movimentação."});}
 });
 
@@ -4768,7 +4854,7 @@ app.post("/api/ops/scans",requireAuth,requireRole(...scannerRoles),requireCurren
     if(!order)return res.status(404).json({error:"Envio não encontrado ou sem permissão para leitura."});
     const result=await db.recordCustodyScan({orderId:order.id,trackingCode:code,stage:String(body.stage||""),
       actorUserId:req.user.userId,actorStoreId:req.user.storeId,idempotencyKey:String(body.idempotencyKey||""),
-      proofName:String(body.recipientName||"")});
+      proofName:String(body.recipientName||""),latitude:body.latitude??null,longitude:body.longitude??null,photo:body.photo||null});
     if(!result.replayed)await audit(req,"CUSTODY_SCAN","FREIGHT_ORDER",order.id,{trackingCode:code,stage:body.stage});
     res.status(result.replayed?200:201).json({ok:true,replayed:result.replayed,
       stage:result.scan.stage,label:custody.stages[result.scan.stage]?.label,createdAt:result.scan.created_at});
@@ -4777,6 +4863,19 @@ app.post("/api/ops/scans",requireAuth,requireRole(...scannerRoles),requireCurren
     console.error("scan record error",error.message);
     res.status(503).json({error:"Não foi possível registrar a leitura. Tente novamente sem duplicar o evento."});
   }
+});
+
+app.get("/api/ops/scans/:code/photo/:scanId",requireAuth,requireRole(...scannerRoles),requireCurrentUser,async(req,res)=>{
+  try{
+    const code=String(req.params.code||"");
+    if(!/^[A-Za-z0-9]{6,40}$/.test(code)||!/^[\da-f-]{36}$/i.test(req.params.scanId))return res.sendStatus(400);
+    const order=await scopedScanOrder(req,code);
+    if(!order)return res.sendStatus(404);
+    const scan=(await db.listCustodyScans(order.id,code)).find(s=>s.id===req.params.scanId);
+    const picture=scan?.proof?.photo||"";
+    if(!/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(picture))return res.sendStatus(404);
+    res.setHeader("Cache-Control","private,no-store");res.type("jpeg");res.send(Buffer.from(picture.split(",")[1],"base64"));
+  }catch(error){console.error("delivery photo error",error.message);res.sendStatus(503);}
 });
 
 // Reprocessamento manual: conserva o pedido pago e nunca cria um novo checkout.
@@ -4854,7 +4953,12 @@ app.post("/api/orders", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CL
       return res.status(400).json({ error: "Os CEPs mudaram após a cotação. Calcule novamente." });
     }
 
-    const addons = await resolveRequestedAddons(inventoryOwner(req.user), body.addons);
+    if(Array.isArray(body.extraCharges)&&body.extraCharges.length&&!req.user.storeId)
+      return res.status(400).json({error:"Custos extras diversos exigem um ponto Postal vinculado ao pedido."});
+    const addons = [
+      ...await resolveRequestedAddons(inventoryOwner(req.user), body.addons),
+      ...resolveExtraCharges(body.extraCharges)
+    ];
     const financials = summarizeFinancials(selection, addons, paymentMethod);
 
     const salePrice = round2(Number(selection.salePrice));

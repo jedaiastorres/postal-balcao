@@ -187,6 +187,7 @@
             <div class="analytics-toolbar-head">
               <div><span class="eyebrow">LEITURA QR / CÓDIGO DE BARRAS</span><h3 id="opsHealthTitle">Acompanhamento de movimentações</h3></div>
               <a id="opsCustodyCsv" class="ghost" href="/api/analytics/custody.csv">Exportar relatório CSV</a>
+              <a class="ghost" href="/operacao">Abrir expedição Postal Regional</a>
             </div>
             <p class="ops-health-note">Indicadores de leitura interna da rede Postal. Ausência de leitura ou de movimentação não comprova atraso da transportadora; o SLA contratual exige eventos de entrega confirmados.</p>
             <div class="analytics-kpis ops-health-kpis">
@@ -785,7 +786,7 @@
 
       <section id="collectionsView" class="view hidden">
         <div class="orders-head">
-          <div><div class="eyebrow">PRIMEIRA MILHA</div><h1>Coletas</h1><p id="collectionsSubtitle">Acompanhe solicitações de coleta e postagem em pontos Postal.</p><a href="/scanner" id="scannerLaunch" class="scanner-launch">Ler código QR / código de barras</a></div>
+          <div><div class="eyebrow">PRIMEIRA MILHA</div><h1>Coletas</h1><p id="collectionsSubtitle">Acompanhe solicitações de coleta e postagem em pontos Postal.</p><a href="/scanner" id="scannerLaunch" class="scanner-launch">Ler código QR / código de barras</a> <a href="/operacao" class="scanner-launch">Expedição Postal Regional</a></div>
           <button id="refreshCollectionsBtn" class="ghost" type="button">Atualizar</button>
         </div>
         <div id="pointCollectionCreateCard" class="form-panel hidden">
@@ -1245,6 +1246,9 @@
             <div id="addonsCatalog" class="addons-catalog">
               <div class="empty-state">Carregando catálogo...</div>
             </div>
+            <div class="panel-head"><div><h3>Custos extras diversos</h3><p>Ex.: manuseio especial, embalagem adicional ou movimentação extraordinária. Valor acrescentado ao frete, sendo 90% do ponto e 10% da Postal.</p></div></div>
+            <div id="manualExtraCharges" class="addons-catalog"></div>
+            <button id="addManualExtraBtn" class="ghost" type="button">+ Adicionar custo extra</button>
           </article>
 
           <article class="review-panel">
@@ -1269,6 +1273,7 @@
                 <div><span>Frete</span><strong id="paymentFreight">—</strong></div>
                 <div id="paymentHubTransferRow" class="hidden"><span>Transferência ao hub</span><strong id="paymentHubTransfer">R$ 0,00</strong></div>
                 <div><span>Produtos/serviços</span><strong id="paymentAddons">R$ 0,00</strong></div>
+                <div><span>Inclui custos extras diversos</span><strong id="paymentExtraCharges">R$ 0,00</strong></div>
                 <div><span>Taxa de pagamento</span><strong id="paymentFee">—</strong></div>
                 <div class="payment-total"><span>Total a cobrar</span><strong id="paymentTotal">—</strong></div>
               </div>

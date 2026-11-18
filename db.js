@@ -240,6 +240,30 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS custody_scans_code_idx ON custody_scans(tracking_code,created_at DESC);
     CREATE INDEX IF NOT EXISTS custody_scans_order_idx ON custody_scans(order_id,created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS postal_route_tariffs (
+      id UUID PRIMARY KEY,
+      origin_city TEXT NOT NULL,
+      destination_city TEXT NOT NULL,
+      price NUMERIC(12,2) NOT NULL CHECK(price>0),
+      deadline_days INTEGER NOT NULL CHECK(deadline_days BETWEEN 1 AND 30),
+      estimated_operating_cost NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK(estimated_operating_cost>=0),
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      updated_by UUID,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(origin_city,destination_city)
+    );
+    CREATE TABLE IF NOT EXISTS postal_operating_costs (
+      id UUID PRIMARY KEY,
+      order_id UUID NOT NULL REFERENCES freight_orders(id) ON DELETE CASCADE,
+      description TEXT NOT NULL,
+      amount NUMERIC(12,2) NOT NULL CHECK(amount>0),
+      actor_user_id UUID NOT NULL,
+      idempotency_key UUID,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS postal_operating_costs_order_idx ON postal_operating_costs(order_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS postal_operating_costs_idempotency_idx ON postal_operating_costs(actor_user_id,idempotency_key);
+
     CREATE TABLE IF NOT EXISTS credit_partners (
       id UUID PRIMARY KEY,
       code TEXT UNIQUE NOT NULL,
@@ -1230,14 +1254,14 @@ async function addOrderEvent(orderId,eventType,title,detail="",metadata={}) {
 
 async function listCustodyScans(orderId,trackingCode){
   const {rows}=await requireDb().query(
-    `SELECT id,tracking_code,stage,created_at FROM custody_scans
+    `SELECT id,tracking_code,stage,proof,created_at FROM custody_scans
        WHERE order_id=$1 AND tracking_code=$2 ORDER BY created_at,id`,
     [orderId,trackingCode]
   );
   return rows;
 }
 
-async function recordCustodyScan({orderId,trackingCode,stage,actorUserId,actorStoreId,idempotencyKey,proofName}){
+async function recordCustodyScan({orderId,trackingCode,stage,actorUserId,actorStoreId,idempotencyKey,proofName,latitude,longitude,photo}){
   const crypto=require("node:crypto");
   const {validateScan,stages}=require("./custody");
   const connection=await requireDb().connect();
@@ -1266,9 +1290,12 @@ async function recordCustodyScan({orderId,trackingCode,stage,actorUserId,actorSt
       `SELECT stage FROM custody_scans WHERE order_id=$1 AND tracking_code=$2 ORDER BY created_at DESC,id DESC LIMIT 1`,
       [orderId,trackingCode]
     );
-    validateScan({code:trackingCode,stage,idempotencyKey,recipientName:proofName},previous.rows[0]?.stage||null);
+    const validated=validateScan({code:trackingCode,stage,idempotencyKey,recipientName:proofName,latitude,longitude,photo},previous.rows[0]?.stage||null);
     const scanId=crypto.randomUUID();
-    const proof=stage==="DELIVERY_RECORDED"?{recipientName:proofName}:{};
+    const proof=stage==="DELIVERY_RECORDED"?{
+      recipientName:validated.proofName,latitude:validated.latitude,longitude:validated.longitude,
+      photo:validated.photo||null
+    }:{};
     const inserted=await connection.query(
       `INSERT INTO custody_scans(id,order_id,tracking_code,stage,actor_user_id,actor_store_id,idempotency_key,proof)
        VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb) RETURNING *`,
@@ -1489,6 +1516,41 @@ async function markWebhookProcessed(id, error = null) {
   );
 }
 
+async function listPostalTariffs(activeOnly = false) {
+  const {rows}=await requireDb().query(
+    `SELECT id,origin_city,destination_city,price,deadline_days,estimated_operating_cost,active,updated_at
+       FROM postal_route_tariffs ${activeOnly?"WHERE active=TRUE":""}
+       ORDER BY origin_city,destination_city`);
+  return rows;
+}
+
+async function getPostalTariff(from,to) {
+  const {rows}=await requireDb().query(
+    `SELECT * FROM postal_route_tariffs WHERE origin_city=$1 AND destination_city=$2 AND active=TRUE LIMIT 1`,[from,to]);
+  return rows[0]||null;
+}
+
+async function savePostalTariff({originCity,destinationCity,price,deadlineDays,estimatedOperatingCost,active,userId}) {
+  const {rows}=await requireDb().query(
+    `INSERT INTO postal_route_tariffs(id,origin_city,destination_city,price,deadline_days,estimated_operating_cost,active,updated_by)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT(origin_city,destination_city) DO UPDATE
+       SET price=EXCLUDED.price,deadline_days=EXCLUDED.deadline_days,
+           estimated_operating_cost=EXCLUDED.estimated_operating_cost,active=EXCLUDED.active,
+           updated_by=EXCLUDED.updated_by,updated_at=NOW()
+       RETURNING *`,[require("node:crypto").randomUUID(),originCity,destinationCity,price,deadlineDays,estimatedOperatingCost,active,userId]);
+  return rows[0];
+}
+
+async function addPostalOperatingCost({orderId,description,amount,actorUserId,idempotencyKey}) {
+  const {rows}=await requireDb().query(
+    `INSERT INTO postal_operating_costs(id,order_id,description,amount,actor_user_id,idempotency_key)
+       VALUES($1,$2,$3,$4,$5,$6)
+       ON CONFLICT(actor_user_id,idempotency_key) DO UPDATE SET id=postal_operating_costs.id RETURNING *`,
+    [require("node:crypto").randomUUID(),orderId,description,amount,actorUserId,idempotencyKey]);
+  return rows[0];
+}
+
 module.exports = {
   pool,
   initDb,
@@ -1552,4 +1614,5 @@ module.exports = {
   insertWebhookEvent,
   getPendingWebhookEvents,
   markWebhookProcessed
+  ,listPostalTariffs,getPostalTariff,savePostalTariff,addPostalOperatingCost
 };

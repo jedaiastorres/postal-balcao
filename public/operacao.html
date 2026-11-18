@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#c60739"><title>Expedição Regional | Postal Serviços</title>
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#282735;background:#f8f7f8}
+*{box-sizing:border-box}body{margin:0}header{background:white;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px max(18px,calc((100vw - 1280px)/2));flex-wrap:wrap}header img{width:138px;height:54px}header a{color:#af0837;font-size:13px;font-weight:800;text-decoration:none;margin-left:14px}main{max-width:1280px;padding:30px 18px 80px;margin:auto}
+h1{font-size:clamp(28px,4vw,40px);letter-spacing:-1px;margin:8px 0}h2{font-size:22px;margin:0 0 10px}h3{font-size:17px;margin:0 0 12px}p{color:#747782;line-height:1.5;margin:6px 0 18px}.eyebrow{color:#ca073b;font-size:11px;font-weight:900;letter-spacing:1px}
+.panel{background:white;border:1px solid #ebe6e9;border-radius:18px;padding:22px;margin:20px 0;box-shadow:0 6px 28px #1a13350a}.cards{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:13px;margin:24px 0}.card{background:white;padding:19px;border:1px solid #ebe6e9;border-radius:16px}.card strong{display:block;font-size:27px;color:#ba0a3c;margin:7px 0}.card span{font-size:12px;font-weight:800;color:#6b7180}.card small{color:#777;font-size:11px;line-height:1.4}
+.head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}button,.button{background:#bc093e;color:white;border:none;border-radius:11px;padding:11px 15px;cursor:pointer;font-weight:800;font-size:13px;text-decoration:none;display:inline-flex;align-items:center}button:disabled{opacity:.6}.secondary{background:white;color:#b20839;border:1px solid #e6bfca}
+.controls{display:flex;align-items:end;flex-wrap:wrap;gap:10px;margin-top:14px}label{font-size:12px;font-weight:800;color:#525664;display:grid;gap:6px}input,select{min-width:140px;border:1px solid #dedbe0;border-radius:10px;padding:11px;background:white;font-size:14px}input[type=checkbox]{min-width:auto}table{width:100%;border-collapse:collapse;font-size:13px}th{text-align:left;font-size:11px;color:#747782;text-transform:uppercase;letter-spacing:.4px}td,th{padding:12px 9px;border-bottom:1px solid #f0edf0}td{vertical-align:middle}td small{color:#777;display:block}td strong{display:block}.scroll{overflow-x:auto}.pill{font-size:11px;font-weight:800;border-radius:30px;padding:5px 9px;background:#f2eff1;color:#555;white-space:nowrap}.danger{background:#fff0f0;color:#b12a36}.warning{background:#fff4d9;color:#875f0c}.okay{background:#e8f8ee;color:#167743}.info{background:#eef3fd;color:#385f9e}
+.status{padding:14px;border-radius:11px;background:#fff3e5;color:#714c14;margin-top:14px}.hidden{display:none!important}.tariff-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:end}.tariff-form button{height:44px;justify-content:center}.empty{padding:28px;text-align:center;color:#7d8089}.muted{color:#777}.money{font-weight:900}.actions{display:flex;gap:8px;flex-wrap:wrap}
+@media(max-width:1100px){.cards{grid-template-columns:repeat(3,1fr)}}@media(max-width:760px){.cards{grid-template-columns:repeat(2,1fr)}.tariff-form{grid-template-columns:1fr 1fr}.panel{padding:15px}}
+</style></head><body>
+<header><a href="/"><img src="/assets/brands/postal.svg" alt="Postal Serviços"></a><nav><a href="/">Painel principal</a><a href="/scanner">Leitor QR</a><a href="/api/postal/dispatch.csv">Exportar CSV</a></nav></header>
+<main>
+<div class="eyebrow">POSTAL SERVIÇOS · TMS PRÓPRIO</div>
+<h1>Expedição Regional</h1><p>Controle os envios Postal, os pacotes em movimentação, as referências de prazo e a contribuição financeira por rota.</p>
+<div id="message" class="status">Carregando operações autorizadas...</div>
+<section id="dashboard" class="hidden">
+<div class="cards">
+  <div class="card"><span>Envios / volumes</span><strong id="totalShipments">—</strong><small>Postagens Postal pagas</small></div>
+  <div class="card"><span>Faltam leituras</span><strong id="pendingChecks">—</strong><small>Pacotes ainda sem todas as leituras</small></div>
+  <div class="card"><span>Em transferência</span><strong id="pendingTransfers">—</strong><small>Última etapa: em transferência</small></div>
+  <div class="card"><span>Prazo de referência em atenção</span><strong id="atRisk">—</strong><small>Até 24 horas para a data de referência</small></div>
+  <div class="card"><span>Referência vencida</span><strong id="overdue">—</strong><small>Requer conferência do prazo operacional real</small></div>
+  <div class="card"><span>Leituras fora do ponto de origem</span><strong id="offPointScans">—</strong><small>Conferir se houve transferência autorizada</small></div>
+</div>
+<section class="panel">
+  <div class="head"><div><div class="eyebrow">EXPEDIÇÃO E SLA</div><h2>Movimentações e ocorrências</h2></div><div class="actions"><button id="refresh" class="secondary">Atualizar</button><a href="/scanner" class="button">Ler pacote</a></div></div>
+  <p>Os prazos são <b>referências operacionais</b>. Sua contagem parte da confirmação do pagamento. As entregas são consideradas concluídas somente com registro interno de todos os volumes. Os dados não substituem SLA contratual nem POD de transportadoras terceiras.</p>
+  <div class="controls"><label>Buscar por código, cidade ou ponto<input id="search" placeholder="Digite para filtrar" /></label><label>Indicador de prazo<select id="risk"><option value="">Todos</option><option value="ALERTA_24H">Até 24 horas</option><option value="REFERENCIA_VENCIDA">Referência vencida</option><option value="ENTREGA_INTERNA">Entrega interna registrada</option></select></label><label>Etapa<select id="stage"><option value="">Todas</option><option value="SEM_LEITURA">Sem leitura</option><option value="TRANSFERRED">Em transferência</option><option value="RECEIVED_HUB">No hub</option><option value="OUT_FOR_DELIVERY">Saiu para entrega</option><option value="DELIVERY_RECORDED">Entrega registrada</option></select></label></div>
+  <div class="scroll"><table><thead><tr><th>Rastreio</th><th>Trecho</th><th>Ponto</th><th>Volumes</th><th>Última etapa</th><th>Prazo</th><th>Alerta</th></tr></thead><tbody id="dispatchRows"><tr><td colspan="7" class="empty">Aguarde...</td></tr></tbody></table></div>
+</section>
+<section class="panel">
+  <div class="head"><div><div class="eyebrow">RESULTADO OPERACIONAL</div><h2>Receita e custo por envio</h2></div></div>
+  <p>A contribuição é a receita atribuída à Postal menos os custos registrados. Na ausência deles, utiliza a estimativa cadastrada na rota e identifica o resultado como estimado. Valores sem custo cadastrado <b>não são lucro líquido</b>.</p>
+  <div class="cards"><div class="card"><span>Receita Postal</span><strong id="revenue">—</strong></div><div class="card"><span>Base de custo</span><strong id="cost">—</strong></div><div class="card"><span>Contribuição provisória</span><strong id="contribution">—</strong></div></div>
+  <div class="scroll"><table><thead><tr><th>Rastreio</th><th>Rota</th><th>Receita Postal</th><th>Custo</th><th>Base</th><th>Contribuição</th><th class="master-only">Lançar custo</th></tr></thead><tbody id="costRows"><tr><td colspan="7" class="empty">Aguarde...</td></tr></tbody></table></div>
+</section>
+<section id="tariffsPanel" class="panel hidden">
+  <div class="eyebrow">CONFIGURAÇÃO MASTER</div><h2>Tabela de frete própria</h2>
+  <p>Cadastre valores <b>por volume</b> para cada par de cidades. A tabela é utilizada somente quando nenhuma transportadora parceira retornar cotação para o trecho. Se houver concorrentes, a Postal continua equiparando o menor preço e adotando o prazo de referência mais rápido.</p>
+  <form id="tariffForm" class="tariff-form">
+    <label>Origem<select name="originCity" id="tariffOrigin" required></select></label>
+    <label>Destino<select name="destinationCity" id="tariffDestination" required></select></label>
+    <label>Preço por volume (R$)<input name="price" id="tariffPrice" type="number" step="0.01" min="0.01" max="10000" required /></label>
+    <label>Prazo próprio (dias)<input name="deadlineDays" id="tariffDays" type="number" min="1" max="30" required /></label>
+    <label>Custo operacional estimado por volume (R$)<input name="estimatedOperatingCost" id="tariffCost" type="number" min="0" max="10000" step="0.01" value="0" required /></label>
+    <label>Disponibilidade<select name="active" id="tariffActive"><option value="true">Ativa</option><option value="false">Suspensa</option></select></label>
+    <button type="submit" id="saveTariff">Salvar tarifa</button>
+  </form>
+  <div class="scroll"><table><thead><tr><th>Origem</th><th>Destino</th><th>Preço / volume</th><th>Prazo</th><th>Custo estimado</th><th>Situação</th><th>Ação</th></tr></thead><tbody id="tariffRows"><tr><td colspan="7" class="empty">Nenhuma tarifa cadastrada.</td></tr></tbody></table></div>
+</section>
+</section></main><script src="/operacao.js" defer></script></body></html>

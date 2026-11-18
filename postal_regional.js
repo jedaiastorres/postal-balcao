@@ -71,9 +71,27 @@ function regionalOption(options, route, extra = {}) {
   };
 }
 
+function tariffOption(route,tariff,{volumeCount=1,commissionRate=0.2}={}) {
+  if(!route||!tariff||tariff.active===false)return null;
+  const unitPrice=Number(tariff.price),days=Number(tariff.deadline_days);
+  const count=Number(volumeCount);
+  if(!Number.isFinite(unitPrice)||unitPrice<=0||!Number.isInteger(days)||days<1||days>30||
+     !Number.isInteger(count)||count<1||count>50)return null;
+  const total=Math.round(unitPrice*count*100)/100;
+  const commission=Math.round(total*Math.max(0,Math.min(1,Number(commissionRate)||0))*100)/100;
+  return {
+    carrierMode:"POSTAL_OWN",postalCompanyId:-1,transportadora:"Postal Serviços",
+    produto:"Postal Regional",codigoServico:"POSTAL_REGIONAL",prazoEntrega:days,
+    prazoEstimado:true,prazoReferencia:"Referência operacional cadastrada pela Postal; confirmar prazo de entrega",
+    precoVenda:total,comissaoParceiro:commission,providerCost:0,
+    postalMargin:Math.round((total-commission)*100)/100,route,recommended:true,
+    tariffFallback:true,estimatedOperatingCost:Number(tariff.estimated_operating_cost||0)*count
+  };
+}
+
 function isOwnSelection(selection) {
   return selection?.carrierMode === "POSTAL_OWN" &&
     selection?.service === "Postal Regional" && Number(selection?.postalCompanyId) === -1;
 }
 
-module.exports = {cities, canonical, parseLocation, coveredRoute, matchesCity, eligibleVolumes, regionalOption, isOwnSelection};
+module.exports = {cities, canonical, parseLocation, coveredRoute, matchesCity, eligibleVolumes, regionalOption, tariffOption, isOwnSelection};
