@@ -5,6 +5,7 @@ const helmet = require("helmet");
 const crypto = require("crypto");
 const path = require("path");
 const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
+const postalLabel = require("./postal_label");
 const db = require("./db");
 const clientDb = require("./client_db");
 const bulkShipping = require("./bulk_shipping");
@@ -19,6 +20,7 @@ const publicQuote = require("./public_quote");
 const custody = require("./custody");
 const quotePricing = require("./quote_pricing");
 const operationalMetrics = require("./operational_metrics");
+const postalRegional = require("./postal_regional");
 
 const app = express();
 // Railway terminates the public connection at a reverse proxy.
@@ -33,6 +35,7 @@ const CONECTENVIO_MULTI_QUOTE_PROBE = String(process.env.CONECTENVIO_MULTI_QUOTE
 const CONECTENVIO_QUOTE_CACHE_TTL_MS = Math.max(5000, Math.min(120000, Number(process.env.CONECTENVIO_QUOTE_CACHE_TTL_MS || 45000)));
 const CONECTENVIO_QUOTE_CONCURRENCY = Math.max(1, Math.min(8, Number(process.env.CONECTENVIO_QUOTE_CONCURRENCY || 4)));
 const providerQuoteCache = new Map();
+const regionalCepCache = new Map();
 const shipmentCreationLocks = new Map();
 
 const APP_USER = process.env.APP_USER || "parceiro@postalservicos.com.br";
@@ -719,6 +722,43 @@ async function fetchProviderQuoteCached(providerCepFrom, cepTo, volume) {
   return { data: result.data, cached: false };
 }
 
+async function resolveRegionalCityByCep(cep) {
+  const now = Date.now();
+  const cached = regionalCepCache.get(cep);
+  if (cached && cached.expiresAt > now) return cached.location;
+  let location=null;
+  try {
+    const result = await providerFetch(`/cep/address/?cep=${encodeURIComponent(cep)}`, {method:"GET",timeout:9000});
+    location = postalRegional.parseLocation(result.data);
+  } catch (error) {
+    console.warn("Postal Regional: cidade do CEP não confirmada",error.status||"",error.message);
+  }
+  if(!location){
+    // Serviço público de CEP como alternativa quando o agregador não devolve cidade/UF.
+    try{
+      const response=await fetch(`https://viacep.com.br/ws/${cep}/json/`,{
+        headers:{Accept:"application/json"},redirect:"error",signal:AbortSignal.timeout(4500)
+      });
+      if(response.ok){
+        const payload=await response.json();
+        if(!payload.erro)location=postalRegional.parseLocation(payload);
+      }
+    }catch(error){console.warn("Postal Regional: consulta alternativa de CEP indisponível",error.name||"");}
+  }
+  regionalCepCache.set(cep,{location,expiresAt:now+(location?60*60*1000:60*1000)});
+  if(regionalCepCache.size>3000)regionalCepCache.delete(regionalCepCache.keys().next().value);
+  return location; // Nunca inferir município apenas pelo prefixo do CEP.
+}
+
+async function offerPostalRegional(partnerOptions, cepFrom, cepTo, hubTransferTotal,volumes) {
+  if (!TOKEN || !partnerOptions.length || !postalRegional.eligibleVolumes(volumes)) return null;
+  const [origin,destination] = await Promise.all([
+    resolveRegionalCityByCep(cepFrom),resolveRegionalCityByCep(cepTo)
+  ]);
+  const route=postalRegional.coveredRoute(origin,destination);
+  return postalRegional.regionalOption(partnerOptions,route,{hubTransferTotal});
+}
+
 async function mapWithConcurrency(items, limit, worker) {
   const output = new Array(items.length);
   let cursor = 0;
@@ -1084,6 +1124,36 @@ async function createShipmentFromOrderUnlocked(order) {
       volumes: Array.isArray(order.shipment_volumes) ? order.shipment_volumes : [],
       ready:true
     };
+  }
+
+  if (order.package_data?.carrierMode === "POSTAL_OWN") {
+    if (String(order.payment_status) !== "PAID") {
+      throw new Error("A Postal só emite a etiqueta própria após o pagamento confirmado.");
+    }
+    if (!order.package_data?.ownRoute?.originCity || !order.package_data?.ownRoute?.destinationCity) {
+      throw new Error("A rota Postal Regional não foi validada na cotação.");
+    }
+    const prefix="PS"+String(order.id).replace(/-/g,"").slice(0,20).toUpperCase();
+    const volumes=Array.from({length:expectedVolumeCount},(_,index)=>{
+      const trackingCode=prefix+String(index+1).padStart(2,"0");
+      return {
+        index:index+1, packageId:null,trackingCode,
+        labelA4Url:`/api/orders/${order.id}/labels`,
+        labelA6Url:`/api/orders/${order.id}/labels`,
+        publicTrackingUrl:postalTrackingUrl(trackingCode)
+      };
+    });
+    const shipment={
+      cartId:null,packageId:null,trackingCode:volumes[0].trackingCode,
+      labelA4Url:`/api/orders/${order.id}/labels`,
+      labelA6Url:`/api/orders/${order.id}/labels`,
+      declarationUrl:"",publicTrackingUrl:postalTrackingUrl(volumes[0].trackingCode),
+      volumes,ready:true
+    };
+    await db.saveShipment(order.id,shipment);
+    await db.addOrderEvent(order.id,"POSTAL_OWN_CREATED","Etiqueta Postal Regional emitida",
+      "Envio registrado na rede própria. As movimentações serão atualizadas pela leitura nos pontos e hubs.");
+    return shipment;
   }
 
   if (!ENABLE_SHIPMENT_CREATION) {
@@ -1555,6 +1625,15 @@ async function simulatedLabelPdf(order) {
 async function mergedLabelPdf(orders) {
   const target=await PDFDocument.create();
   for(const order of orders){
+    if(order.package_data?.carrierMode==="POSTAL_OWN") {
+      const volumes=Array.isArray(order.shipment_volumes)&&order.shipment_volumes.length
+        ? order.shipment_volumes : [{index:1,trackingCode:order.tracking_code}];
+      for(const volume of volumes){
+        const own=await PDFDocument.load(await postalLabel.generate(order,volume));
+        for(const page of await target.copyPages(own,own.getPageIndices()))target.addPage(page);
+      }
+      continue;
+    }
     if(order.is_simulation){
       const simBytes=await simulatedLabelPdf(order);
       const simDoc=await PDFDocument.load(simBytes);
@@ -1615,12 +1694,13 @@ async function processAsaasWebhookEvent(eventRow) {
     }
 
     if (eventType === "CHECKOUT_PAID") {
-      const paidOrder = await db.markPaid(order.id, ENABLE_SHIPMENT_CREATION ? "PAYMENT_CONFIRMED" : "PAID_WAITING_SHIPMENT");
+      const ownRegional=order.package_data?.carrierMode==="POSTAL_OWN";
+      const paidOrder = await db.markPaid(order.id, (ENABLE_SHIPMENT_CREATION||ownRegional) ? "PAYMENT_CONFIRMED" : "PAID_WAITING_SHIPMENT");
       if (order.payment_method !== "DINHEIRO") {
         await db.consumeOrderInventory(order.id, inventoryOwnerFromOrder(order));
       }
       await db.addOrderEvent(order.id, "PAYMENT_CONFIRMED", "Pagamento confirmado", "Confirmação recebida pelo gateway de pagamento.");
-      if (ENABLE_SHIPMENT_CREATION) {
+      if (ENABLE_SHIPMENT_CREATION||ownRegional) {
         try {
           await createShipmentFromOrder(paidOrder);
         } catch (shipmentError) {
@@ -1904,6 +1984,8 @@ app.post("/api/public/cotacao", async (req,res)=>{
     });
     const options=aggregateVolumeQuoteSets(quoteSets);
     if(!options.length)return res.status(422).json({error:"Nenhuma transportadora disponível para as medidas e CEPs informados."});
+    const own=await offerPostalRegional(options,cepFrom,cepTo,hubTransferTotal,volumes);
+    if(own)options.unshift(own);
     res.setHeader("Cache-Control","no-store");
     res.json(publicQuote.publicQuoteResponse(options,{volumes,cepFrom,cepTo,hubTransferTotal,demo:false}));
   }catch(error){
@@ -2242,10 +2324,6 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
         return res.json({ok:true,alreadyCreated:true,order:publicOrderForUser(previous,req.user),balance:Number(wallet?.balance||0)});
       }
     }
-    const safeSandbox=asaas.isSandbox();
-    if (asaas.configured() && !ENABLE_SHIPMENT_CREATION && !safeSandbox) {
-      return res.status(503).json({error:"A emissão real ainda está em homologação. Seu saldo não será debitado até a geração real de etiquetas ser liberada."});
-    }
     const selection=verifySelectionToken(body.selectionToken);
     if(!selection||!Number.isFinite(Number(selection.providerCost))){
       return res.status(400).json({error:"A cotação expirou. Calcule novamente."});
@@ -2253,10 +2331,19 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
     if(Number(selection.partnerCommission||0)!==0){
       return res.status(400).json({error:"Esta cotação não pertence ao portal cliente. Calcule novamente."});
     }
+    const ownRegional=postalRegional.isOwnSelection(selection);
+    const safeSandbox=asaas.isSandbox();
+    if (asaas.configured() && !ENABLE_SHIPMENT_CREATION && !ownRegional && !safeSandbox) {
+      return res.status(503).json({error:"A emissão real ainda está em homologação. Seu saldo não será debitado até a geração real de etiquetas ser liberada."});
+    }
 
     const sender=body.sender||{},recipient=body.recipient||{};
     const items=Array.isArray(body.items)?body.items:[];
     validateFreightParties(sender,recipient,items);
+    if(ownRegional && (!postalRegional.matchesCity(sender.city,selection.package?.ownRoute?.originCity) ||
+      !postalRegional.matchesCity(recipient.city,selection.package?.ownRoute?.destinationCity))){
+      return res.status(400).json({error:"A cidade informada não corresponde à rota Postal Regional cotada. Corrija o endereço ou faça outra cotação."});
+    }
     if(cleanDigits(sender.cep)!==selection.package.cepFrom||cleanDigits(recipient.cep)!==selection.package.cepTo){
       return res.status(400).json({error:"Os CEPs mudaram após a cotação."});
     }
@@ -2306,7 +2393,7 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
       totalAmount,freightPrice,customerSubtotal:totalAmount,postalRevenueTotal,providerCost,postalMargin,
       firstMileType:firstMileType==="LATER"?null:firstMileType,firstMileFee,packageCount,
       postalCompanyId:selection.postalCompanyId,
-      carrier:String(body.carrier||""),serviceName:String(selection.service||""),deadline:Number(selection.deadline||0),
+      carrier:ownRegional?"Postal Serviços":String(selection.carrierName||body.carrier||""),serviceName:String(selection.service||""),deadline:Number(selection.deadline||0),
       quoteToken:body.selectionToken,sender,recipient,items,invoiceNumber:String(body.invoiceNumber||"").trim(),
       bulkRowKey,
       hubTransferFeePerPackage:Number(selection.hubTransferFeePerPackage||0),
@@ -2341,10 +2428,10 @@ app.post("/api/client/orders", requireAuth, requireRole("CLIENT"), async (req,re
         assignedStore?("Ponto: "+assignedStore.name):"Aguardando direcionamento pela Postal.");
     }
 
-    const simulation=!ENABLE_SHIPMENT_CREATION && (safeSandbox || (PAYMENT_SIMULATOR_ENABLED&&!asaas.configured()));
+    const simulation=!ENABLE_SHIPMENT_CREATION && !ownRegional && (safeSandbox || (PAYMENT_SIMULATOR_ENABLED&&!asaas.configured()));
     let shipmentIssued=false;
 
-    if(ENABLE_SHIPMENT_CREATION){
+    if(ENABLE_SHIPMENT_CREATION||ownRegional){
       const orderForProvider=await db.getOrder(orderId);
       await createShipmentFromOrder(orderForProvider);
       await db.addOrderEvent(orderId,"SHIPMENT_CREATED","Etiqueta gerada","Postagem criada na malha logística.");
@@ -2505,7 +2592,7 @@ app.post("/api/client/orders/bulk-issue", requireAuth, requireRole("CLIENT"), as
         results.push({id:orderId,ok:true,alreadyReady:true});continue;
       }
       try{
-        if(ENABLE_SHIPMENT_CREATION){
+        if(ENABLE_SHIPMENT_CREATION||order.package_data?.carrierMode==="POSTAL_OWN"){
           await createShipmentFromOrder(order);
           await db.addOrderEvent(order.id,"SHIPMENT_CREATED","Etiqueta gerada em lote","Postagem criada pela emissão em massa.");
         }else if(asaas.isSandbox()){
@@ -4083,7 +4170,11 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
     const quoteOrigin = await resolveOperationalQuoteOrigin(req.user, cepFrom);
     const providerCepFrom = quoteOrigin.providerCepFrom;
 
-    let partnerCommissionRate = (req.user.role === "CLIENT" || (req.user.role === "ADMIN" && !req.user.storeId)) ? 0 : PARTNER_COMMISSION;
+    // A mesma tabela é usada no balcão, no portal cliente e na cotação gratuita.
+    // No portal cliente a parcela do ponto integra a margem da Postal, pois o
+    // cliente paga com saldo e não existe repasse automático ao balcão.
+    let partnerCommissionRate = (req.user.role === "ADMIN" && !req.user.storeId)
+      ? 0 : quotePricing.pointCommissionRate(quoteOrigin.store,PARTNER_COMMISSION);
     if (req.user.role !== "CLIENT" && req.user.storeId) {
       const store = quoteOrigin.store || await db.getStore(req.user.storeId);
       partnerCommissionRate = quotePricing.pointCommissionRate(store,PARTNER_COMMISSION);
@@ -4124,26 +4215,31 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
     );
 
     const aggregated = aggregateVolumeQuoteSets(quoteSets);
+    const ownOption=await offerPostalRegional(aggregated,cepFrom,cepTo,hubTransferTotal,volumes);
+    if(ownOption)aggregated.unshift(ownOption);
     const totalWeightGrams = volumes.reduce((sum,v)=>sum + Number(v.weightGrams || 0),0);
     const totalDeclaredValue = round2(volumes.reduce((sum,v)=>sum + Number(v.declaredValue || 0),0));
 
     const options = aggregated.map(option => {
       const first = volumes[0];
-      const salePriceWithHub = round2(Number(option.precoVenda||0) + hubTransferTotal);
-      const postalMarginWithHub = round2(Number(option.postalMargin||0) + hubTransferTotal);
+      const own=option.carrierMode==="POSTAL_OWN";
+      const salePriceWithHub = round2(Number(option.precoVenda||0) + (own?0:hubTransferTotal));
+      const postalMarginWithHub = round2(Number(option.postalMargin||0) + (own?0:hubTransferTotal));
+      const clientDirect=req.user.role==="CLIENT";
       const selectionToken = signSelectionToken({
         exp: Date.now() + 2 * 60 * 60 * 1000,
+        carrierMode:own?"POSTAL_OWN":"PARTNER",
         postalCompanyId: option.postalCompanyId,
         carrierName:option.transportadora,
         demo:Boolean(demo),
         service: option.produto,
         deadline: option.prazoEntrega,
         salePrice: salePriceWithHub,
-        partnerCommission: option.comissaoParceiro,
+        partnerCommission:clientDirect?0:option.comissaoParceiro,
         providerCost: option.providerCost,
-        postalMargin: postalMarginWithHub,
-        hubTransferFeePerPackage,
-        hubTransferTotal,
+        postalMargin:clientDirect?round2(salePriceWithHub-Number(option.providerCost||0)):postalMarginWithHub,
+        hubTransferFeePerPackage:own?0:hubTransferFeePerPackage,
+        hubTransferTotal:own?0:hubTransferTotal,
         package: {
           weightGrams: totalWeightGrams,
           width:first.width,
@@ -4153,8 +4249,10 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
           cepTo,
           providerCepFrom,
           operationalHub: quoteOrigin.overridden ? quoteOrigin.operationalHub : null,
-          hubTransferFeePerPackage,
-          hubTransferTotal,
+          hubTransferFeePerPackage:own?0:hubTransferFeePerPackage,
+          hubTransferTotal:own?0:hubTransferTotal,
+          ownRoute:own?option.route:null,
+          carrierMode:own?"POSTAL_OWN":null,
           declaredValue:totalDeclaredValue,
           serviceCode: String(option.codigoServico || ""),
           volumeCount:volumes.length,
@@ -4164,15 +4262,19 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
 
       return {
         postalCompanyId: option.postalCompanyId,
+        carrierMode:option.carrierMode||"PARTNER",
+        recommended:Boolean(option.recommended),
+        prazoEstimado:Boolean(option.prazoEstimado),
+        prazoReferencia:option.prazoReferencia||"",
         transportadora: option.transportadora,
         produto: option.produto,
         codigoServico: option.codigoServico,
         prazoEntrega: option.prazoEntrega,
         precoVenda: salePriceWithHub,
         comissaoParceiro: req.user.role === "STORE_CLERK" ? undefined : option.comissaoParceiro,
-        hubTransferApplied: quoteOrigin.overridden,
-        hubTransferFeePerPackage,
-        hubTransferTotal,
+        hubTransferApplied: quoteOrigin.overridden && !own,
+        hubTransferFeePerPackage:own?0:hubTransferFeePerPackage,
+        hubTransferTotal:own?0:hubTransferTotal,
         volumeCount:volumes.length,
         selectionToken
       };
@@ -4680,7 +4782,7 @@ app.post("/api/ops/scans",requireAuth,requireRole(...scannerRoles),requireCurren
 // Reprocessamento manual: conserva o pedido pago e nunca cria um novo checkout.
 app.post("/api/orders/:id/reprocess-shipment", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK"), async (req,res)=>{
   try {
-    if (!ENABLE_SHIPMENT_CREATION || !TOKEN) return res.status(503).json({error:"Emissão não habilitada no momento."});
+    if ((!ENABLE_SHIPMENT_CREATION || !TOKEN) && !(await db.getOrder(req.params.id,scopeForUser(req.user)))?.package_data?.carrierMode?.includes("POSTAL_OWN")) return res.status(503).json({error:"Emissão não habilitada no momento."});
     const order=await db.getOrder(req.params.id,scopeForUser(req.user));
     if (!order) return res.status(404).json({error:"Frete não encontrado."});
     if (String(order.payment_status).toUpperCase()!=="PAID" || order.is_simulation) {
@@ -4742,6 +4844,11 @@ app.post("/api/orders", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CL
     const recipient = body.recipient || {};
     const items = Array.isArray(body.items) ? body.items : [];
     validateFreightParties(sender, recipient, items);
+    if (postalRegional.isOwnSelection(selection) &&
+        (!postalRegional.matchesCity(sender.city,selection.package?.ownRoute?.originCity) ||
+         !postalRegional.matchesCity(recipient.city,selection.package?.ownRoute?.destinationCity))) {
+      return res.status(400).json({error:"A cidade não corresponde ao CEP da rota Postal Regional cotada."});
+    }
 
     if (cleanDigits(sender.cep) !== selection.package.cepFrom || cleanDigits(recipient.cep) !== selection.package.cepTo) {
       return res.status(400).json({ error: "Os CEPs mudaram após a cotação. Calcule novamente." });
@@ -4783,7 +4890,7 @@ app.post("/api/orders", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CL
       postalMargin,
       providerCost,
       postalCompanyId: selection.postalCompanyId,
-      carrier: String(body.carrier || ""),
+      carrier: postalRegional.isOwnSelection(selection)?"Postal Serviços":String(selection.carrierName || body.carrier || ""),
       serviceName: String(selection.service || ""),
       deadline: Number(selection.deadline || 0),
       quoteToken: body.selectionToken,
@@ -5203,7 +5310,6 @@ async function externalPostalTracking(stamp) {
 }
 
 app.get("/api/public/rastreio/:stamp", async (req,res)=>{
-  if(!TOKEN) return res.status(503).json({error:"Rastreamento temporariamente indisponível."});
   const stamp=String(req.params.stamp||"").trim();
   if(!/^[A-Za-z0-9]{6,40}$/.test(stamp)){
     return res.status(400).json({error:"Código de rastreio inválido."});
@@ -5211,10 +5317,46 @@ app.get("/api/public/rastreio/:stamp", async (req,res)=>{
   try{
     const order=await db.findOrderByTrackingCode(stamp);
     if(!order){
+      if(!TOKEN)return res.status(404).json({error:"Código não encontrado na rede Postal."});
       const external=await externalPostalTracking(stamp);
       if(!external) return res.status(404).json({error:"Código não encontrado na rede Postal."});
       return res.json(external);
     }
+
+    if(order.package_data?.carrierMode==="POSTAL_OWN"){
+      const scans=await db.listCustodyScans(order.id,stamp);
+      const last=scans.at(-1);
+      const lastLabel=last?custody.stages[last.stage]?.label:"Etiqueta emitida";
+      const packageData=order.package_data||{};
+      const volumes=Array.isArray(packageData.volumes)?packageData.volumes:[];
+      res.setHeader("Cache-Control","no-store");
+      return res.json({
+        trackingCode:stamp,statusLabel:lastLabel||"Em acompanhamento",
+        operator:"Postal Serviços",carrier:"Postal Serviços",service:"Postal Regional",
+        sender:trackingPrivacy.publicParty(order.sender||{}),
+        recipient:trackingPrivacy.publicParty(order.recipient||{}),
+        origin:trackingPrivacy.publicRoute(order.sender||{}),
+        destination:trackingPrivacy.publicRoute(order.recipient||{}),
+        package:trackingPrivacy.publicPackage({
+          volumeCount:Number(order.package_count||volumes.length||1),
+          weightKg:Number((volumes.reduce((sum,v)=>sum+Number(v.weightGrams||0),0)/1000).toFixed(3)),
+          declaredValue:Number(packageData.declaredValue||0),
+          volumes:volumes.map((v,index)=>({
+            index:index+1,weightKg:Number((Number(v.weightGrams||0)/1000).toFixed(3)),
+            dimensions:{length:Number(v.length||0),width:Number(v.width||0),height:Number(v.height||0)},
+            declaredValue:Number(v.declaredValue||0)
+          }))
+        }),
+        events:[...scans].reverse().map(scan=>({
+          date:scan.created_at,
+          description:custody.stages[scan.stage]?.label||"Atualização operacional",
+          city:null,uf:null,type:scan.stage
+        })).concat([{date:order.shipped_at||order.created_at,description:"Etiqueta Postal Regional emitida",type:"CREATED"}]),
+        updatedAt:last?.created_at||order.shipped_at||order.created_at
+      });
+    }
+
+    if(!TOKEN)return res.status(503).json({error:"Rastreamento do parceiro temporariamente indisponível."});
 
     const volumes=Array.isArray(order.shipment_volumes)?order.shipment_volumes:[];
     const matchingVolume=volumes.find(v=>String(v?.trackingCode||v?.tracking_code||"").trim()===stamp);
