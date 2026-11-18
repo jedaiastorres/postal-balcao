@@ -84,20 +84,20 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 <section class="page active" id="dashboard">
 <div class="title"><div><h2>Visão executiva</h2><div class="sub">Resultado gerencial por competência, cliente, rota e cidade</div></div><button class="btn secondary" onclick="toast('Dashboard atualizado com o snapshot atual.')">Atualizar</button></div>
 <div class="card filters">
-<select id="period"><option>Agosto a Outubro/2026</option><option>Agosto/2026</option><option>Setembro/2026</option><option>Outubro/2026 MTD</option></select>
+<select id="period"><option>Agosto a Novembro/2026</option><option>Agosto/2026</option><option>Setembro/2026</option><option>Outubro/2026 MTD</option></select>
 <select><option>Todos os clientes</option><option>Loggi</option><option>iMile</option><option>Anjun</option><option>Graúna</option></select>
 <select><option>Todas as rotas</option><option>Parauapebas</option><option>Canaã dos Carajás</option><option>Rota Redenção</option><option>Xinguara</option></select>
 <select><option>Todas as cidades</option><option>Parauapebas</option><option>Canaã dos Carajás</option><option>Redenção</option></select>
 <select><option>Todos os bancos</option><option>Banco Inter</option><option>Banco do Brasil</option></select>
-<select><option>Competência</option><option>08/2026</option><option>09/2026</option><option>10/2026</option></select>
+<select><option>Competência</option><option>08/2026</option><option>09/2026</option><option>10/2026</option><option>11/2026</option></select>
 </div>
 <div class="kpis">
 <div class="card kpi"><span>Receita Bruta · Agosto</span><b>R$ 456.443,55</b><small>base final revisada</small></div>
 <div class="card kpi"><span>Resultado · Agosto</span><b style="color:var(--green)">R$ 152.546,90</b><small>margem 33,42%</small></div>
-<div class="card kpi"><span>Receita Bruta · Setembro</span><b>R$ 93.655,32</b><small>base final revisada</small></div>
-<div class="card kpi"><span>Resultado · Setembro</span><b style="color:var(--red)">-R$ 197.092,44</b><small>margem -210,44%</small></div>
-<div class="card kpi"><span>Resultado · Outubro MTD</span><b style="color:var(--red)">-R$ 17.199,57</b><small>parcial</small></div>
-<div class="card kpi"><span>Resultado acumulado</span><b style="color:var(--green)">R$ 3.646,72</b><small>competências disponíveis</small></div>
+<div class="card kpi"><span>Receita Bruta · Setembro</span><b>R$ 218.615,17</b><small>base final revisada</small></div>
+<div class="card kpi"><span>Resultado · Setembro</span><b style="color:var(--red)">-R$ 106.518,13</b><small>margem -48,72%</small></div>
+<div class="card kpi"><span>Resultado · Outubro MTD</span><b style="color:var(--red)">-R$ 118.297,09</b><small>parcial: Inter 17/11 · BB 14/10</small></div>
+<div class="card kpi"><span>Resultado acumulado</span><b style="color:var(--red)">-R$ 103.122,64</b><small>margem acumulada -9,60%</small></div>
 </div>
 <div class="grid2">
 <div class="card chartbox"><b>Receita x resultado</b><div class="sub">Por competência</div><canvas id="trend"></canvas></div>
@@ -164,7 +164,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 
 <section class="page" id="conciliacao">
 <div class="title"><div><h2>Conciliação bancária</h2><div class="sub">Cruze extrato OFX/XLSX com contas a pagar/receber e lançamentos já registrados.</div></div><button class="btn" onclick="goPage('importacao')">Importar extrato</button></div>
-<div class="kpis"><div class="card kpi"><span>Conciliados</span><b>0</b></div><div class="card kpi"><span>Com sugestão</span><b>0</b></div><div class="card kpi"><span>Sem correspondência</span><b>0</b></div><div class="card kpi"><span>Duplicidades</span><b>0</b></div><div class="card kpi"><span>Inter atualizado</span><b>10/10</b></div><div class="card kpi"><span>BB atualizado</span><b>14/10</b></div></div>
+<div class="kpis"><div class="card kpi"><span>Conciliados</span><b>0</b></div><div class="card kpi"><span>Com sugestão</span><b>0</b></div><div class="card kpi"><span>Sem correspondência</span><b>0</b></div><div class="card kpi"><span>Duplicidades</span><b>0</b></div><div class="card kpi"><span>Inter atualizado</span><b>17/11</b></div><div class="card kpi"><span>BB atualizado</span><b>14/10</b></div></div>
 <div class="flow"><div class="step"><em>1</em><b>Extrato</b><span class="sub">OFX/XLSX</span></div><div class="step"><em>2</em><b>Matching</b><span class="sub">Data, valor, favorecido</span></div><div class="step"><em>3</em><b>Classificação</b><span class="sub">Regras aprendidas + IA</span></div><div class="step"><em>4</em><b>Conciliação</b><span class="sub">Confirmar e baixar títulos</span></div></div>
 <div class="card" style="margin-top:12px"><div class="alert"><b>Melhoria sobre o XFIN</b>A conciliação será conectada à competência, cliente, rota, cidade e regras CFO da Postal, não apenas ao plano de contas.</div></div>
 </section>
@@ -181,7 +181,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 <section class="page" id="bancos">
 <div class="title"><div><h2>Contas bancárias</h2><div class="sub">Saldos, última atualização e conciliação.</div></div><button class="btn" onclick="toast('Cadastro de conta bancária será persistente no backend definitivo.')">+ Nova conta</button></div>
 <div class="grid2">
-<div class="card"><b>Banco Inter</b><div class="metricrow"><span>Último extrato</span><b>10/10/2026</b></div><div class="metricrow"><span>Status</span><span class="pill green">Atualizado</span></div></div>
+<div class="card"><b>Banco Inter</b><div class="metricrow"><span>Último extrato</span><b>17/11/2026</b></div><div class="metricrow"><span>Status</span><span class="pill green">Atualizado</span></div></div>
 <div class="card"><b>Banco do Brasil</b><div class="metricrow"><span>Último extrato</span><b>14/10/2026</b></div><div class="metricrow"><span>Status</span><span class="pill green">Atualizado</span></div></div>
 </div>
 </section>
@@ -323,7 +323,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;borde
 </div>
 <div class="card">
 <b>Última atualização da base</b>
-<div class="metricrow"><span>Banco Inter</span><b id="lastInter">10/10/2026</b></div>
+<div class="metricrow"><span>Banco Inter</span><b id="lastInter">17/11/2026</b></div>
 <div class="metricrow"><span>Banco do Brasil</span><b id="lastBB">14/10/2026</b></div>
 <div class="metricrow"><span>Regra de sobreposição</span><span class="status ok">Ativa</span></div>
 <div class="metricrow"><span>Duplicidade por fingerprint</span><span class="status ok">Ativa</span></div>
@@ -408,7 +408,7 @@ let bankUpdates=loadJson(BANK_UPDATE_KEY,{
  'Banco do Brasil':{statementThrough:'2026-10-14',importedAt:'2026-10-15T00:00:00-03:00'}
 });
 let importPreview=[]; let importPreviewMeta=null;
-const SYSTEM_SEED_URL='https://cdn.jsdelivr.net/gh/jedaiastorres/postal-balcao@17eacdeda9b4114f7ba907466bb5a5ffdc834c21/public/cfo/data/inter-2026-11-17.json';
+const SYSTEM_SEED_URL='/data/inter-2026-11-17.json';
 const SYSTEM_SEED_BATCH='inter-2026-10-11_2026-11-17-v2';
 // Ensure new permanent rules reach browsers that already had older local storage.
 for(const dr of defaultRules){
