@@ -20,8 +20,8 @@ function parseLocation(raw) {
   const candidates = [raw?.data?.data, raw?.data, raw?.address, raw];
   for (const item of candidates) {
     if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-    const city = item.city ?? item.cidade ?? item.localidade ?? item.municipio ?? item.city_name;
-    const state = item.uf ?? item.state_code ?? item.estado_sigla ?? item.state ?? item.estado;
+    const city = item.city ?? item.city_title ?? item.cidade ?? item.localidade ?? item.municipio ?? item.city_name;
+    const state = item.uf ?? item.state_abbreviation ?? item.state_code ?? item.estado_sigla ?? item.state ?? item.estado;
     if (!city || !state) continue;
     const uf = canonical(state);
     return {city: String(city), uf: uf === "pa" || uf === "para" ? "PA" : String(state).toUpperCase()};
