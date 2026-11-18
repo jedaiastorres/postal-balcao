@@ -10,6 +10,8 @@
     selectedOperations: new Set(),
     opsStatus: "",
     pointClients: [],
+    savedAddresses: [],
+    defaultSender: {},
     pendingImport: null,
     bulkRows: [], bulkBusy:false
   };
@@ -84,6 +86,9 @@
     document.querySelector('[data-view="collections"]')?.classList.toggle("hidden",!["ADMIN","STORE_OWNER","STORE_CLERK","OPS","CLIENT"].includes(user?.role));
     document.querySelector('[data-view="connections"]')?.classList.toggle("hidden",!clientMode);
     document.querySelector('[data-view="wallet"]')?.classList.toggle("hidden",!clientMode);
+    document.querySelector('[data-view="clientProfile"]')?.classList.toggle("hidden",!clientMode);
+    $("#savedSenderWrap")?.classList.toggle("hidden",!clientMode);
+    $("#savedRecipientWrap")?.classList.toggle("hidden",!clientMode);
 
     document.querySelector('[data-view="dashboard"]')?.classList.toggle("hidden",clientMode);
     if(clientMode){
@@ -97,6 +102,7 @@
       const quoteText=document.querySelector("#quoteView .quote-head p");
       if(quoteText) quoteText.textContent="Compare transportadoras, escolha o melhor frete e pague com seu saldo Postal.";
       await loadClientHome();
+      await loadProfile().catch(error=>console.warn("Cadastro indisponível:",error.message));
       navigate("clientHome");
     }
   }
@@ -218,6 +224,29 @@
     const sources=[...new Set(client.operations.map(x=>x.sourcePlatform).filter(Boolean))].sort();
     $("#clientOpsSourceFilter").innerHTML='<option value="">Todas</option>'+sources.map(x=>`<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join("");
     renderOperations();
+  }
+
+  function exportOperations(){
+    const rows=visibleOperations();
+    if(!rows.length)return toast("Não há pedidos para exportar neste filtro.","error");
+    const columns=[
+      ["Código","externalOrderId"],["ID interno","id"],["Origem","sourcePlatform"],
+      ["Cliente","customerName"],["Destino","destination"],["Status","status"],
+      ["Rastreio","trackingCode"],["Valor (R$)","total"]
+    ];
+    const safeCell=value=>{
+      let valueText=String(value??"");
+      if(/^[\s]*[=+@-]/.test(valueText))valueText="'"+valueText;
+      return '"'+valueText.replace(/"/g,'""')+'"';
+    };
+    const csv="\uFEFF"+[columns.map(([label])=>safeCell(label)).join(";"),
+      ...rows.map(item=>columns.map(([label,key])=>safeCell(item[key]??"")).join(";"))].join("\r\n");
+    const url=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
+    const link=document.createElement("a");
+    link.href=url;link.download="postal-pedidos-"+new Date().toISOString().slice(0,10)+".csv";
+    document.body.appendChild(link);link.click();link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),5000);
+    toast(rows.length+" pedido(s) exportado(s).");
   }
 
   function normalizedImportedPayload(payload){
@@ -403,6 +432,117 @@
         <div><span>Valor</span><strong class="${Number(t.amount)>=0?"positive-money":"negative-money"}">${money(t.amount)}</strong></div>
         <div><span>Status</span><strong>${escapeHtml(t.status)}</strong></div>
       </div>`).join(""):'<div class="empty-state">Nenhuma movimentação ainda.</div>';
+    const topupHost=$("#walletTopups");
+    const statuses={PAID:"Confirmado",PENDING:"Aguardando pagamento",FAILED:"Não concluído",CANCELED:"Cancelado",EXPIRED:"Expirado",REFUNDED:"Estornado"};
+    topupHost.innerHTML=(d.topups||[]).length?d.topups.map(t=>{
+      const checkout=String(t.checkoutUrl||"");
+      let safeCheckout="";
+      try{
+        const url=new URL(checkout);
+        if(url.protocol==="https:" && (url.hostname==="asaas.com"||url.hostname.endsWith(".asaas.com")))safeCheckout=url.href;
+      }catch{}
+      const canPay=String(t.status).toUpperCase()==="PENDING"&&safeCheckout;
+      return '<div class="inventory-row"><div><strong>'+escapeHtml(statuses[String(t.status).toUpperCase()]||t.status)+
+        '</strong><small>'+new Date(t.createdAt).toLocaleString("pt-BR")+' · '+escapeHtml(t.paymentMethod||"")+
+        (t.isSimulation?" · simulação":"")+'</small></div><div><span>Crédito</span><strong>'+money(t.amount)+
+        '</strong></div><div><span>Total pago/cobrado</span><strong>'+money(t.totalAmount)+
+        '</strong></div>'+(canPay?'<div><a href="'+escapeHtml(safeCheckout)+'" target="_blank" rel="noopener noreferrer">Continuar pagamento</a></div>':"")+
+        '</div>';
+    }).join(""):'<div class="empty-state">Nenhuma recarga solicitada ainda.</div>';
+  }
+
+  const addressFields=["name","document","phone","email","cep","number","address","neighborhood","complement","city"];
+  function fillShipment(prefix,data){
+    for(const field of addressFields){
+      const input=$("#"+prefix+field.charAt(0).toUpperCase()+field.slice(1));
+      if(input)input.value=String(data?.[field]||"");
+    }
+  }
+  function profileAddress(){
+    return Object.fromEntries(["cep","number","address","neighborhood","complement","city"].map(field=>[
+      field,$("#profile"+field.charAt(0).toUpperCase()+field.slice(1)).value.trim()
+    ]));
+  }
+  async function loadProfile(){
+    if(!isClient())return;
+    const [result]=await Promise.all([api("/api/client/profile"),loadSavedAddresses()]);
+    const p=result.profile||{};
+    client.defaultSender={...p.defaultSender,name:p.name,document:p.document,phone:p.phone,email:p.email};
+    $("#profileName").value=p.name||"";
+    $("#profileEmail").value=p.email||"";
+    $("#profileDocument").value=p.document||"";
+    $("#profilePhone").value=p.phone||"";
+    $("#profileCompanyName").value=p.companyName||"";
+    for(const field of ["cep","number","address","neighborhood","complement","city"]){
+      $("#profile"+field.charAt(0).toUpperCase()+field.slice(1)).value=p.defaultSender?.[field]||"";
+    }
+    renderSavedAddressOptions();
+  }
+  async function saveProfile(e){
+    e.preventDefault();
+    const btn=e.currentTarget.querySelector("button[type='submit']");btn.disabled=true;
+    try{
+      await api("/api/client/profile",{method:"PATCH",body:JSON.stringify({
+        phone:$("#profilePhone").value,companyName:$("#profileCompanyName").value,
+        defaultSender:profileAddress()
+      })});
+      toast("Cadastro atualizado. Seus próximos envios podem usar o remetente padrão.");
+      await loadProfile();
+    }catch(error){toast(error.message,"error");}finally{btn.disabled=false;}
+  }
+  async function loadSavedAddresses(){
+    if(!isClient())return;
+    const result=await api("/api/client/addresses");
+    client.savedAddresses=result.addresses||[];
+    renderSavedAddressOptions();
+    renderSavedAddressList();
+  }
+  function renderSavedAddressOptions(){
+    for(const [prefix,kind] of [["Sender","SENDER"],["Recipient","RECIPIENT"]]){
+      const select=$("#saved"+prefix+"Select");if(!select)continue;
+      select.replaceChildren(new Option("Escolher endereço salvo...",""));
+      if(prefix==="Sender"&&client.defaultSender?.cep)select.add(new Option("Meu remetente padrão","DEFAULT"));
+      for(const a of client.savedAddresses.filter(item=>item.kind===kind)){
+        select.add(new Option(a.label+" · "+(a.address?.city||""),a.id));
+      }
+    }
+  }
+  function renderSavedAddressList(){
+    const host=$("#clientAddressList");if(!host)return;
+    host.innerHTML=client.savedAddresses.length?client.savedAddresses.map(a=>
+      '<div class="inventory-row"><div><strong>'+escapeHtml(a.label)+'</strong><small>'+
+      escapeHtml(a.kind==="SENDER"?"Remetente":"Destinatário")+' · '+
+      escapeHtml([a.address?.name,a.address?.city,a.address?.cep].filter(Boolean).join(" · "))+
+      '</small></div><button class="ghost" type="button" data-remove-address="'+escapeHtml(a.id)+'">Excluir</button></div>'
+    ).join(""):'<div class="empty-state">Ainda não há endereços salvos.</div>';
+    host.querySelectorAll("[data-remove-address]").forEach(button=>button.addEventListener("click",async()=>{
+      if(!confirm("Excluir este endereço da agenda?"))return;
+      try{
+        await api("/api/client/addresses/"+encodeURIComponent(button.dataset.removeAddress),{method:"DELETE"});
+        await loadSavedAddresses();toast("Endereço excluído.");
+      }catch(error){toast(error.message,"error");}
+    }));
+  }
+  async function saveAddress(e){
+    e.preventDefault();
+    const form=e.currentTarget,btn=form.querySelector("button[type='submit']");btn.disabled=true;
+    try{
+      const address=Object.fromEntries(addressFields.map(field=>[
+        field,$("#address"+field.charAt(0).toUpperCase()+field.slice(1)).value.trim()
+      ]));
+      await api("/api/client/addresses",{method:"POST",body:JSON.stringify({
+        kind:$("#addressKind").value,label:$("#addressLabel").value.trim(),address
+      })});
+      form.reset();await loadSavedAddresses();toast("Endereço salvo na agenda.");
+    }catch(error){toast(error.message,"error");}finally{btn.disabled=false;}
+  }
+  function applySavedAddress(prefix){
+    const selected=$("#saved"+prefix+"Select")?.value;
+    if(!selected)return;
+    const data=selected==="DEFAULT"?client.defaultSender:client.savedAddresses.find(a=>a.id===selected)?.address;
+    if(!data)return;
+    fillShipment(prefix.toLowerCase(),data);
+    toast("Dados preenchidos. Confirme antes de emitir a etiqueta.");
   }
 
   async function previewTopup(){
@@ -994,7 +1134,13 @@
     $("#walletTopupForm")?.addEventListener("submit",topup);
     $("#walletTopupAmount")?.addEventListener("input",previewTopup);
     $("#walletTopupMethod")?.addEventListener("change",previewTopup);
+    $("#walletRefreshBtn")?.addEventListener("click",()=>loadWallet().catch(error=>toast(error.message,"error")));
+    $("#clientProfileForm")?.addEventListener("submit",saveProfile);
+    $("#clientAddressForm")?.addEventListener("submit",saveAddress);
+    $("#savedSenderSelect")?.addEventListener("change",()=>applySavedAddress("Sender"));
+    $("#savedRecipientSelect")?.addEventListener("change",()=>applySavedAddress("Recipient"));
     $("#clientOpsRefreshBtn")?.addEventListener("click",loadOperations);
+    $("#clientOpsExportBtn")?.addEventListener("click",exportOperations);
     $("#clientBulkSpreadsheetFile")?.addEventListener("change",async e=>{
       const file=e.target.files?.[0];await importSpreadsheet(file);e.target.value="";
     });
@@ -1075,7 +1221,7 @@
   }
 
   window.PostalClient={
-    bind,onShowApp,loadPointClients,loadClientHome,loadOperations,loadWallet,loadConnections,loadCollections,loadReferrals,
+    bind,onShowApp,loadPointClients,loadClientHome,loadOperations,loadWallet,loadProfile,loadConnections,loadCollections,loadReferrals,
     prepareShipment,submitShipment,refreshFirstMileTotal
   };
   bind();

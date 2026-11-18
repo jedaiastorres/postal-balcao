@@ -1373,6 +1373,36 @@ function validateFreightParties(sender, recipient, items) {
   }
 }
 
+function normalizeClientAddress(raw,required=false) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    if(!required)return {};
+    throw Object.assign(new Error("Informe os dados do endereço."),{status:400});
+  }
+  const result={};
+  for(const field of ["name","document","phone","email","cep","address","number","neighborhood","complement","city"]){
+    result[field]=String(raw[field]||"").trim().slice(0,field==="address"?200:120);
+  }
+  result.cep=cleanDigits(result.cep);
+  result.document=cleanDigits(result.document);
+  const addressFields=["cep","address","number","neighborhood","city"];
+  const hasAddress=addressFields.some(field=>Boolean(result[field]));
+  if(required||hasAddress){
+    if(addressFields.some(field=>!result[field])||result.cep.length!==8){
+      throw Object.assign(new Error("Informe CEP, logradouro, número, bairro e cidade/UF completos."),{status:400});
+    }
+  }
+  if(required&&["name","document","phone"].some(field=>!result[field])){
+    throw Object.assign(new Error("Informe nome, documento e telefone do contato."),{status:400});
+  }
+  if(result.document&&![11,14].includes(result.document.length)){
+    throw Object.assign(new Error("CPF/CNPJ precisa ter 11 ou 14 dígitos."),{status:400});
+  }
+  if(result.email&&!/^\S+@\S+\.\S+$/.test(result.email)){
+    throw Object.assign(new Error("E-mail do contato inválido."),{status:400});
+  }
+  return result;
+}
+
 async function resolveRequestedAddons(partnerEmail, requestedAddons) {
   const requested = Array.isArray(requestedAddons) ? requestedAddons : [];
   if (!requested.length) return [];
@@ -1859,6 +1889,63 @@ app.post("/api/account/password", requireAuth, async (req,res)=>{
     console.error("change own password error:",error.message);
     res.status(500).json({error:"Não foi possível alterar a senha."});
   }
+});
+
+app.get("/api/client/profile",requireAuth,requireRole("CLIENT"),async(req,res)=>{
+  try{
+    const account=await clientDb.getCustomerAccount(req.user.userId);
+    if(!account)return res.status(404).json({error:"Conta cliente não encontrada."});
+    res.json({profile:{
+      name:account.name,email:account.email,document:account.document||"",
+      phone:account.phone||"",companyName:account.company_name||"",
+      defaultSender:account.default_sender||{},
+      referralStoreName:account.referral_store_name||""
+    }});
+  }catch(error){console.error("client profile read:",error.message);res.status(500).json({error:"Não foi possível carregar o perfil."});}
+});
+
+app.patch("/api/client/profile",requireAuth,requireRole("CLIENT"),async(req,res)=>{
+  try{
+    const account=await clientDb.getCustomerAccount(req.user.userId);
+    if(!account)return res.status(404).json({error:"Conta cliente não encontrada."});
+    const phone=cleanDigits(req.body?.phone||"").slice(0,15);
+    const companyName=String(req.body?.companyName||"").trim().slice(0,180);
+    if(phone && phone.length<10)return res.status(400).json({error:"Informe um telefone com DDD válido."});
+    const raw={...(req.body?.defaultSender||{}),name:account.name,document:account.document,phone:phone||account.phone,email:account.email};
+    const defaultSender=normalizeClientAddress(raw);
+    await clientDb.updateCustomerProfile(req.user.userId,{phone,companyName,defaultSender});
+    await audit(req,"CLIENT_PROFILE_UPDATE","CLIENT",req.user.userId,{defaultSender:!!defaultSender.cep});
+    res.json({ok:true,message:"Perfil atualizado."});
+  }catch(error){console.error("client profile update:",error.message);res.status(error.status||500).json({error:error.status?error.message:"Não foi possível atualizar o perfil."});}
+});
+
+app.get("/api/client/addresses",requireAuth,requireRole("CLIENT"),async(req,res)=>{
+  try{
+    const addresses=await clientDb.listCustomerAddresses(req.user.userId);
+    res.json({addresses:addresses.map(a=>({
+      id:a.id,kind:a.kind,label:a.label,address:a.address_data,createdAt:a.created_at
+    }))});
+  }catch(error){res.status(500).json({error:"Não foi possível carregar os endereços."});}
+});
+
+app.post("/api/client/addresses",requireAuth,requireRole("CLIENT"),async(req,res)=>{
+  try{
+    const kind=String(req.body?.kind||"").toUpperCase();
+    const label=String(req.body?.label||"").trim().slice(0,80);
+    if(!["SENDER","RECIPIENT"].includes(kind)||!label)return res.status(400).json({error:"Informe o tipo e um apelido para o endereço."});
+    const address=normalizeClientAddress(req.body?.address,true);
+    const saved=await clientDb.createCustomerAddress(req.user.userId,{kind,label,address});
+    res.status(201).json({ok:true,address:{id:saved.id,kind:saved.kind,label:saved.label,address:saved.address_data}});
+  }catch(error){console.error("client address create:",error.message);res.status(error.status||500).json({error:error.status?error.message:"Não foi possível salvar o endereço."});}
+});
+
+app.delete("/api/client/addresses/:id",requireAuth,requireRole("CLIENT"),async(req,res)=>{
+  try{
+    if(!/^[0-9a-f-]{36}$/i.test(req.params.id))return res.status(400).json({error:"Identificador inválido."});
+    const removed=await clientDb.deleteCustomerAddress(req.user.userId,req.params.id);
+    if(!removed)return res.status(404).json({error:"Endereço não encontrado."});
+    res.json({ok:true});
+  }catch(error){res.status(500).json({error:"Não foi possível excluir o endereço."});}
 });
 
 app.get("/api/client/dashboard", requireAuth, requireRole("CLIENT"), async (req,res)=>{

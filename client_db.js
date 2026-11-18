@@ -112,6 +112,17 @@ async function initClientDb() {
       ON wallet_topups(checkout_id)
       WHERE checkout_id IS NOT NULL;
 
+    CREATE TABLE IF NOT EXISTS customer_saved_addresses (
+      id UUID PRIMARY KEY,
+      user_id UUID NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('SENDER','RECIPIENT')),
+      label TEXT NOT NULL,
+      address_data JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS customer_saved_addresses_user_idx
+      ON customer_saved_addresses(user_id,created_at DESC);
+
     CREATE TABLE IF NOT EXISTS ecommerce_connections (
       id UUID PRIMARY KEY,
       user_id UUID NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
@@ -302,6 +313,52 @@ async function getCustomerAccount(userId) {
     [userId]
   );
   return rows[0] || null;
+}
+
+async function updateCustomerProfile(userId,{phone,companyName,defaultSender}) {
+  const {rows}=await database().query(
+    `UPDATE customer_accounts
+        SET phone=$2,company_name=$3,default_sender=$4::jsonb,updated_at=NOW()
+      WHERE user_id=$1 RETURNING *`,
+    [userId,phone,companyName,JSON.stringify(defaultSender)]
+  );
+  return rows[0]||null;
+}
+
+async function listCustomerAddresses(userId) {
+  const {rows}=await database().query(
+    `SELECT id,kind,label,address_data,created_at
+       FROM customer_saved_addresses WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50`,
+    [userId]
+  );
+  return rows;
+}
+
+async function createCustomerAddress(userId,{kind,label,address}) {
+  const conn=await database().connect();
+  try {
+    await conn.query("BEGIN");
+    const account=await conn.query("SELECT user_id FROM customer_accounts WHERE user_id=$1 FOR UPDATE",[userId]);
+    if(!account.rows[0]) throw Object.assign(new Error("Conta cliente não encontrada."),{status:404});
+    const count=await conn.query("SELECT COUNT(*)::int AS count FROM customer_saved_addresses WHERE user_id=$1",[userId]);
+    if(Number(count.rows[0].count)>=50) throw Object.assign(new Error("Limite de 50 endereços salvos atingido."),{status:400});
+    const {rows}=await conn.query(
+      `INSERT INTO customer_saved_addresses(id,user_id,kind,label,address_data)
+       VALUES($1,$2,$3,$4,$5::jsonb)
+       RETURNING id,kind,label,address_data,created_at`,
+      [id(),userId,kind,label,JSON.stringify(address)]
+    );
+    await conn.query("COMMIT");
+    return rows[0];
+  }catch(error){await conn.query("ROLLBACK");throw error;}finally{conn.release();}
+}
+
+async function deleteCustomerAddress(userId,addressId) {
+  const {rowCount}=await database().query(
+    "DELETE FROM customer_saved_addresses WHERE id=$1 AND user_id=$2",
+    [addressId,userId]
+  );
+  return rowCount>0;
 }
 
 async function findStoreByReferralCode(code) {
@@ -1084,7 +1141,8 @@ async function createBulkCollectionsAndDebit({
 }
 
 module.exports={
-  registerPointClient,transitionCollection,initClientDb,createCustomerAccount,getCustomerAccount,findStoreByReferralCode,
+  registerPointClient,transitionCollection,initClientDb,createCustomerAccount,getCustomerAccount,updateCustomerProfile,
+  listCustomerAddresses,createCustomerAddress,deleteCustomerAddress,findStoreByReferralCode,
   listPublicStores,listPickupStores,updateStorePickupSettings,getWallet,listWalletTransactions,creditWallet,debitWallet,
   createTopup,setTopupCheckout,getTopupByCheckoutId,getTopup,listTopups,markTopupPaid,updateTopupStatus,
   insertClientOrder,createClientOrderAndDebit,getClientOrderByBulkKey,listClientOrders,getClientOrder,choosePickupStore,createCollectionRequest,
