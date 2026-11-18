@@ -18,6 +18,7 @@ const publicPoints = require("./public_points");
 const publicQuote = require("./public_quote");
 const custody = require("./custody");
 const quotePricing = require("./quote_pricing");
+const operationalMetrics = require("./operational_metrics");
 
 const app = express();
 // Railway terminates the public connection at a reverse proxy.
@@ -2863,6 +2864,57 @@ function analyticsDateRange(query={}) {
   if(start>end){ const tmp=start; start=end; end=tmp; }
   return {start,end,period};
 }
+
+// Relatório da cadeia de custódia Postal: mede somente leituras internas.
+// Não confunde ausência de leitura com atraso contratual da transportadora.
+async function readOperationalReport(req) {
+  const range=analyticsDateRange(req.query||{});
+  const params=[range.start.toISOString(),range.end.toISOString()];
+  const where=["f.created_at >= $1::timestamptz","f.created_at <= $2::timestamptz","f.is_simulation=FALSE","f.payment_status='PAID'"];
+  const storeId=req.user.role==="STORE_OWNER" ? req.user.storeId : String(req.query.storeId||"").trim();
+  if(req.user.role==="STORE_OWNER" && !storeId)throw Object.assign(new Error("Usuário sem ponto vinculado."),{status:400});
+  if(storeId){
+    if(!/^[0-9a-f]{8}-[0-9a-f-]{27,36}$/i.test(storeId))throw Object.assign(new Error("Ponto inválido."),{status:400});
+    params.push(storeId);where.push("f.store_id=$"+params.length);
+  }
+  for(const [column,value] of [["carrier",req.query.carrier],["service_name",req.query.service]]){
+    const filter=String(value||"").trim().slice(0,120);
+    if(filter){params.push(filter);where.push("LOWER(f."+column+")=LOWER($"+params.length+")");}
+  }
+  const paymentMethod=String(req.query.paymentMethod||"").trim().toUpperCase();
+  if(paymentMethod){
+    if(!["PIX","CARTAO","DINHEIRO"].includes(paymentMethod))throw Object.assign(new Error("Pagamento inválido."),{status:400});
+    params.push(paymentMethod);where.push("UPPER(f.payment_method)=$"+params.length);
+  }
+  const {rows}=await db.pool.query(operationalMetrics.custodyReportSql(where.join(" AND ")),params);
+  const truncated=rows.length>operationalMetrics.MAX_ROWS;
+  const data=operationalMetrics.summarizeCustody(rows.slice(0,operationalMetrics.MAX_ROWS),{inactivityHours:24});
+  return {range:{from:range.start.toISOString(),to:range.end.toISOString()},scope:{storeId:storeId||null},truncated,...data};
+}
+
+app.get("/api/analytics/custody",requireAuth,requireRole("ADMIN","SUPERVISOR","STORE_OWNER"),async(req,res)=>{
+  try{
+    const {items,...report}=await readOperationalReport(req);
+    res.setHeader("Cache-Control","no-store");
+    res.json(report);
+  }catch(error){
+    console.error("custody analytics error",error.message);
+    res.status(error.status||503).json({error:error.status?error.message:"Não foi possível carregar o painel de movimentação."});
+  }
+});
+
+app.get("/api/analytics/custody.csv",requireAuth,requireRole("ADMIN","SUPERVISOR","STORE_OWNER"),async(req,res)=>{
+  try{
+    const report=await readOperationalReport(req);
+    res.setHeader("Cache-Control","no-store");
+    res.setHeader("Content-Type","text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition",'attachment; filename="postal-movimentacao-'+new Date().toISOString().slice(0,10)+'.csv"');
+    res.send(operationalMetrics.custodyCsv(report.items));
+  }catch(error){
+    console.error("custody CSV error",error.message);
+    res.status(error.status||503).json({error:error.status?error.message:"Não foi possível exportar as movimentações."});
+  }
+});
 
 app.get("/api/analytics/overview", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER"), async (req,res)=>{
   try{

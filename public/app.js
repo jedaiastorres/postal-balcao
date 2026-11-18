@@ -2059,7 +2059,32 @@ async function loadManagementAnalytics(){
   if(!["ADMIN","SUPERVISOR","STORE_OWNER"].includes(state.user?.role)) return;
   try{
     await ensureAnalyticsStores();
-    const data=await api("/api/analytics/overview?"+filterQuery("analytics").toString());
+    const query=filterQuery("analytics").toString();
+    const [data,ops]=await Promise.all([
+      api("/api/analytics/overview?"+query),
+      api("/api/analytics/custody?"+query).catch(error=>({error:error.message}))
+    ]);
+    const csvLink=$("#opsCustodyCsv");
+    if(csvLink)csvLink.href="/api/analytics/custody.csv?"+query;
+    if(ops.error){
+      if($("#opsAttentionList"))$("#opsAttentionList").innerHTML='<div class="empty-state">'+escapeHtml(ops.error)+'</div>';
+      if($("#opsReportNote"))$("#opsReportNote").textContent="Não foi possível carregar";
+    }else{
+      const os=ops.summary||{};
+      $("#opsScanCoverage").textContent=Number(os.scanCoveragePercent||0).toLocaleString("pt-BR")+"%";
+      $("#opsScannedCaption").textContent=Number(os.scannedPackages||0)+" de "+Number(os.packages||0)+" pacotes";
+      $("#opsNoFirstScan").textContent=Number(os.noFirstScan||0);
+      $("#opsInactive").textContent=Number(os.inactiveShipments||0);
+      $("#opsDelivered").textContent=Number(os.deliveredInternally||0);
+      $("#opsReportNote").textContent=ops.truncated?"Exibindo os 2.000 envios mais recentes do filtro":"";
+      rankRows("#opsAttentionList",ops.attention||[],item=>({
+        title:item.trackingCode||"Pedido "+String(item.id||"").slice(0,8),
+        subtitle:item.storeName+" · "+item.carrier,
+        value:item.attention==="SEM_MOVIMENTACAO"?"Sem movimentação":"Sem primeira leitura",
+        detail:Number(item.scanned||0)+" de "+Number(item.packages||0)+" pacote(s) lido(s)"
+      }));
+      if(!(ops.attention||[]).length)$("#opsAttentionList").innerHTML='<div class="empty-state">Nenhuma pendência de leitura interna identificada neste filtro.</div>';
+    }
     state.analytics.dashboardData=data;
     const s=data.summary||{};
     $("#analyticsGross").textContent=money(s.grossSales||0);

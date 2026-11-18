@@ -183,6 +183,22 @@
             <article class="metric-card analytics-network-only hidden"><span>Transferência ao hub</span><strong id="analyticsHubTransfer">R$ 0,00</strong><small>R$ 5,00 por pacote com CEP máscara</small></article>
           </div>
 
+          <section class="panel ops-health" aria-labelledby="opsHealthTitle">
+            <div class="analytics-toolbar-head">
+              <div><span class="eyebrow">LEITURA QR / CÓDIGO DE BARRAS</span><h3 id="opsHealthTitle">Acompanhamento de movimentações</h3></div>
+              <a id="opsCustodyCsv" class="ghost" href="/api/analytics/custody.csv">Exportar relatório CSV</a>
+            </div>
+            <p class="ops-health-note">Indicadores de leitura interna da rede Postal. Ausência de leitura ou de movimentação não comprova atraso da transportadora; o SLA contratual exige eventos de entrega confirmados.</p>
+            <div class="analytics-kpis ops-health-kpis">
+              <article class="metric-card"><span>Cobertura de leitura</span><strong id="opsScanCoverage">—</strong><small id="opsScannedCaption">Pacotes lidos / pacotes pagos</small></article>
+              <article class="metric-card"><span>Sem primeira leitura</span><strong id="opsNoFirstScan">—</strong><small>Envios pagos sem registro interno</small></article>
+              <article class="metric-card"><span>Sem movimentação 24h</span><strong id="opsInactive">—</strong><small>Envios com leitura anterior, ainda em aberto</small></article>
+              <article class="metric-card"><span>Entrega interna registrada</span><strong id="opsDelivered">—</strong><small>Pacotes com comprovante de leitura final</small></article>
+            </div>
+            <div class="panel-head"><h3 class="ops-attention-title">Itens para conferência</h3><small id="opsReportNote">Carregando...</small></div>
+            <div id="opsAttentionList" class="analytics-ranking"><div class="empty-state">Carregando movimentações...</div></div>
+          </section>
+
           <div class="analytics-grid">
             <article class="panel analytics-chart-panel">
               <div class="panel-head"><div><span class="eyebrow">EVOLUÇÃO</span><h3>Faturamento ao longo do tempo</h3></div></div>
