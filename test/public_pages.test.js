@@ -14,7 +14,7 @@ test("public quote and point pages load scripts allowed by the production CSP",(
   }
 });
 
-test("tracking and point finder show Postal identity, partner logos and verified company contact",()=>{
+test("tracking and point finder show Postal identity and verified company contact, without a static carrier showcase",()=>{
   for(const name of ["rastreio","pontos"]){
     const html=fs.readFileSync(path.resolve(__dirname,"../public",name+".html"),"utf8");
     assert.match(html,/assets\/brands\/postal\.svg/);
@@ -24,9 +24,7 @@ test("tracking and point finder show Postal identity, partner logos and verified
   const pointsPage=fs.readFileSync(path.resolve(__dirname,"../public/pontos.html"),"utf8");
   assert.doesNotMatch(pointsPage,/TRANSPORTADORAS DA REDE DE COTAÇÃO/);
   const trackingPage=fs.readFileSync(path.resolve(__dirname,"../public/rastreio.html"),"utf8");
-  for(const asset of ["loggi.svg","jadlog.svg","azul-cargo.png","correios.svg"]){
-    assert.ok(trackingPage.includes("/assets/brands/"+asset));
-  }
+  assert.doesNotMatch(trackingPage,/ENVIE COM A REDE POSTAL|<aside class="partners"|partner-logos/);
   const tracking=fs.readFileSync(path.resolve(__dirname,"../public/rastreio.js"),"utf8");
   assert.match(tracking,/PostalBrand\?\.carrierLogo\(name\)/);
   assert.match(tracking,/showCarrier\(data\.carrier\)/);

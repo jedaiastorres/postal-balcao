@@ -17,6 +17,7 @@ const publicQuotes = require("./public_quotes");
 const publicPoints = require("./public_points");
 const publicQuote = require("./public_quote");
 const custody = require("./custody");
+const quotePricing = require("./quote_pricing");
 
 const app = express();
 // Railway terminates the public connection at a reverse proxy.
@@ -579,18 +580,7 @@ function round2(n) {
 }
 
 function sellPriceFromCost(cost, partnerCommissionRate = PARTNER_COMMISSION) {
-  // Comissão do ponto e margem Postal são percentuais do preço final.
-  const partnerRate = Math.min(0.50, Math.max(0, Number(partnerCommissionRate || 0)));
-  const retainedShare = 1 - partnerRate - POSTAL_MARGIN;
-  if (retainedShare <= 0) throw new Error("Configuração de margens inválida.");
-  const finalPrice = cost / retainedShare;
-  const partnerCommission = finalPrice * partnerRate;
-  const postalMargin = finalPrice * POSTAL_MARGIN;
-  return {
-    salePrice: round2(finalPrice),
-    partnerCommission: round2(partnerCommission),
-    postalMargin: round2(postalMargin)
-  };
+  return quotePricing.sellPriceFromCost(cost, partnerCommissionRate, POSTAL_MARGIN);
 }
 
 function demoQuote(body) {
@@ -1901,13 +1891,15 @@ app.post("/api/public/cotacao", async (req,res)=>{
   try {
     const {cepFrom,cepTo,volumes}=input;
     const origin=await resolveOperationalQuoteOrigin({role:"PUBLIC"},cepFrom);
+    // A vitrine gratuita usa a mesma comissão do ponto que atenderá esta origem.
+    const partnerCommissionRate=quotePricing.pointCommissionRate(origin.store,PARTNER_COMMISSION);
     const hubTransferTotal=origin.overridden?round2(HUB_TRANSFER_FEE_PER_PACKAGE*volumes.length):0;
     const quoteSets=await mapWithConcurrency(volumes,Math.min(3,CONECTENVIO_QUOTE_CONCURRENCY),async volume=>{
       const quoted=await fetchProviderQuoteCached(origin.providerCepFrom,cepTo,volume);
       if(quoted.data?.error===true){
         const error=new Error("A transportadora não conseguiu atender esta rota.");error.status=422;throw error;
       }
-      return normalizeQuote(quoted.data,0);
+      return normalizeQuote(quoted.data,partnerCommissionRate);
     });
     const options=aggregateVolumeQuoteSets(quoteSets);
     if(!options.length)return res.status(422).json({error:"Nenhuma transportadora disponível para as medidas e CEPs informados."});
@@ -4042,9 +4034,7 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
     let partnerCommissionRate = (req.user.role === "CLIENT" || (req.user.role === "ADMIN" && !req.user.storeId)) ? 0 : PARTNER_COMMISSION;
     if (req.user.role !== "CLIENT" && req.user.storeId) {
       const store = quoteOrigin.store || await db.getStore(req.user.storeId);
-      if (store?.commission_percent != null) {
-        partnerCommissionRate = Math.max(0, Math.min(0.50, Number(store.commission_percent) / 100));
-      }
+      partnerCommissionRate = quotePricing.pointCommissionRate(store,PARTNER_COMMISSION);
     }
     const hubTransferFeePerPackage = quoteOrigin.overridden ? HUB_TRANSFER_FEE_PER_PACKAGE : 0;
     const hubTransferTotal = round2(hubTransferFeePerPackage * volumes.length);

@@ -9,6 +9,14 @@ test('PostgreSQL: customer isolation, atomic registration, collection idempotenc
   await core.initDb();await client.initClientDb();await client.initClientDb();
   const store=randomUUID(),otherStore=randomUUID(),owner=randomUUID();
   await pool.query("INSERT INTO stores(id,code,name,active,pickup_enabled) VALUES($1,'A','Ponto A',TRUE,TRUE),($2,'B','Ponto B',TRUE,TRUE)",[store,otherStore]);
+  await t.test('public quote locates the same point by origin CEP even without a CEP mask',async()=>{
+   await pool.query("UPDATE stores SET address=$1,commission_percent=17.5 WHERE id=$2",[JSON.stringify({cep:'68515-000'}),store]);
+   await pool.query("UPDATE stores SET address=$1,commission_percent=20 WHERE id=$2",[JSON.stringify({cep:'68515-999'}),otherStore]);
+   const matched=await core.findStoreForQuoteOrigin('68515-000');
+   assert.equal(matched.id,store);
+   assert.equal(Number(matched.commission_percent),17.5);
+   assert.equal(matched.quote_origin_cep,null);
+  });
   await pool.query("INSERT INTO app_users(id,email,name,password_hash,role,active,store_id) VALUES($1,'owner@test.local','Dono','hash','STORE_OWNER',TRUE,$2)",[owner,store]);
   let customer;
   await t.test('registration does not move funds and stays scoped to the referring store',async()=>{
