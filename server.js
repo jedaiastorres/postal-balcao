@@ -2053,7 +2053,7 @@ app.get("/api/public/points",async(_req,res)=>{
   try{
     const stores=await clientDb.listPublicStores();
     res.setHeader("Cache-Control","public,max-age=120");
-    res.json({points:stores.map(publicPoints.sanitizePoint)});
+    res.json({points:stores.map(publicPoints.sanitizePoint).filter(publicPoints.isPublishablePoint)});
   }catch(error){
     console.error("public points error:",error.message);
     res.status(503).json({error:"Os pontos estão temporariamente indisponíveis."});
@@ -5006,7 +5006,8 @@ app.get("/api/envios/:id", requireAuth, async (req, res) => {
   }
 });
 
-// Rastreamento público com marca Postal. Provedores e transportadoras ficam somente no backend.
+// Rastreamento público com marca Postal. A transportadora de pedidos próprios é
+// identificada pelo nome comercial, sem expor conta, provedor ou tarifas internas.
 function trackingEventsFromPayload(payload) {
   const candidates=[];
   const seen=new Set();
@@ -5231,6 +5232,7 @@ app.get("/api/public/rastreio/:stamp", async (req,res)=>{
       trackingCode:stamp,
       statusLabel:String(status),
       operator:"Postal Serviços",
+      carrier:String(order.carrier||"").slice(0,90),
       service:postalServiceLabel(order.service_name),
       sender:trackingPrivacy.publicParty(sender),
       recipient:trackingPrivacy.publicParty(recipient),

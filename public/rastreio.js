@@ -22,6 +22,19 @@ function showError(message){
   $("#trackingResult").classList.add("hidden");
 }
 function clearError(){ $("#errorBox").classList.add("hidden"); }
+function showCarrier(carrier){
+  const name=String(carrier||"").trim()||"Postal Serviços";
+  const isPartner=Boolean(String(carrier||"").trim());
+  $("#carrierHeading").textContent=isPartner?"Transportadora do envio":"Operação";
+  $("#carrierName").textContent=name;
+  const logo=$("#carrierLogo"),fallback=$("#carrierFallback");
+  const logoPath=isPartner?globalThis.PostalBrand?.carrierLogo(name):"/assets/brands/postal.svg";
+  fallback.textContent=/j\s*&?\s*t|jtexpress/i.test(name)?"J&T":name.replace(/[^\p{L}\p{N} ]/gu,"").slice(0,2).toUpperCase()||"?";
+  fallback.classList.toggle("hidden",Boolean(logoPath));
+  logo.classList.toggle("hidden",!logoPath);
+  if(logoPath)logo.src=logoPath;
+  logo.onerror=()=>{logo.classList.add("hidden");fallback.classList.remove("hidden");};
+}
 
 async function track(code){
   const clean=String(code||"").trim().replace(/\s+/g,"");
@@ -41,7 +54,7 @@ async function track(code){
     $("#trackingCode").value=data.trackingCode||clean;
     $("#trackingDisplay").textContent=data.trackingCode||clean;
     $("#statusLabel").innerHTML='<i class="dot"></i>'+escapeHtml(data.statusLabel||"Em acompanhamento");
-    $("#operator").textContent=data.operator||"Postal Serviços";
+    showCarrier(data.carrier);
     $("#service").textContent=data.service||"Entrega";
     $("#senderName").textContent=data.sender?.name||"—";
     $("#recipientName").textContent=data.recipient?.name||"—";

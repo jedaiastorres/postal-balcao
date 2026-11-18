@@ -27,14 +27,18 @@ function render(){
     const db=b.latitude!=null&&b.longitude!=null?distance(position.lat,position.lon,b.latitude,b.longitude):Infinity;
     return da-db;
   });
-  counter.textContent=visible.length+" ponto(s) encontrado(s)"+(position?" · ordenados por proximidade quando possível":"");
+  counter.textContent=visible.length+" ponto(s) disponível(is) para consulta"+(position?" · ordenados por proximidade quando possível":"");
   list.replaceChildren();
   if(!visible.length){
-    const empty=document.createElement("p");empty.className="message";empty.textContent="Nenhum ponto encontrado com esse filtro. Experimente outra cidade ou bairro.";
+    const empty=document.createElement("p");empty.className="message";
+    empty.textContent=points.length?"Nenhum ponto encontrado com esse filtro. Experimente outra cidade ou bairro. ":"Ainda não há pontos ativos com endereço completo publicados para visita. ";
+    const contact=document.createElement("a");contact.href="https://wa.me/5594991683301";contact.target="_blank";contact.rel="noopener noreferrer";contact.textContent="Confirme o ponto de atendimento pelo WhatsApp da Postal.";
+    empty.append(contact);
     list.append(empty);return;
   }
   visible.forEach(p=>{
     const card=document.createElement("article");card.className="card";
+    const logo=document.createElement("img");logo.className="point-logo";logo.src="/assets/brands/postal.svg";logo.alt="";logo.loading="lazy";
     const name=document.createElement("h2");name.textContent=p.name||"Ponto Postal";
     const address=document.createElement("p");address.className="address";address.textContent=locationText(p)||"Endereço ainda não informado";
     const badges=document.createElement("div");badges.className="badges";
@@ -43,7 +47,7 @@ function render(){
     if(p.pickupEnabled){const pickup=document.createElement("span");pickup.className="badge muted";pickup.textContent="Coletas habilitadas";badges.append(pickup);}
     const actions=document.createElement("div");actions.className="actions";
     const full=locationText(p);
-    if(full){
+    if(p.address?.street&&p.address?.city&&p.address?.state){
       const map=document.createElement("a");
       map.href="https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(full);
       map.target="_blank";map.rel="noopener noreferrer";map.textContent="Ver localização no mapa";actions.append(map);
@@ -53,7 +57,7 @@ function render(){
       km.textContent=distance(position.lat,position.lon,p.latitude,p.longitude).toLocaleString("pt-BR",{maximumFractionDigits:1})+" km em linha reta";
       actions.append(km);
     }
-    card.append(name,address,badges,actions);list.append(card);
+    card.append(logo,name,address,badges,actions);list.append(card);
   });
 }
 input.addEventListener("input",render);
