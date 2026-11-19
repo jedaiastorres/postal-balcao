@@ -1,4 +1,5 @@
 const { Pool } = require("pg");
+const {pricingLockSql} = require("./pricing_lock");
 
 const DATABASE_URL = process.env.DATABASE_URL || "";
 const pool = DATABASE_URL
@@ -350,11 +351,24 @@ async function initDb() {
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS provider_payment_last_error TEXT;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS provider_payment_updated_at TIMESTAMPTZ;
     ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS shipment_volumes JSONB NOT NULL DEFAULT '[]'::jsonb;
+    ALTER TABLE freight_orders ADD COLUMN IF NOT EXISTS price_locked_at TIMESTAMPTZ;
     ALTER TABLE partner_inventory ADD COLUMN IF NOT EXISTS sale_price NUMERIC(12,2);
     ALTER TABLE partner_inventory ADD COLUMN IF NOT EXISTS average_cost NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS lot_code TEXT;
     ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12,2);
   `);
+
+  // Pedidos de versões anteriores também devem permanecer congelados.
+  await pool.query(`
+    UPDATE freight_orders
+       SET price_locked_at=COALESCE(shipped_at,NOW())
+     WHERE price_locked_at IS NULL
+       AND (shipped_at IS NOT NULL OR NULLIF(tracking_code,'') IS NOT NULL
+            OR status IN ('LABEL_AVAILABLE','LABEL_AVAILABLE_SIMULATED'));
+  `);
+
+  // Migração idempotente, preservando pedidos históricos.
+  await pool.query(pricingLockSql);
 
   return true;
 }

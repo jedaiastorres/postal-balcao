@@ -284,7 +284,9 @@ async function transitionCollection({collectionId,user,status,assignedStoreId,sc
     if(current.freight_order_id){
       const r=await conn.query("SELECT * FROM freight_orders WHERE id=$1 FOR UPDATE",[current.freight_order_id]);order=r.rows[0];
       pointRules.assert(nextStatus!=="CANCELED"||order?.payment_status!=="PAID"||Number(order.first_mile_fee)<=0,"Coleta paga requer fluxo de estorno antes do cancelamento.",409);
-      if(reassign&&order)await conn.query("UPDATE freight_orders SET postal_revenue_total=postal_revenue_total+$2,updated_at=NOW() WHERE id=$1",[order.id,round2(postal-Number(current.postal_compensation))]);
+      // O rateio da coleta permanece no registro da coleta; nunca reabre o frete postado.
+      if(reassign&&order&&!order.price_locked_at)
+        await conn.query("UPDATE freight_orders SET postal_revenue_total=postal_revenue_total+$2,updated_at=NOW() WHERE id=$1",[order.id,round2(postal-Number(current.postal_compensation))]);
     }
     const completed=current.service_type==='PICKUP'?['COLLECTED','COMPLETED'].includes(nextStatus):['RECEIVED_AT_POINT','COMPLETED'].includes(nextStatus);
     const paymentStatus=pointRules.earningStatus(rows[0],order);
@@ -866,7 +868,7 @@ async function updateCollection(collectionId,patch){
     await db.query(
       `UPDATE freight_orders
           SET postal_revenue_total=postal_revenue_total+$2,updated_at=NOW()
-        WHERE id=$1`,
+        WHERE id=$1 AND price_locked_at IS NULL`,
       [rows[0].freight_order_id,round2(nextPostal-previousPostal)]
     );
   }
@@ -1156,8 +1158,8 @@ async function createBulkCollectionsAndDebit({
       await db.query(
         `UPDATE freight_orders SET
            first_mile_type='PICKUP',
-           first_mile_fee=$2,
-           postal_revenue_total=postal_revenue_total+$3,
+           first_mile_fee=CASE WHEN price_locked_at IS NULL THEN $2 ELSE first_mile_fee END,
+           postal_revenue_total=CASE WHEN price_locked_at IS NULL THEN postal_revenue_total+$3 ELSE postal_revenue_total END,
            updated_at=NOW()
          WHERE id=$1`,
         [order.id,orderFee,postalComp]

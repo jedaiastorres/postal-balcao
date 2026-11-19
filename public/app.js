@@ -1263,7 +1263,7 @@ function buildReceiptHtml(data) {
     `<div class="item"><span>${escapeHtml(item.description)} x${Number(item.quantity || 1)}</span><b>${money(Number(item.value || 0))}</b></div>`
   ).join("");
   const extras = (data.addons || []).map(item =>
-    `<div class="item"><span>${escapeHtml(item.name)} x${Number(item.quantity || 1)}</span><b>${money(Number(item.totalPrice || 0))}</b></div>`
+    `<div class="item"><span>${escapeHtml(item.isManualExtra ? "Custo extra: " + item.name : item.name)} x${Number(item.quantity || 1)}</span><b>${money(Number(item.totalPrice || 0))}</b></div>`
   ).join("");
   const preview = data.preview ? '<div class="preview">PRÉVIA — SEM VALIDADE</div>' : (data.isSimulation ? '<div class="preview">HOMOLOGAÇÃO — SEM VALIDADE LOGÍSTICA</div>' : "");
   const trackingCodes = Array.isArray(data.trackingCodes) && data.trackingCodes.length
@@ -1302,11 +1302,10 @@ function buildReceiptHtml(data) {
   <div class="dash"></div><div class="section">PACOTE / ENVIO</div><div class="row"><span>Transportadora</span><b>${escapeHtml(data.carrier)}</b></div><div class="row"><span>Serviço</span><b>${escapeHtml(data.service)}</b></div><div class="row"><span>Prazo estimado</span><b>${escapeHtml(data.deadline ? data.deadline + " dias úteis" : "-")}</b></div>${Number(data.volumeCount||1)>1 ? `<div class="row"><span>Volumes</span><b>${Number(data.volumeCount)}</b></div>` : ""}<div class="row"><span>Peso total</span><b>${escapeHtml(data.weightKg + " kg")}</b></div><div class="row"><span>Medidas</span><b class="tiny">${escapeHtml(data.dimensions)}</b></div><div class="row"><span>Valor declarado</span><b>${money(data.declaredValue)}</b></div>${invoice}
   ${volumeRows}
   <div class="dash"></div><div class="section">CONTEÚDO</div>${items || '<div class="small">Conteúdo não informado</div>'}
-  ${extras ? `<div class="dash"></div><div class="section">PRODUTOS / SERVIÇOS</div>${extras}` : ""}
   <div class="dash"></div><div class="section">PAGAMENTO</div>
-  <div class="row"><span>Frete</span><b>${money(data.freightPrice || data.salePrice)}</b></div>
+  <div class="row"><span>Frete</span><b>${money(Number(data.freightPrice ?? data.salePrice ?? 0))}</b></div>
   ${Number(data.hubTransferTotal || 0) ? `<div class="row"><span>Transferência ao hub</span><b>${money(data.hubTransferTotal)}</b></div>` : ""}
-  ${Number(data.addonsTotal || 0) ? `<div class="row"><span>Adicionais</span><b>${money(data.addonsTotal)}</b></div>` : ""}
+  ${extras ? `<div class="section">PRODUTOS / SERVIÇOS / CUSTOS EXTRAS</div>${extras}` : ""}
   ${Number(data.paymentFee || 0) ? `<div class="row"><span>Taxa pagamento</span><b>${money(data.paymentFee)}</b></div>` : ""}
   <div class="row total"><span>${!data.preview && String(data.paymentStatus || "").toUpperCase() === "PAID" ? "TOTAL PAGO" : "TOTAL DO ENVIO"}</span><b>${money(data.salePrice)}</b></div><div class="row"><span>Forma</span><b>${escapeHtml(data.paymentMethod || "-")}</b></div><div class="row"><span>Status</span><b>${escapeHtml(paidLabel)}</b></div>${ids}
   <div class="dash"></div><div class="footer">Guarde este comprovante até a conclusão da entrega.<br>Acompanhe pelo código de rastreio.<br>Este comprovante não substitui documento fiscal.</div>
@@ -1486,11 +1485,13 @@ function receiptPayloadFromOrder(order) {
     service: order.serviceName || "",
     deadline: order.deadline || 0,
     salePrice: order.totalToCustomer || order.salePrice || 0,
-    freightPrice: order.salePrice || 0,
+    freightPrice: Number(order.salePrice || 0) - Number(order.hubTransferTotal || 0),
+    hubTransferTotal: Number(order.hubTransferTotal || 0),
     addonsTotal: order.addonsTotal || 0,
     paymentFee: order.paymentSurcharge || 0,
     addons: (order.addons || []).map(addon => ({
-      name: addon.itemName, quantity: addon.quantity, totalPrice: addon.totalPrice
+      name: addon.itemName, quantity: addon.quantity, totalPrice: addon.totalPrice,
+      isManualExtra: Boolean(addon.isManualExtra)
     })),
     declaredValue,
     weightKg: Number(totalWeightKg.toFixed(3)),
@@ -1713,7 +1714,12 @@ function renderOrders() {
       const expected=Math.max(1,Number(order.packageCount||1));
       receiptBtn.textContent=allTracking>=expected ? "Imprimir comprovante 80 mm" : "Comprovante: rastreio pendente";
       receiptBtn.disabled=allTracking<expected;
-      receiptBtn.addEventListener("click",()=>openReceipt(receiptPayloadFromOrder(order),true)); actions.appendChild(receiptBtn);
+      receiptBtn.addEventListener("click",async()=>{
+        try{
+          const result=await api("/api/orders/"+encodeURIComponent(order.id));
+          openReceipt(receiptPayloadFromOrder(result.order || result),true);
+        }catch(error){toast("Não foi possível carregar o comprovante registrado: "+error.message,"error");}
+      }); actions.appendChild(receiptBtn);
     }
 
     if (order.trackingCode && !order.isSimulation) {
@@ -2665,9 +2671,13 @@ document.addEventListener("keydown", event => {
   if (event.key === "Escape") closeReceiptPreview();
 });
 
-$("#printReceiptBtn")?.addEventListener("click", () => {
-  if (!state.shipmentResult) return;
-  openReceipt(receiptPayload(false), true);
+$("#printReceiptBtn")?.addEventListener("click", async () => {
+  const orderId=state.shipmentResult?.orderId||state.shipmentResult?.id;
+  if(!orderId)return toast("O comprovante definitivo só está disponível para pedidos registrados.","error");
+  try{
+    const result=await api("/api/orders/"+encodeURIComponent(orderId));
+    openReceipt(receiptPayloadFromOrder(result.order || result),true);
+  }catch(error){toast("Não foi possível obter os valores originais do comprovante: "+error.message,"error");}
 });
 $("#printLabelBtn")?.addEventListener("click", () => openOrderLabels({id:state.shipmentResult?.orderId||state.shipmentResult?.id}));
 
