@@ -36,6 +36,7 @@
         <h2>Registrar movimentação</h2>
         <div class="grid">
           <label><span>Etapa operacional</span><select id="stage"><option value="RECEIVED_POINT">Recebido no ponto</option><option value="TRANSFERRED">Em transferência</option><option value="RECEIVED_HUB">Recebido no hub</option><option value="OUT_FOR_DELIVERY">Saiu para entrega</option><option value="DELIVERY_RECORDED">Entrega registrada internamente</option></select></label>
+          <label id="transferWrap" class="hidden"><span>Unidade de destino da transferência *</span><select id="destinationStoreId" required><option value="">Selecione ponto ou hub</option></select></label>
           <label id="recipientWrap" class="hidden"><span>Nome de quem recebeu *</span><input id="recipientName" maxlength="120" placeholder="Responsável pelo recebimento"></label>
         </div>
         <div id="deliveryProofFields" class="hidden">
