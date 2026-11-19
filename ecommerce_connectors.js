@@ -441,6 +441,183 @@ function buildWooAuthorizationUrl({ storeUrl, connectionState, appPublicUrl }) {
   return url.toString();
 }
 
+// Shopify exige o domínio permanente myshopify.com na API Admin e no OAuth.
+// Domínios personalizados, IPs e URLs com caminhos não são aceitos.
+function normalizeShopifyShop(raw) {
+  let value = String(raw || "").trim().toLowerCase();
+  if (!value) throw new Error("Informe o domínio da Shopify (ex.: minha-loja.myshopify.com).");
+  if (!/^https?:\/\//.test(value)) value = "https://" + value;
+  let url;
+  try { url = new URL(value); } catch { throw new Error("Domínio Shopify inválido."); }
+  if (url.protocol !== "https:" || url.port || url.username || url.password ||
+      (url.pathname !== "/" && url.pathname !== "") || url.search || url.hash ||
+      !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.myshopify\.com$/.test(url.hostname)) {
+    throw new Error("Use apenas o domínio seguro da loja, como minha-loja.myshopify.com.");
+  }
+  return url.hostname;
+}
+
+function buildShopifyAuthorizationUrl({ shop, clientId, state, redirectUri }) {
+  const domain = normalizeShopifyShop(shop);
+  const callback = new URL(String(redirectUri || ""));
+  if (callback.protocol !== "https:" || !callback.hostname || callback.username || callback.password) {
+    throw new Error("Configure APP_PUBLIC_URL com HTTPS antes de conectar a Shopify.");
+  }
+  if (!clientId || !state) throw new Error("Aplicativo Shopify não configurado.");
+  const url = new URL(`https://${domain}/admin/oauth/authorize`);
+  url.searchParams.set("client_id", String(clientId));
+  url.searchParams.set("scope", "read_orders");
+  url.searchParams.set("redirect_uri", callback.toString());
+  url.searchParams.set("state", String(state));
+  return url.toString();
+}
+
+function verifyShopifyCallbackHmac(params, clientSecret) {
+  const value = params && typeof params === "object" ? params : {};
+  const signature = value.hmac;
+  if (!clientSecret || typeof signature !== "string" || !/^[a-f0-9]{64}$/i.test(signature)) return false;
+  const keys = Object.keys(value).filter(k => k !== "hmac").sort();
+  if (keys.some(k => typeof value[k] !== "string")) return false;
+  const message = keys.map(k => `${k}=${value[k]}`).join("&");
+  const expected = crypto.createHmac("sha256", String(clientSecret)).update(message).digest("hex");
+  return crypto.timingSafeEqual(Buffer.from(signature, "hex"), Buffer.from(expected, "hex"));
+}
+
+function normalizeShopifyToken(body) {
+  if (!body || typeof body.access_token !== "string" || !body.access_token ||
+      !body.refresh_token || !Number.isFinite(Number(body.expires_in)) || Number(body.expires_in) <= 0) {
+    throw new Error("Shopify não retornou credenciais offline renováveis. Tente autorizar novamente.");
+  }
+  const now = Date.now();
+  return {
+    accessToken: body.access_token,
+    refreshToken: String(body.refresh_token),
+    scope: String(body.scope || ""),
+    expiresAt: new Date(now + Number(body.expires_in) * 1000).toISOString(),
+    refreshExpiresAt: Number(body.refresh_token_expires_in) > 0
+      ? new Date(now + Number(body.refresh_token_expires_in) * 1000).toISOString() : null
+  };
+}
+
+async function shopifyTokenRequest({ shop, clientId, clientSecret, params }) {
+  const domain = normalizeShopifyShop(shop);
+  if (!clientId || !clientSecret) throw new Error("Credenciais do aplicativo Shopify ausentes.");
+  const body = new URLSearchParams({client_id:String(clientId),client_secret:String(clientSecret),...params});
+  const response = await fetch(`https://${domain}/admin/oauth/access_token`, {
+    method: "POST",
+    headers: {"content-type":"application/x-www-form-urlencoded",accept:"application/json"},
+    body: body.toString(),
+    redirect:"error",
+    signal: AbortSignal.timeout(30000)
+  });
+  let payload;
+  try { payload = await response.json(); } catch { payload = null; }
+  if (!response.ok) {
+    const error = new Error(String(payload?.error_description || payload?.error || `Shopify respondeu HTTP ${response.status}.`));
+    error.status = response.status;
+    throw error;
+  }
+  return normalizeShopifyToken(payload);
+}
+
+async function exchangeShopifyCode({ shop, clientId, clientSecret, code }) {
+  if (!String(code || "").trim()) throw new Error("Código de autorização Shopify ausente.");
+  return shopifyTokenRequest({shop,clientId,clientSecret,params:{code:String(code),expiring:"1"}});
+}
+
+async function refreshShopifyToken({ shop, clientId, clientSecret, refreshToken }) {
+  if (!refreshToken) throw new Error("Token de renovação Shopify ausente. Reconecte a loja.");
+  return shopifyTokenRequest({shop,clientId,clientSecret,params:{grant_type:"refresh_token",refresh_token:String(refreshToken)}});
+}
+
+function normalizeShopifyOrder(order, sender = {}) {
+  const address = order?.shippingAddress || {};
+  const rawItems = order?.lineItems?.edges || [];
+  const items = rawItems.map(edge => {
+    const item = edge?.node || {};
+    const quantity = Math.max(1, Number(item.quantity || 1));
+    const value = Number(item.originalUnitPriceSet?.shopMoney?.amount ?? 0);
+    return {description:String(item.name || item.sku || "Produto"),quantity,
+      value:Number.isFinite(value) ? Math.max(0,value) : 0,sku:String(item.sku || "")};
+  });
+  const subtotal = Number(order?.subtotalPriceSet?.shopMoney?.amount ?? 0);
+  const declaredValue = Number.isFinite(subtotal) && subtotal > 0
+    ? subtotal : items.reduce((sum,item) => sum + item.quantity * item.value, 0);
+  return {
+    sender:sender || {},
+    recipient:{
+      name:String(firstNonEmpty(address.name,[address.firstName,address.lastName].filter(Boolean).join(" "),"")),
+      document:"", // Shopify protege CPF/CNPJ: solicitar ao cliente na preparação da postagem.
+      phone:String(firstNonEmpty(address.phone,order?.phone,"")),
+      email:String(firstNonEmpty(order?.email,"")),
+      cep:String(firstNonEmpty(address.zip,"")),
+      address:String(firstNonEmpty(address.address1,"")),
+      number:"", // Confirmar o número: a Shopify não o fornece separadamente.
+      neighborhood:"",
+      complement:String(firstNonEmpty(address.address2,"")),
+      city:String(firstNonEmpty(address.city,"")),
+      state:String(firstNonEmpty(address.provinceCode,""))
+    },
+    package:{weightKg:0,length:0,width:0,height:0,declaredValue:Math.round((declaredValue+Number.EPSILON)*100)/100},
+    items,
+    invoiceNumber:"",
+    source:{platform:"SHOPIFY",orderId:String(order?.id || ""),orderNumber:String(order?.name || order?.id || ""),
+      status:String(order?.displayFulfillmentStatus || ""),paymentStatus:String(order?.displayFinancialStatus || ""),
+      createdAt:order?.createdAt || null}
+  };
+}
+
+const SHOPIFY_ORDERS_QUERY = `query PostalOrders($cursor: String) {
+  orders(first: 25, after: $cursor, sortKey: CREATED_AT, reverse: true,
+         query: "financial_status:paid fulfillment_status:unfulfilled") {
+    pageInfo { hasNextPage endCursor }
+    edges { node {
+      id name createdAt cancelledAt displayFinancialStatus displayFulfillmentStatus email phone
+      subtotalPriceSet { shopMoney { amount currencyCode } }
+      shippingAddress { name firstName lastName address1 address2 city provinceCode zip phone }
+      lineItems(first: 20) { edges { node {
+        name quantity sku originalUnitPriceSet { shopMoney { amount } }
+      } } }
+    } }
+  }
+}`;
+
+async function fetchShopifyOrders({ shop, accessToken, apiVersion = "2026-10", maxPages = 4 }) {
+  const domain = normalizeShopifyShop(shop);
+  if (!accessToken) throw new Error("Autorização Shopify incompleta.");
+  if (!/^20\d{2}-(01|04|07|10)$/.test(apiVersion)) throw new Error("Versão da API Shopify inválida.");
+  const pages = Math.max(1,Math.min(10,Number(maxPages) || 4));
+  const result = [];
+  let cursor = null;
+  for (let page = 0; page < pages; page++) {
+    const response = await fetch(`https://${domain}/admin/api/${apiVersion}/graphql.json`,{
+      method:"POST",
+      headers:{"content-type":"application/json",accept:"application/json","x-shopify-access-token":String(accessToken)},
+      body:JSON.stringify({query:SHOPIFY_ORDERS_QUERY,variables:{cursor}}),
+      redirect:"error",
+      signal:AbortSignal.timeout(30000)
+    });
+    let body;
+    try { body = await response.json(); } catch { body = null; }
+    if (!response.ok || (Array.isArray(body?.errors) && body.errors.length)) {
+      const message = body?.errors?.[0]?.message || body?.message || `Shopify respondeu HTTP ${response.status}.`;
+      const error = new Error(String(message));
+      error.status = response.status;
+      throw error;
+    }
+    const orders = body?.data?.orders;
+    if (!orders || !Array.isArray(orders.edges)) throw new Error("Resposta inesperada de pedidos da Shopify.");
+    for (const edge of orders.edges) {
+      const order = edge?.node;
+      if (order && !order.cancelledAt && order.displayFinancialStatus === "PAID" &&
+          order.displayFulfillmentStatus === "UNFULFILLED") result.push(order);
+    }
+    if (!orders.pageInfo?.hasNextPage || !orders.pageInfo?.endCursor || orders.pageInfo.endCursor === cursor) break;
+    cursor = orders.pageInfo.endCursor;
+  }
+  return result;
+}
+
 module.exports = {
   encryptCredentials,
   decryptCredentials,
@@ -454,5 +631,12 @@ module.exports = {
   buildNuvemshopAuthorizationUrl,
   exchangeNuvemshopCode,
   normalizeNuvemshopOrder,
-  fetchNuvemshopOrders
+  fetchNuvemshopOrders,
+  normalizeShopifyShop,
+  buildShopifyAuthorizationUrl,
+  verifyShopifyCallbackHmac,
+  exchangeShopifyCode,
+  refreshShopifyToken,
+  normalizeShopifyOrder,
+  fetchShopifyOrders
 };

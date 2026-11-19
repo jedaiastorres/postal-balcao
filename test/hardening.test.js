@@ -39,17 +39,17 @@ test('ExcelJS conditional formatting works with the patched uuid dependency', as
 });
 test('point operations reject revoked users, changed roles and inactive stores',async()=>{
   for(const scenario of [
-    {record:{active:false,role:'STORE_OWNER',store_id:'store'},allowed:false},
-    {record:{active:true,role:'OPS',store_id:'store'},allowed:false},
-    {record:{active:true,role:'STORE_OWNER',store_id:'other'},allowed:false},
-    {record:{active:true,role:'STORE_OWNER',store_id:'store'},storeActive:false,allowed:false},
-    {record:{active:true,role:'STORE_OWNER',store_id:'store'},storeActive:true,allowed:true}
+    {record:{active:false,role:'STORE_OWNER',store_id:'store',email:'point@example.com'},allowed:false},
+    {record:{active:true,role:'OPS',store_id:'store',email:'point@example.com'},allowed:false},
+    {record:{active:true,role:'STORE_OWNER',store_id:'other',email:'point@example.com'},allowed:false},
+    {record:{active:true,role:'STORE_OWNER',store_id:'store',email:'point@example.com'},storeActive:false,allowed:false},
+    {record:{active:true,role:'STORE_OWNER',store_id:'store',email:'point@example.com'},storeActive:true,allowed:true}
   ]){
     const context=vm.createContext({db:{getUserById:async()=>scenario.record,getStore:async()=>({active:scenario.storeActive})}});
     vm.runInContext(extract(server,'async function requireCurrentUser','function requireIntegrationAuth'),context);
     let next=false,status=0;
     const res={status(value){status=value;return this;},json(){return this;}};
-    await context.requireCurrentUser({user:{userId:'user',role:'STORE_OWNER',storeId:'store'}},res,()=>{next=true;});
+    await context.requireCurrentUser({user:{userId:'user',role:'STORE_OWNER',storeId:'store',email:'point@example.com'}},res,()=>{next=true;});
     assert.equal(next,scenario.allowed);if(!scenario.allowed)assert.equal(status,403);
   }
 });

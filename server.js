@@ -54,6 +54,12 @@ const ASAAS_DEFAULT_PARTNER_WALLET_ID = String(process.env.ASAAS_DEFAULT_PARTNER
 const INTEGRATION_API_KEY = String(process.env.INTEGRATION_API_KEY || "").trim();
 const NUVEMSHOP_APP_ID = String(process.env.NUVEMSHOP_APP_ID || "").trim();
 const NUVEMSHOP_CLIENT_SECRET = String(process.env.NUVEMSHOP_CLIENT_SECRET || "").trim();
+const SHOPIFY_CLIENT_ID = String(process.env.SHOPIFY_CLIENT_ID || "").trim();
+const SHOPIFY_CLIENT_SECRET = String(process.env.SHOPIFY_CLIENT_SECRET || "").trim();
+const SHOPIFY_API_VERSION = String(process.env.SHOPIFY_API_VERSION || "2026-10").trim();
+const SHOPIFY_READY = Boolean(SHOPIFY_CLIENT_ID && SHOPIFY_CLIENT_SECRET &&
+  /^20\d{2}-(01|04|07|10)$/.test(SHOPIFY_API_VERSION) &&
+  /^https:\/\/[^/]+/.test(String(process.env.APP_PUBLIC_URL || "")));
 const PAYMENT_SIMULATOR_ENABLED = String(process.env.PAYMENT_SIMULATOR_ENABLED || "true").toLowerCase() === "true";
 const ADMIN_PASSWORD_RESET_HASH = String(process.env.ADMIN_PASSWORD_RESET_HASH || "").trim();
 const CLIENT_PICKUP_FEE_PER_PACKAGE = Math.max(0, Number(process.env.CLIENT_PICKUP_FEE_PER_PACKAGE || 5));
@@ -242,7 +248,25 @@ function safeConnectionConfig(config={}) {
   delete out.accessToken;
   delete out.personalToken;
   delete out.apiKey;
+  delete out.oauthStateHash;
   return out;
+}
+
+function createShopifyState(connectionId) {
+  const state=signEcommerceState(connectionId)+"."+crypto.randomBytes(24).toString("base64url");
+  return {state,hash:crypto.createHash("sha256").update(state).digest("hex")};
+}
+
+function verifyShopifyState(state,config={}) {
+  const value=String(state||"");
+  const parts=value.split(".");
+  if(parts.length!==3 || !parts[2] || !config.oauthStateHash) return null;
+  const id=verifyEcommerceState(parts.slice(0,2).join("."));
+  const expected=Buffer.from(String(config.oauthStateHash),"hex");
+  const actual=crypto.createHash("sha256").update(value).digest();
+  if(!id || expected.length!==actual.length || !crypto.timingSafeEqual(expected,actual)) return null;
+  if(!Number.isFinite(Date.parse(config.oauthExpiresAt)) || Date.now()>Date.parse(config.oauthExpiresAt)) return null;
+  return id;
 }
 
 async function syncWooCommerceConnection(connection) {
@@ -354,12 +378,57 @@ async function syncLojaIntegradaConnection(connection) {
   return {imported};
 }
 
+const shopifySyncLocks=new Map();
+async function syncShopifyConnection(connection) {
+  if(!SHOPIFY_READY) throw new Error("Configure o aplicativo Shopify na Postal para sincronizar.");
+  const id=String(connection.id);
+  if(shopifySyncLocks.has(id)) return shopifySyncLocks.get(id);
+  const task=(async()=>{
+    let config=connection?.config||{};
+    if(!config.credentialBlob) throw new Error("Autorização Shopify ainda não concluída.");
+    const shop=ecommerce.normalizeShopifyShop(config.shop);
+    let credentials=ecommerce.decryptCredentials(config.credentialBlob,SESSION_SECRET);
+    if(!credentials.accessToken) throw new Error("Credencial Shopify inválida. Reconecte a loja.");
+    if(!credentials.expiresAt || Date.parse(credentials.expiresAt)<Date.now()+180000){
+      if(!credentials.refreshToken || (credentials.refreshExpiresAt && Date.parse(credentials.refreshExpiresAt)<Date.now())){
+        throw new Error("Autorização Shopify expirada. Desconecte e autorize a loja novamente.");
+      }
+      credentials=await ecommerce.refreshShopifyToken({shop,clientId:SHOPIFY_CLIENT_ID,
+        clientSecret:SHOPIFY_CLIENT_SECRET,refreshToken:credentials.refreshToken});
+      config={...config,credentialBlob:ecommerce.encryptCredentials(credentials,SESSION_SECRET),
+        tokenRefreshedAt:new Date().toISOString()};
+      // Salvar a rotação antes de qualquer outra chamada evita perder o novo refresh token.
+      await clientDb.updateConnection(connection.id,connection.user_id,{config});
+    }
+    const account=await clientDb.getCustomerAccount(connection.user_id);
+    const sender=account?.default_sender||{};
+    const orders=await ecommerce.fetchShopifyOrders({shop,accessToken:credentials.accessToken,
+      apiVersion:SHOPIFY_API_VERSION,maxPages:4});
+    let imported=0;
+    for(const order of orders){
+      const payload=ecommerce.normalizeShopifyOrder(order,sender);
+      if(!payload.source.orderId) continue;
+      await clientDb.importEcommerceOrder({connectionId:connection.id,
+        externalOrderId:payload.source.orderId,customerName:payload.recipient.name,
+        externalStatus:payload.source.status,payload});
+      imported++;
+    }
+    await clientDb.updateConnection(connection.id,connection.user_id,{
+      status:"CONNECTED",config:{...config,lastError:"",lastImportedCount:imported},markSynced:true
+    });
+    return {imported};
+  })();
+  shopifySyncLocks.set(id,task);
+  try {return await task;} finally {shopifySyncLocks.delete(id);}
+}
+
 async function syncEcommerceConnection(connection) {
   if(!connection) throw new Error("Conexão não encontrada.");
   const platform=String(connection.platform).toUpperCase();
   if(platform==="WOOCOMMERCE") return syncWooCommerceConnection(connection);
   if(platform==="LOJA_INTEGRADA") return syncLojaIntegradaConnection(connection);
   if(platform==="NUVEMSHOP") return syncNuvemshopConnection(connection);
+  if(platform==="SHOPIFY") return syncShopifyConnection(connection);
   throw new Error("Sincronização nativa desta plataforma ainda não está disponível.");
 }
 
@@ -368,7 +437,7 @@ async function processEcommerceSyncQueue() {
     const connections=await clientDb.listBridgeConnections(null,250);
     for(const connection of connections){
       const platform=String(connection.platform).toUpperCase();
-      if(!["WOOCOMMERCE","LOJA_INTEGRADA","NUVEMSHOP"].includes(platform)) continue;
+      if(!["WOOCOMMERCE","LOJA_INTEGRADA","NUVEMSHOP","SHOPIFY"].includes(platform)) continue;
       if(!["CONNECTED","SYNC_REQUESTED"].includes(String(connection.status||""))) continue;
       try{
         if(connection.status==="SYNC_REQUESTED"){
@@ -379,7 +448,10 @@ async function processEcommerceSyncQueue() {
         }
         await syncEcommerceConnection(connection);
       }catch(error){
-        const current=connection.config||{};
+        // Usar a versão atual evita desfazer uma eventual rotação de token Shopify
+        // já gravada antes de uma falha na consulta de pedidos.
+        const fresh=await clientDb.getConnectionById(connection.id).catch(()=>null);
+        const current=fresh?.config||connection.config||{};
         await clientDb.updateConnection(connection.id,connection.user_id,{
           status:"ERROR",
           config:{...current,lastError:String(error.message||"Falha de sincronização").slice(0,500)}
@@ -448,9 +520,26 @@ function requireRole(...roles) {
 }
 
 function scopeForUser(user) {
-  if (["ADMIN","SUPERVISOR"].includes(user?.role)) return {};
+  if (user?.role === "ADMIN") return {};
   if (user?.storeId) return { storeId: user.storeId };
-  return { partnerEmail: user?.email };
+  // Nunca consultar dados de toda a rede por falta de vinculação a um ponto.
+  return { storeId: "00000000-0000-0000-0000-000000000000" };
+}
+
+function reportStoreForUser(user, requestedStoreId) {
+  if (user?.role === "ADMIN") {
+    const chosen = String(requestedStoreId || "").trim();
+    if (chosen && !/^[0-9a-f]{8}-[0-9a-f-]{27,36}$/i.test(chosen)) {
+      throw Object.assign(new Error("Ponto inválido."), { status: 400 });
+    }
+    return chosen;
+  }
+  if (!user?.storeId) throw Object.assign(new Error("Usuário sem unidade vinculada."), { status: 403 });
+  const chosen = String(requestedStoreId || "").trim();
+  if (chosen && chosen !== String(user.storeId)) {
+    throw Object.assign(new Error("Acesso a outra unidade não permitido."), { status: 403 });
+  }
+  return String(user.storeId);
 }
 
 function inventoryOwner(user) {
@@ -477,19 +566,26 @@ function requireAuth(req, res, next) {
   const session = verifySession(parseCookies(req).postal_session);
   if (!session) return res.status(401).json({ error: "Sessão expirada. Entre novamente." });
   req.user = session;
-  next();
+  return requireCurrentUser(req, res, next);
 }
 
 async function requireCurrentUser(req,res,next){
   try {
+    if(req.currentUserValidated)return next();
     const user=await db.getUserById(req.user.userId);
-    if(!user?.active||user.role!==req.user.role||(user.store_id||null)!==(req.user.storeId||null)){
+    if(!user?.active||user.role!==req.user.role||user.email!==req.user.email||(user.store_id||null)!==(req.user.storeId||null)){
       return res.status(403).json({error:"Seu acesso foi alterado. Entre novamente."});
+    }
+    // Somente o usuário master possui acesso transversal. Supervisores e
+    // demais perfis operacionais precisam pertencer a uma unidade ativa.
+    if(!["ADMIN","CLIENT"].includes(user.role)&&!user.store_id){
+      return res.status(403).json({error:"Usuário sem unidade vinculada. Solicite o vínculo ao master."});
     }
     if(req.user.storeId){
       const store=await db.getStore(req.user.storeId);
       if(!store?.active)return res.status(403).json({error:"Ponto inativo."});
     }
+    req.currentUserValidated=true;
     next();
   }catch(error){return res.status(503).json({error:"Não foi possível validar o acesso. Tente novamente."});}
 }
@@ -2707,7 +2803,7 @@ app.get("/api/client/connections", requireAuth, requireRole("CLIENT"), async (re
         {code:"NUVEMSHOP",name:"Nuvemshop",mode:"OAUTH",ready:Boolean(NUVEMSHOP_APP_ID&&NUVEMSHOP_CLIENT_SECRET)},
         {code:"WOOCOMMERCE",name:"WooCommerce",mode:"STORE_AUTH",ready:true},
         {code:"LOJA_INTEGRADA",name:"Loja Integrada",mode:"PERSONAL_TOKEN",ready:true},
-        {code:"SHOPIFY",name:"Shopify",mode:"OAUTH",ready:false},
+        {code:"SHOPIFY",name:"Shopify",mode:"OAUTH",ready:SHOPIFY_READY},
         {code:"TRAY",name:"Tray",mode:"OAUTH",ready:false}
       ],
       connections:connections.map(x=>({
@@ -2779,6 +2875,31 @@ app.post("/api/client/connections", requireAuth, requireRole("CLIENT"), async (r
         },
         authorizationUrl,
         message:"WooCommerce preparado. Autorize o acesso na sua loja."
+      });
+    }
+
+    if(platform==="SHOPIFY"){
+      if(!SHOPIFY_READY){
+        return res.status(503).json({error:"A integração Shopify precisa do Client ID, Client Secret e APP_PUBLIC_URL HTTPS do aplicativo Postal."});
+      }
+      const shop=ecommerce.normalizeShopifyShop(storeUrl);
+      const connection=await clientDb.createConnection({userId:req.user.userId,platform,displayName});
+      const oauth=createShopifyState(connection.id);
+      const authorizationUrl=ecommerce.buildShopifyAuthorizationUrl({
+        shop,clientId:SHOPIFY_CLIENT_ID,state:oauth.state,
+        redirectUri:String(process.env.APP_PUBLIC_URL||"").replace(/\/$/,"")+"/api/integrations/shopify/callback"
+      });
+      const updated=await clientDb.updateConnection(connection.id,req.user.userId,{
+        status:"AWAITING_PROVIDER_AUTH",authorizationUrl,
+        config:{whiteLabel:"POSTAL_SERVICOS",bridge:"DIRECT_SHOPIFY",shop,
+          storeUrl:"https://"+shop,oauthStateHash:oauth.hash,
+          oauthExpiresAt:new Date(Date.now()+30*60*1000).toISOString(),
+          authRequestedAt:new Date().toISOString(),lastError:""}
+      });
+      await audit(req,"CREATE_ECOMMERCE_CONNECTION","ECOMMERCE_CONNECTION",connection.id,{platform,shop});
+      return res.status(201).json({
+        connection:{id:updated.id,platform,status:updated.status,displayName:updated.display_name||"",authorizationUrl},
+        authorizationUrl,message:"Shopify preparada. Autorize o acesso aos pedidos na sua loja."
       });
     }
 
@@ -2863,7 +2984,7 @@ app.post("/api/client/connections/:id/sync", requireAuth, requireRole("CLIENT"),
       return res.status(409).json({error:"Conclua a autorização da loja antes de sincronizar."});
     }
 
-    if(["WOOCOMMERCE","LOJA_INTEGRADA","NUVEMSHOP"].includes(String(connection.platform).toUpperCase())){
+    if(["WOOCOMMERCE","LOJA_INTEGRADA","NUVEMSHOP","SHOPIFY"].includes(String(connection.platform).toUpperCase())){
       await clientDb.updateConnection(connection.id,req.user.userId,{
         status:"SYNCING",
         config:{...(connection.config||{}),lastError:""}
@@ -2969,8 +3090,7 @@ async function readOperationalReport(req) {
   const range=analyticsDateRange(req.query||{});
   const params=[range.start.toISOString(),range.end.toISOString()];
   const where=["f.created_at >= $1::timestamptz","f.created_at <= $2::timestamptz","f.is_simulation=FALSE","f.payment_status='PAID'"];
-  const storeId=req.user.role==="STORE_OWNER" ? req.user.storeId : String(req.query.storeId||"").trim();
-  if(req.user.role==="STORE_OWNER" && !storeId)throw Object.assign(new Error("Usuário sem ponto vinculado."),{status:400});
+  const storeId=reportStoreForUser(req.user,req.query.storeId);
   if(storeId){
     if(!/^[0-9a-f]{8}-[0-9a-f-]{27,36}$/i.test(storeId))throw Object.assign(new Error("Ponto inválido."),{status:400});
     params.push(storeId);where.push("f.store_id=$"+params.length);
@@ -3014,7 +3134,7 @@ app.get("/api/analytics/custody.csv",requireAuth,requireRole("ADMIN","SUPERVISOR
   }
 });
 
-app.get("/api/postal/tariffs",requireAuth,requireRole("ADMIN","SUPERVISOR"),async(_req,res)=>{
+app.get("/api/postal/tariffs",requireAuth,requireRole("ADMIN"),async(_req,res)=>{
   try{
     res.setHeader("Cache-Control","no-store");
     res.json({cities:postalRegional.cities,tariffs:await db.listPostalTariffs(false)});
@@ -3042,7 +3162,7 @@ app.put("/api/postal/tariffs",requireAuth,requireRole("ADMIN"),requireCurrentUse
 });
 
 async function readPostalDispatch(req){
-  const scoped=["STORE_OWNER"].includes(req.user.role);
+  const scoped=req.user.role!=="ADMIN";
   if(scoped&&!req.user.storeId)throw Object.assign(new Error("Conta sem ponto vinculado."),{status:403});
   const {rows}=await db.pool.query(postalOperations.dispatchSql(scoped),scoped?[req.user.storeId]:[]);
   return postalOperations.summarizeDispatch(rows);
@@ -3087,9 +3207,8 @@ app.get("/api/analytics/overview", requireAuth, requireRole("ADMIN","SUPERVISOR"
     const range=analyticsDateRange(req.query||{});
     const params=[range.start.toISOString(),range.end.toISOString()];
     const where=["f.created_at >= $1::timestamptz","f.created_at <= $2::timestamptz","f.is_simulation=FALSE"];
-    const globalRole=["ADMIN","SUPERVISOR"].includes(req.user.role);
-    const storeId=req.user.role==="STORE_OWNER" ? req.user.storeId : String(req.query.storeId||"").trim();
-    if(req.user.role==="STORE_OWNER" && !storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
+    const globalRole=req.user.role==="ADMIN";
+    const storeId=reportStoreForUser(req.user,req.query.storeId);
     if(storeId){
       params.push(storeId); where.push("f.store_id=$"+params.length);
     }
@@ -3258,17 +3377,14 @@ app.get("/api/analytics/overview", requireAuth, requireRole("ADMIN","SUPERVISOR"
     });
   }catch(error){
     console.error("analytics overview error:",error.message);
-    res.status(500).json({error:"Não foi possível carregar os indicadores gerenciais."});
+    res.status(error.status||500).json({error:error.status?error.message:"Não foi possível carregar os indicadores gerenciais."});
   }
 });
 
 app.get("/api/store/cash", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER"), async (req,res)=>{
   try{
     const range=analyticsDateRange(req.query||{});
-    const storeId=req.user.role==="STORE_OWNER" ? req.user.storeId : String(req.query.storeId||"").trim();
-    if(req.user.role==="STORE_OWNER" && !storeId){
-      return res.status(400).json({error:"Usuário sem ponto vinculado."});
-    }
+    const storeId=reportStoreForUser(req.user,req.query.storeId);
 
     const orderParams=[range.start.toISOString(),range.end.toISOString()];
     const orderWhere=["f.created_at >= $1::timestamptz","f.created_at <= $2::timestamptz","f.is_simulation=FALSE"];
@@ -3375,7 +3491,7 @@ app.get("/api/store/cash", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_
     });
   }catch(error){
     console.error("store cash error:",error.message);
-    res.status(500).json({error:"Não foi possível carregar o Meu Caixa."});
+    res.status(error.status||500).json({error:error.status?error.message:"Não foi possível carregar o Meu Caixa."});
   }
 });
 
@@ -3686,7 +3802,7 @@ app.patch("/api/collections/:id", requireAuth, requireRole("ADMIN","SUPERVISOR",
   }catch(error){res.status(error.status||500).json({error:error.status?error.message:"Não foi possível atualizar a coleta."});}
 });
 
-app.get("/api/admin/collections", requireAuth, requireRole("ADMIN","SUPERVISOR"), async (_req,res)=>{
+app.get("/api/admin/collections", requireAuth, requireRole("ADMIN"), async (_req,res)=>{
   try{res.json({collections:await clientDb.listCollections({all:true},250)});}
   catch(error){res.status(500).json({error:"Não foi possível carregar o painel de coletas."});}
 });
@@ -3719,6 +3835,59 @@ app.get("/api/integrations/nuvemshop/callback", async (req,res)=>{
   }catch(error){
     console.error("nuvemshop oauth callback error:",error.message);
     res.status(502).send("Não foi possível concluir a autorização da Nuvemshop.");
+  }
+});
+
+app.get("/api/integrations/shopify/callback", async (req,res)=>{
+  let claimed=null;
+  try{
+    if(!SHOPIFY_READY) return res.status(503).send("Aplicativo Shopify não configurado.");
+    if(!ecommerce.verifyShopifyCallbackHmac(req.query,SHOPIFY_CLIENT_SECRET)){
+      return res.status(401).send("Assinatura de autorização Shopify inválida.");
+    }
+    const state=String(req.query.state||"");
+    const code=String(req.query.code||"");
+    const shop=ecommerce.normalizeShopifyShop(req.query.shop);
+    const parts=state.split(".");
+    const id=parts.length===3?verifyEcommerceState(parts.slice(0,2).join(".")):null;
+    if(!id||!code) return res.status(400).send("Autorização Shopify inválida.");
+    const connection=await clientDb.getConnectionById(id);
+    if(!connection||String(connection.platform).toUpperCase()!=="SHOPIFY"){
+      return res.status(404).send("Conexão Shopify não encontrada.");
+    }
+    const config=connection.config||{};
+    if(config.shop!==shop || verifyShopifyState(state,config)!==id ||
+        connection.status!=="AWAITING_PROVIDER_AUTH"){
+      return res.status(400).send("Autorização Shopify expirada, já utilizada ou de outra loja.");
+    }
+    // Consome o nonce com alteração atômica para impedir reuso simultâneo do callback.
+    claimed=await clientDb.claimConnectionAuthorization(connection.id,connection.user_id);
+    if(!claimed) return res.status(409).send("Esta autorização Shopify já está sendo processada.");
+    const credentials=await ecommerce.exchangeShopifyCode({shop,clientId:SHOPIFY_CLIENT_ID,
+      clientSecret:SHOPIFY_CLIENT_SECRET,code});
+    if(!credentials.scope.split(",").map(s=>s.trim()).includes("read_orders")){
+      throw new Error("O lojista não concedeu acesso de leitura aos pedidos.");
+    }
+    const {oauthStateHash,oauthExpiresAt,...publicConfig}=config;
+    const updated=await clientDb.updateConnection(connection.id,connection.user_id,{
+      status:"CONNECTED",authorizationUrl:"",externalStoreId:shop,
+      config:{...publicConfig,credentialBlob:ecommerce.encryptCredentials(credentials,SESSION_SECRET),
+        scope:credentials.scope,connectedAt:new Date().toISOString(),lastError:""}
+    });
+    res.redirect("/cliente?integration=shopify");
+    setImmediate(()=>syncShopifyConnection(updated).catch(async error=>{
+      const fresh=await clientDb.getConnectionById(updated.id).catch(()=>null);
+      if(fresh) await clientDb.updateConnection(fresh.id,fresh.user_id,{
+        status:"ERROR",config:{...(fresh.config||{}),lastError:String(error.message||"Falha inicial na Shopify").slice(0,500)}
+      }).catch(()=>{});
+    }));
+  }catch(error){
+    console.error("shopify oauth callback error:",error.message);
+    if(claimed) await clientDb.updateConnection(claimed.id,claimed.user_id,{
+      status:"ERROR",authorizationUrl:"",
+      config:{...(claimed.config||{}),oauthStateHash:null,lastError:String(error.message).slice(0,500)}
+    }).catch(()=>{});
+    if(!res.headersSent) res.status(502).send("Não foi possível concluir a autorização Shopify. Desconecte e conecte a loja novamente.");
   }
 });
 
@@ -3910,6 +4079,9 @@ app.get("/api/admin/go-live-readiness", requireAuth, requireRole("ADMIN"), async
     add("nuvemshop_app","Aplicativo Nuvemshop",Boolean(NUVEMSHOP_APP_ID&&NUVEMSHOP_CLIENT_SECRET),
       NUVEMSHOP_APP_ID&&NUVEMSHOP_CLIENT_SECRET?"App ID e Client Secret configurados.":"Credenciais do aplicativo ainda não configuradas no Railway.",
       false);
+    add("shopify_app","Aplicativo Shopify",SHOPIFY_READY,
+      SHOPIFY_READY?"Aplicativo configurado para autorizar lojas via OAuth seguro.":"Aguardando Shopify Client ID, Client Secret e APP_PUBLIC_URL HTTPS.",
+      false);
   }catch(error){
     add("ecommerce","Integrações de e-commerce",false,error.message,false);
   }
@@ -3924,7 +4096,7 @@ app.get("/api/admin/go-live-readiness", requireAuth, requireRole("ADMIN"), async
   });
 });
 
-app.get("/api/admin/overview", requireAuth, requireRole("ADMIN","SUPERVISOR"), async (_req, res) => {
+app.get("/api/admin/overview", requireAuth, requireRole("ADMIN"), async (_req, res) => {
   try {
     const overview = await db.adminOverview();
     res.json({
@@ -3942,7 +4114,7 @@ app.get("/api/admin/overview", requireAuth, requireRole("ADMIN","SUPERVISOR"), a
   }
 });
 
-app.get("/api/admin/stores", requireAuth, requireRole("ADMIN","SUPERVISOR"), async (_req, res) => {
+app.get("/api/admin/stores", requireAuth, requireRole("ADMIN"), async (_req, res) => {
   try {
     const stores = await db.listStores();
     res.json({ stores: stores.map(store => ({
@@ -4026,7 +4198,7 @@ app.patch("/api/admin/stores/:id", requireAuth, requireRole("ADMIN"), async (req
   } catch(error){ res.status(500).json({error:"Não foi possível atualizar o ponto."}); }
 });
 
-app.get("/api/admin/users", requireAuth, requireRole("ADMIN","SUPERVISOR"), async (_req,res)=>{
+app.get("/api/admin/users", requireAuth, requireRole("ADMIN"), async (_req,res)=>{
   try { res.json({users:await db.listUsers()}); }
   catch(error){ res.status(500).json({error:"Não foi possível carregar os usuários."}); }
 });
@@ -4040,9 +4212,9 @@ app.post("/api/admin/users", requireAuth, requireRole("ADMIN"), async (req,res)=
     const password=String(body.password||"");
     if(!email||!name||password.length<6) return res.status(400).json({error:"Nome, e-mail e senha com ao menos 6 caracteres são obrigatórios."});
     if(!["ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"].includes(role)) return res.status(400).json({error:"Perfil inválido."});
-    if(!["ADMIN","SUPERVISOR"].includes(role) && !body.storeId) return res.status(400).json({error:"Selecione o ponto deste usuário."});
+    if(role!=="ADMIN" && !body.storeId) return res.status(400).json({error:"Selecione o ponto deste usuário."});
     const user=await db.createUser({
-      storeId:["ADMIN","SUPERVISOR"].includes(role)?null:body.storeId,email,name,passwordHash:hashPassword(password),role,active:body.active!==false
+      storeId:role==="ADMIN"?null:body.storeId,email,name,passwordHash:hashPassword(password),role,active:body.active!==false
     });
     await audit(req,"CREATE_USER","USER",user.id,{email:user.email,role:user.role,storeId:user.store_id});
     res.status(201).json({user:{id:user.id,email:user.email,name:user.name,role:user.role,storeId:user.store_id,active:user.active}});
@@ -4059,8 +4231,11 @@ app.patch("/api/admin/users/:id", requireAuth, requireRole("ADMIN"), async (req,
     if(role && !["ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"].includes(role)) return res.status(400).json({error:"Perfil inválido."});
     const password=body.password?String(body.password):"";
     if(password && password.length<6) return res.status(400).json({error:"A nova senha precisa ter ao menos 6 caracteres."});
+    const currentUser=await db.getUserById(req.params.id);
+    if(!currentUser)return res.status(404).json({error:"Usuário não encontrado."});
+    if((role||currentUser.role)!=="ADMIN" && !(body.storeId??currentUser.store_id))return res.status(400).json({error:"Selecione a unidade deste usuário."});
     const user=await db.updateUser(req.params.id,{
-      storeId:["ADMIN","SUPERVISOR"].includes(role)?null:body.storeId,
+      storeId:role==="ADMIN"?null:body.storeId,
       name:body.name,
       passwordHash:password?hashPassword(password):undefined,
       role,
@@ -4693,7 +4868,7 @@ app.post("/api/fiscal-documents/lookup", requireAuth, requireRole("ADMIN","SUPER
   }
 });
 
-app.get("/api/orders", requireAuth, async (req, res) => {
+app.get("/api/orders", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req, res) => {
   try {
     const orders = await db.listOrdersScoped(scopeForUser(req.user), Number(req.query.limit || 100));
     res.json({ orders: orders.map(order=>publicOrderForUser(order,req.user)) });
@@ -4703,7 +4878,7 @@ app.get("/api/orders", requireAuth, async (req, res) => {
   }
 });
 
-app.get("/api/orders/:id", requireAuth, async (req, res) => {
+app.get("/api/orders/:id", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req, res) => {
   try {
     const order = await db.getOrder(req.params.id, scopeForUser(req.user));
     if (!order) return res.status(404).json({ error: "Frete não encontrado." });
@@ -4729,7 +4904,7 @@ app.get("/api/ops/scanner-session",requireAuth,requireRole(...scannerRoles),requ
 async function scopedScanOrder(req,trackingCode){
   const order=await db.findOrderByTrackingCode(trackingCode);
   if(!order)return null;
-  if(['ADMIN','SUPERVISOR'].includes(req.user.role))return db.getOrder(order.id);
+  if(req.user.role==='ADMIN')return db.getOrder(order.id);
   if(!req.user.storeId)return null;
   const scans=await db.listCustodyScans(order.id,trackingCode);
   const last=scans.at(-1);
@@ -4769,7 +4944,7 @@ app.post("/api/ops/scans",requireAuth,requireRole(...scannerRoles),requireCurren
     const result=await db.recordCustodyScan({orderId:order.id,trackingCode:code,stage:String(body.stage||""),
       actorUserId:req.user.userId,actorStoreId:req.user.storeId,idempotencyKey:String(body.idempotencyKey||""),
       proofName:String(body.recipientName||""),latitude:body.latitude??null,longitude:body.longitude??null,photo:body.photo||null,
-      destinationStoreId:body.destinationStoreId||null,isManager:["ADMIN","SUPERVISOR"].includes(req.user.role),
+      destinationStoreId:body.destinationStoreId||null,isManager:req.user.role==="ADMIN",
       deliveryEarning:POINT_PICKUP_EARNING_PER_PACKAGE});
     if(!result.replayed)await audit(req,"CUSTODY_SCAN","FREIGHT_ORDER",order.id,{trackingCode:code,stage:body.stage,destinationStoreId:body.destinationStoreId||null});
     res.status(result.replayed?200:201).json({ok:true,replayed:result.replayed,
@@ -5019,7 +5194,7 @@ app.post("/api/orders", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CL
       paymentStatus: "PENDING"
     });
 
-    const complete = await db.getOrder(updated.id, req.user.email);
+    const complete = await db.getOrder(updated.id, scopeForUser(req.user));
     res.status(201).json({
       order: publicOrderForUser(complete,req.user),
       checkoutUrl: checkout.url,
@@ -5035,7 +5210,7 @@ app.post("/api/orders", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CL
 
 app.post("/api/orders/:id/remittance", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK"), async (req, res) => {
   try {
-    const order = await db.getOrder(req.params.id, req.user.email);
+    const order = await db.getOrder(req.params.id, scopeForUser(req.user));
     if (!order) return res.status(404).json({ error: "Frete não encontrado." });
     if (order.payment_method !== "DINHEIRO") return res.status(400).json({ error: "Este frete não é de pagamento em dinheiro." });
     if (order.status === "LABEL_AVAILABLE") return res.json({ order: publicOrderForUser(order,req.user), alreadyPaid: true });
@@ -5151,10 +5326,16 @@ app.get("/api/orders/:id/labels", requireAuth, requireRole("ADMIN","STORE_OWNER"
   }
 });
 
-// Consulta carrinho.
-app.get("/api/carrinhos/:id", requireAuth, async (req, res) => {
+async function canReadProviderReference(req,kind,reference) {
+  const scope=req.user.role==="ADMIN"?{global:true}:scopeForUser(req.user);
+  return Boolean(await db.findOrderByProviderReference(kind,reference,scope));
+}
+
+// Consulta carrinho: o token do master só pode consultar um carrinho do próprio ponto.
+app.get("/api/carrinhos/:id", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req, res) => {
   if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
   try {
+    if(!(await canReadProviderReference(req,"cart",req.params.id)))return res.status(404).json({error:"Carrinho não encontrado."});
     const result = await providerFetch(`/cart/${encodeURIComponent(req.params.id)}`, { method: "GET" });
     res.json(result.data);
   } catch (error) {
@@ -5164,9 +5345,10 @@ app.get("/api/carrinhos/:id", requireAuth, async (req, res) => {
 });
 
 // Consulta pacote individual.
-app.get("/api/envios/:id", requireAuth, async (req, res) => {
+app.get("/api/envios/:id", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req, res) => {
   if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
   try {
+    if(!(await canReadProviderReference(req,"package",req.params.id)))return res.status(404).json({error:"Envio não encontrado."});
     const result = await providerFetch(`/package/${encodeURIComponent(req.params.id)}`, { method: "GET" });
     res.json(result.data);
   } catch (error) {
@@ -5467,9 +5649,10 @@ app.get("/api/public/rastreio/:stamp", async (req,res)=>{
 });
 
 // Rastreamento pelo ID interno do pacote.
-app.get("/api/rastreio/id/:id", requireAuth, async (req, res) => {
+app.get("/api/rastreio/id/:id", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req, res) => {
   if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
   try {
+    if(!(await canReadProviderReference(req,"package",req.params.id)))return res.status(404).json({error:"Envio não encontrado."});
     const result = await providerFetch(`/package/track/${encodeURIComponent(req.params.id)}`, { method: "GET" });
     res.json(result.data);
   } catch (error) {
@@ -5479,9 +5662,10 @@ app.get("/api/rastreio/id/:id", requireAuth, async (req, res) => {
 });
 
 // Rastreamento pelo codigo da etiqueta.
-app.get("/api/rastreio/codigo/:stamp", requireAuth, async (req, res) => {
+app.get("/api/rastreio/codigo/:stamp", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req, res) => {
   if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
   try {
+    if(!(await canReadProviderReference(req,"tracking",req.params.stamp)))return res.status(404).json({error:"Rastreio não encontrado."});
     const result = await providerFetch(`/package/track/stamp/${encodeURIComponent(req.params.stamp)}`, { method: "GET" });
     res.json(result.data);
   } catch (error) {
@@ -5528,7 +5712,7 @@ app.post("/api/webhooks/asaas", async (req, res) => {
  * Proxy seguro para URLs de impressao/declaracao retornadas pela ConectEnvios.
  * Em vez de expor o Bearer Token no navegador, o servidor busca o arquivo.
  */
-app.post("/api/documento-proxy", requireAuth, async (req, res) => {
+app.post("/api/documento-proxy", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req, res) => {
   if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
 
   try {
@@ -5540,6 +5724,9 @@ app.post("/api/documento-proxy", requireAuth, async (req, res) => {
     }
     if (documentUrl.origin !== allowed.origin || !documentUrl.pathname.startsWith(allowed.pathname) || documentUrl.username || documentUrl.password) {
       return res.status(400).json({ error: "URL de documento invalida." });
+    }
+    if(!(await canReadProviderReference(req,"document",documentUrl.href))){
+      return res.status(404).json({error:"Documento não encontrado para esta unidade."});
     }
 
     const response = await fetch(documentUrl.href, {
