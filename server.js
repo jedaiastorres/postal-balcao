@@ -520,9 +520,26 @@ function requireRole(...roles) {
 }
 
 function scopeForUser(user) {
-  if (["ADMIN","SUPERVISOR"].includes(user?.role)) return {};
+  if (user?.role === "ADMIN") return {};
   if (user?.storeId) return { storeId: user.storeId };
-  return { partnerEmail: user?.email };
+  // Nunca consultar dados de toda a rede por falta de vinculação a um ponto.
+  return { storeId: "00000000-0000-0000-0000-000000000000" };
+}
+
+function reportStoreForUser(user, requestedStoreId) {
+  if (user?.role === "ADMIN") {
+    const chosen = String(requestedStoreId || "").trim();
+    if (chosen && !/^[0-9a-f]{8}-[0-9a-f-]{27,36}$/i.test(chosen)) {
+      throw Object.assign(new Error("Ponto inválido."), { status: 400 });
+    }
+    return chosen;
+  }
+  if (!user?.storeId) throw Object.assign(new Error("Usuário sem unidade vinculada."), { status: 403 });
+  const chosen = String(requestedStoreId || "").trim();
+  if (chosen && chosen !== String(user.storeId)) {
+    throw Object.assign(new Error("Acesso a outra unidade não permitido."), { status: 403 });
+  }
+  return String(user.storeId);
 }
 
 function inventoryOwner(user) {
@@ -549,19 +566,26 @@ function requireAuth(req, res, next) {
   const session = verifySession(parseCookies(req).postal_session);
   if (!session) return res.status(401).json({ error: "Sessão expirada. Entre novamente." });
   req.user = session;
-  next();
+  return requireCurrentUser(req, res, next);
 }
 
 async function requireCurrentUser(req,res,next){
   try {
+    if(req.currentUserValidated)return next();
     const user=await db.getUserById(req.user.userId);
-    if(!user?.active||user.role!==req.user.role||(user.store_id||null)!==(req.user.storeId||null)){
+    if(!user?.active||user.role!==req.user.role||user.email!==req.user.email||(user.store_id||null)!==(req.user.storeId||null)){
       return res.status(403).json({error:"Seu acesso foi alterado. Entre novamente."});
+    }
+    // Somente o usuário master possui acesso transversal. Supervisores e
+    // demais perfis operacionais precisam pertencer a uma unidade ativa.
+    if(!["ADMIN","CLIENT"].includes(user.role)&&!user.store_id){
+      return res.status(403).json({error:"Usuário sem unidade vinculada. Solicite o vínculo ao master."});
     }
     if(req.user.storeId){
       const store=await db.getStore(req.user.storeId);
       if(!store?.active)return res.status(403).json({error:"Ponto inativo."});
     }
+    req.currentUserValidated=true;
     next();
   }catch(error){return res.status(503).json({error:"Não foi possível validar o acesso. Tente novamente."});}
 }
@@ -3066,8 +3090,7 @@ async function readOperationalReport(req) {
   const range=analyticsDateRange(req.query||{});
   const params=[range.start.toISOString(),range.end.toISOString()];
   const where=["f.created_at >= $1::timestamptz","f.created_at <= $2::timestamptz","f.is_simulation=FALSE","f.payment_status='PAID'"];
-  const storeId=req.user.role==="STORE_OWNER" ? req.user.storeId : String(req.query.storeId||"").trim();
-  if(req.user.role==="STORE_OWNER" && !storeId)throw Object.assign(new Error("Usuário sem ponto vinculado."),{status:400});
+  const storeId=reportStoreForUser(req.user,req.query.storeId);
   if(storeId){
     if(!/^[0-9a-f]{8}-[0-9a-f-]{27,36}$/i.test(storeId))throw Object.assign(new Error("Ponto inválido."),{status:400});
     params.push(storeId);where.push("f.store_id=$"+params.length);
@@ -3111,7 +3134,7 @@ app.get("/api/analytics/custody.csv",requireAuth,requireRole("ADMIN","SUPERVISOR
   }
 });
 
-app.get("/api/postal/tariffs",requireAuth,requireRole("ADMIN","SUPERVISOR"),async(_req,res)=>{
+app.get("/api/postal/tariffs",requireAuth,requireRole("ADMIN"),async(_req,res)=>{
   try{
     res.setHeader("Cache-Control","no-store");
     res.json({cities:postalRegional.cities,tariffs:await db.listPostalTariffs(false)});
@@ -3139,7 +3162,7 @@ app.put("/api/postal/tariffs",requireAuth,requireRole("ADMIN"),requireCurrentUse
 });
 
 async function readPostalDispatch(req){
-  const scoped=["STORE_OWNER"].includes(req.user.role);
+  const scoped=req.user.role!=="ADMIN";
   if(scoped&&!req.user.storeId)throw Object.assign(new Error("Conta sem ponto vinculado."),{status:403});
   const {rows}=await db.pool.query(postalOperations.dispatchSql(scoped),scoped?[req.user.storeId]:[]);
   return postalOperations.summarizeDispatch(rows);
@@ -3184,9 +3207,8 @@ app.get("/api/analytics/overview", requireAuth, requireRole("ADMIN","SUPERVISOR"
     const range=analyticsDateRange(req.query||{});
     const params=[range.start.toISOString(),range.end.toISOString()];
     const where=["f.created_at >= $1::timestamptz","f.created_at <= $2::timestamptz","f.is_simulation=FALSE"];
-    const globalRole=["ADMIN","SUPERVISOR"].includes(req.user.role);
-    const storeId=req.user.role==="STORE_OWNER" ? req.user.storeId : String(req.query.storeId||"").trim();
-    if(req.user.role==="STORE_OWNER" && !storeId) return res.status(400).json({error:"Usuário sem ponto vinculado."});
+    const globalRole=req.user.role==="ADMIN";
+    const storeId=reportStoreForUser(req.user,req.query.storeId);
     if(storeId){
       params.push(storeId); where.push("f.store_id=$"+params.length);
     }
@@ -3355,17 +3377,14 @@ app.get("/api/analytics/overview", requireAuth, requireRole("ADMIN","SUPERVISOR"
     });
   }catch(error){
     console.error("analytics overview error:",error.message);
-    res.status(500).json({error:"Não foi possível carregar os indicadores gerenciais."});
+    res.status(error.status||500).json({error:error.status?error.message:"Não foi possível carregar os indicadores gerenciais."});
   }
 });
 
 app.get("/api/store/cash", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER"), async (req,res)=>{
   try{
     const range=analyticsDateRange(req.query||{});
-    const storeId=req.user.role==="STORE_OWNER" ? req.user.storeId : String(req.query.storeId||"").trim();
-    if(req.user.role==="STORE_OWNER" && !storeId){
-      return res.status(400).json({error:"Usuário sem ponto vinculado."});
-    }
+    const storeId=reportStoreForUser(req.user,req.query.storeId);
 
     const orderParams=[range.start.toISOString(),range.end.toISOString()];
     const orderWhere=["f.created_at >= $1::timestamptz","f.created_at <= $2::timestamptz","f.is_simulation=FALSE"];
@@ -3472,7 +3491,7 @@ app.get("/api/store/cash", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_
     });
   }catch(error){
     console.error("store cash error:",error.message);
-    res.status(500).json({error:"Não foi possível carregar o Meu Caixa."});
+    res.status(error.status||500).json({error:error.status?error.message:"Não foi possível carregar o Meu Caixa."});
   }
 });
 
@@ -3783,7 +3802,7 @@ app.patch("/api/collections/:id", requireAuth, requireRole("ADMIN","SUPERVISOR",
   }catch(error){res.status(error.status||500).json({error:error.status?error.message:"Não foi possível atualizar a coleta."});}
 });
 
-app.get("/api/admin/collections", requireAuth, requireRole("ADMIN","SUPERVISOR"), async (_req,res)=>{
+app.get("/api/admin/collections", requireAuth, requireRole("ADMIN"), async (_req,res)=>{
   try{res.json({collections:await clientDb.listCollections({all:true},250)});}
   catch(error){res.status(500).json({error:"Não foi possível carregar o painel de coletas."});}
 });
@@ -4077,7 +4096,7 @@ app.get("/api/admin/go-live-readiness", requireAuth, requireRole("ADMIN"), async
   });
 });
 
-app.get("/api/admin/overview", requireAuth, requireRole("ADMIN","SUPERVISOR"), async (_req, res) => {
+app.get("/api/admin/overview", requireAuth, requireRole("ADMIN"), async (_req, res) => {
   try {
     const overview = await db.adminOverview();
     res.json({
@@ -4095,7 +4114,7 @@ app.get("/api/admin/overview", requireAuth, requireRole("ADMIN","SUPERVISOR"), a
   }
 });
 
-app.get("/api/admin/stores", requireAuth, requireRole("ADMIN","SUPERVISOR"), async (_req, res) => {
+app.get("/api/admin/stores", requireAuth, requireRole("ADMIN"), async (_req, res) => {
   try {
     const stores = await db.listStores();
     res.json({ stores: stores.map(store => ({
@@ -4179,7 +4198,7 @@ app.patch("/api/admin/stores/:id", requireAuth, requireRole("ADMIN"), async (req
   } catch(error){ res.status(500).json({error:"Não foi possível atualizar o ponto."}); }
 });
 
-app.get("/api/admin/users", requireAuth, requireRole("ADMIN","SUPERVISOR"), async (_req,res)=>{
+app.get("/api/admin/users", requireAuth, requireRole("ADMIN"), async (_req,res)=>{
   try { res.json({users:await db.listUsers()}); }
   catch(error){ res.status(500).json({error:"Não foi possível carregar os usuários."}); }
 });
@@ -4193,9 +4212,9 @@ app.post("/api/admin/users", requireAuth, requireRole("ADMIN"), async (req,res)=
     const password=String(body.password||"");
     if(!email||!name||password.length<6) return res.status(400).json({error:"Nome, e-mail e senha com ao menos 6 caracteres são obrigatórios."});
     if(!["ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"].includes(role)) return res.status(400).json({error:"Perfil inválido."});
-    if(!["ADMIN","SUPERVISOR"].includes(role) && !body.storeId) return res.status(400).json({error:"Selecione o ponto deste usuário."});
+    if(role!=="ADMIN" && !body.storeId) return res.status(400).json({error:"Selecione o ponto deste usuário."});
     const user=await db.createUser({
-      storeId:["ADMIN","SUPERVISOR"].includes(role)?null:body.storeId,email,name,passwordHash:hashPassword(password),role,active:body.active!==false
+      storeId:role==="ADMIN"?null:body.storeId,email,name,passwordHash:hashPassword(password),role,active:body.active!==false
     });
     await audit(req,"CREATE_USER","USER",user.id,{email:user.email,role:user.role,storeId:user.store_id});
     res.status(201).json({user:{id:user.id,email:user.email,name:user.name,role:user.role,storeId:user.store_id,active:user.active}});
@@ -4212,8 +4231,11 @@ app.patch("/api/admin/users/:id", requireAuth, requireRole("ADMIN"), async (req,
     if(role && !["ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"].includes(role)) return res.status(400).json({error:"Perfil inválido."});
     const password=body.password?String(body.password):"";
     if(password && password.length<6) return res.status(400).json({error:"A nova senha precisa ter ao menos 6 caracteres."});
+    const currentUser=await db.getUserById(req.params.id);
+    if(!currentUser)return res.status(404).json({error:"Usuário não encontrado."});
+    if((role||currentUser.role)!=="ADMIN" && !(body.storeId??currentUser.store_id))return res.status(400).json({error:"Selecione a unidade deste usuário."});
     const user=await db.updateUser(req.params.id,{
-      storeId:["ADMIN","SUPERVISOR"].includes(role)?null:body.storeId,
+      storeId:role==="ADMIN"?null:body.storeId,
       name:body.name,
       passwordHash:password?hashPassword(password):undefined,
       role,
@@ -4846,7 +4868,7 @@ app.post("/api/fiscal-documents/lookup", requireAuth, requireRole("ADMIN","SUPER
   }
 });
 
-app.get("/api/orders", requireAuth, async (req, res) => {
+app.get("/api/orders", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req, res) => {
   try {
     const orders = await db.listOrdersScoped(scopeForUser(req.user), Number(req.query.limit || 100));
     res.json({ orders: orders.map(order=>publicOrderForUser(order,req.user)) });
@@ -4856,7 +4878,7 @@ app.get("/api/orders", requireAuth, async (req, res) => {
   }
 });
 
-app.get("/api/orders/:id", requireAuth, async (req, res) => {
+app.get("/api/orders/:id", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req, res) => {
   try {
     const order = await db.getOrder(req.params.id, scopeForUser(req.user));
     if (!order) return res.status(404).json({ error: "Frete não encontrado." });
@@ -4882,7 +4904,7 @@ app.get("/api/ops/scanner-session",requireAuth,requireRole(...scannerRoles),requ
 async function scopedScanOrder(req,trackingCode){
   const order=await db.findOrderByTrackingCode(trackingCode);
   if(!order)return null;
-  if(['ADMIN','SUPERVISOR'].includes(req.user.role))return db.getOrder(order.id);
+  if(req.user.role==='ADMIN')return db.getOrder(order.id);
   if(!req.user.storeId)return null;
   const scans=await db.listCustodyScans(order.id,trackingCode);
   const last=scans.at(-1);
@@ -4922,7 +4944,7 @@ app.post("/api/ops/scans",requireAuth,requireRole(...scannerRoles),requireCurren
     const result=await db.recordCustodyScan({orderId:order.id,trackingCode:code,stage:String(body.stage||""),
       actorUserId:req.user.userId,actorStoreId:req.user.storeId,idempotencyKey:String(body.idempotencyKey||""),
       proofName:String(body.recipientName||""),latitude:body.latitude??null,longitude:body.longitude??null,photo:body.photo||null,
-      destinationStoreId:body.destinationStoreId||null,isManager:["ADMIN","SUPERVISOR"].includes(req.user.role),
+      destinationStoreId:body.destinationStoreId||null,isManager:req.user.role==="ADMIN",
       deliveryEarning:POINT_PICKUP_EARNING_PER_PACKAGE});
     if(!result.replayed)await audit(req,"CUSTODY_SCAN","FREIGHT_ORDER",order.id,{trackingCode:code,stage:body.stage,destinationStoreId:body.destinationStoreId||null});
     res.status(result.replayed?200:201).json({ok:true,replayed:result.replayed,
@@ -5172,7 +5194,7 @@ app.post("/api/orders", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CL
       paymentStatus: "PENDING"
     });
 
-    const complete = await db.getOrder(updated.id, req.user.email);
+    const complete = await db.getOrder(updated.id, scopeForUser(req.user));
     res.status(201).json({
       order: publicOrderForUser(complete,req.user),
       checkoutUrl: checkout.url,
@@ -5188,7 +5210,7 @@ app.post("/api/orders", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CL
 
 app.post("/api/orders/:id/remittance", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK"), async (req, res) => {
   try {
-    const order = await db.getOrder(req.params.id, req.user.email);
+    const order = await db.getOrder(req.params.id, scopeForUser(req.user));
     if (!order) return res.status(404).json({ error: "Frete não encontrado." });
     if (order.payment_method !== "DINHEIRO") return res.status(400).json({ error: "Este frete não é de pagamento em dinheiro." });
     if (order.status === "LABEL_AVAILABLE") return res.json({ order: publicOrderForUser(order,req.user), alreadyPaid: true });
@@ -5304,10 +5326,16 @@ app.get("/api/orders/:id/labels", requireAuth, requireRole("ADMIN","STORE_OWNER"
   }
 });
 
-// Consulta carrinho.
-app.get("/api/carrinhos/:id", requireAuth, async (req, res) => {
+async function canReadProviderReference(req,kind,reference) {
+  const scope=req.user.role==="ADMIN"?{global:true}:scopeForUser(req.user);
+  return Boolean(await db.findOrderByProviderReference(kind,reference,scope));
+}
+
+// Consulta carrinho: o token do master só pode consultar um carrinho do próprio ponto.
+app.get("/api/carrinhos/:id", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req, res) => {
   if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
   try {
+    if(!(await canReadProviderReference(req,"cart",req.params.id)))return res.status(404).json({error:"Carrinho não encontrado."});
     const result = await providerFetch(`/cart/${encodeURIComponent(req.params.id)}`, { method: "GET" });
     res.json(result.data);
   } catch (error) {
@@ -5317,9 +5345,10 @@ app.get("/api/carrinhos/:id", requireAuth, async (req, res) => {
 });
 
 // Consulta pacote individual.
-app.get("/api/envios/:id", requireAuth, async (req, res) => {
+app.get("/api/envios/:id", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req, res) => {
   if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
   try {
+    if(!(await canReadProviderReference(req,"package",req.params.id)))return res.status(404).json({error:"Envio não encontrado."});
     const result = await providerFetch(`/package/${encodeURIComponent(req.params.id)}`, { method: "GET" });
     res.json(result.data);
   } catch (error) {
@@ -5620,9 +5649,10 @@ app.get("/api/public/rastreio/:stamp", async (req,res)=>{
 });
 
 // Rastreamento pelo ID interno do pacote.
-app.get("/api/rastreio/id/:id", requireAuth, async (req, res) => {
+app.get("/api/rastreio/id/:id", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req, res) => {
   if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
   try {
+    if(!(await canReadProviderReference(req,"package",req.params.id)))return res.status(404).json({error:"Envio não encontrado."});
     const result = await providerFetch(`/package/track/${encodeURIComponent(req.params.id)}`, { method: "GET" });
     res.json(result.data);
   } catch (error) {
@@ -5632,9 +5662,10 @@ app.get("/api/rastreio/id/:id", requireAuth, async (req, res) => {
 });
 
 // Rastreamento pelo codigo da etiqueta.
-app.get("/api/rastreio/codigo/:stamp", requireAuth, async (req, res) => {
+app.get("/api/rastreio/codigo/:stamp", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req, res) => {
   if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
   try {
+    if(!(await canReadProviderReference(req,"tracking",req.params.stamp)))return res.status(404).json({error:"Rastreio não encontrado."});
     const result = await providerFetch(`/package/track/stamp/${encodeURIComponent(req.params.stamp)}`, { method: "GET" });
     res.json(result.data);
   } catch (error) {
@@ -5681,7 +5712,7 @@ app.post("/api/webhooks/asaas", async (req, res) => {
  * Proxy seguro para URLs de impressao/declaracao retornadas pela ConectEnvios.
  * Em vez de expor o Bearer Token no navegador, o servidor busca o arquivo.
  */
-app.post("/api/documento-proxy", requireAuth, async (req, res) => {
+app.post("/api/documento-proxy", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req, res) => {
   if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
 
   try {
@@ -5693,6 +5724,9 @@ app.post("/api/documento-proxy", requireAuth, async (req, res) => {
     }
     if (documentUrl.origin !== allowed.origin || !documentUrl.pathname.startsWith(allowed.pathname) || documentUrl.username || documentUrl.password) {
       return res.status(400).json({ error: "URL de documento invalida." });
+    }
+    if(!(await canReadProviderReference(req,"document",documentUrl.href))){
+      return res.status(404).json({error:"Documento não encontrado para esta unidade."});
     }
 
     const response = await fetch(documentUrl.href, {

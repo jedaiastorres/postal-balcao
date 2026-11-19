@@ -552,6 +552,38 @@ async function findOrderByTrackingCode(trackingCode) {
   return rows[0] || null;
 }
 
+// A API de um provedor usa credenciais compartilhadas do master. Antes de
+// consultar qualquer ID, etiqueta ou rastreio, verificar a titularidade no
+// nosso banco — nunca confiar em um identificador enviado pelo navegador.
+async function findOrderByProviderReference(kind, value, scope) {
+  const db = requireDb();
+  const reference = String(value || "").trim();
+  if (!reference || reference.length > 2048) return null;
+  const fields = {
+    cart: `f.conect_cart_id=$1`,
+    package: `(f.conect_package_id=$1 OR EXISTS (
+      SELECT 1 FROM jsonb_array_elements(COALESCE(f.shipment_volumes,'[]'::jsonb)) v
+      WHERE v->>'packageId'=$1))`,
+    tracking: `(f.tracking_code=$1 OR EXISTS (
+      SELECT 1 FROM jsonb_array_elements(COALESCE(f.shipment_volumes,'[]'::jsonb)) v
+      WHERE COALESCE(v->>'trackingCode',v->>'tracking_code')=$1))`,
+    document: `($1 IN (f.label_a4_url,f.label_a6_url,f.declaration_url) OR EXISTS (
+      SELECT 1 FROM jsonb_array_elements(COALESCE(f.shipment_volumes,'[]'::jsonb)) v
+      WHERE $1 IN (v->>'labelA4Url',v->>'labelA6Url',v->>'declarationUrl')))`
+  };
+  if (!Object.hasOwn(fields,kind)) return null;
+  const params=[reference];
+  let filter="";
+  if (scope?.storeId) { params.push(scope.storeId); filter=` AND f.store_id=$${params.length}`; }
+  else if (scope?.partnerEmail) { params.push(scope.partnerEmail); filter=` AND f.partner_email=$${params.length}`; }
+  else if (!scope || scope.global!==true) return null;
+  const {rows}=await db.query(
+    `SELECT f.id,f.store_id FROM freight_orders f WHERE ${fields[kind]}${filter} ORDER BY f.created_at DESC LIMIT 1`,
+    params
+  );
+  return rows[0]||null;
+}
+
 
 async function setCheckout(id, { checkoutId, checkoutUrl, paymentAmount, surcharge, status = "PAYMENT_PENDING", paymentStatus = "PENDING" }) {
   const db = requireDb();
@@ -1612,6 +1644,7 @@ module.exports = {
   getOrder,
   getOrderByCheckoutId,
   findOrderByTrackingCode,
+  findOrderByProviderReference,
   recordCustodyScan,
   listCustodyScans,
   setCheckout,

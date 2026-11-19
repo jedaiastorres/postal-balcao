@@ -120,9 +120,9 @@ function showApp(user) {
   $("#loginView").classList.add("hidden");
   $("#appView").classList.remove("hidden");
   $("#partnerEmail").textContent = user?.storeName || user?.name || user?.email || "parceiro";
-  $("#adminNavSection")?.classList.toggle("hidden", !["ADMIN","SUPERVISOR"].includes(user?.role));
+  $("#adminNavSection")?.classList.toggle("hidden", user?.role!=="ADMIN");
   document.querySelectorAll(".master-only").forEach(el=>el.classList.toggle("hidden",user?.role!=="ADMIN"));
-  document.querySelectorAll(".supervisor-only").forEach(el=>el.classList.toggle("hidden",user?.role!=="SUPERVISOR"));
+  document.querySelectorAll(".supervisor-only").forEach(el=>el.classList.add("hidden"));
 
   const canSell = ["ADMIN","STORE_OWNER","STORE_CLERK","CLIENT"].includes(user?.role);
   const canManageStock = ["ADMIN","STORE_OWNER","OPS"].includes(user?.role);
@@ -130,8 +130,8 @@ function showApp(user) {
   const managementAnalytics = ["ADMIN","SUPERVISOR","STORE_OWNER"].includes(user?.role);
   document.querySelectorAll(".management-analytics-only").forEach(el=>el.classList.toggle("hidden",!managementAnalytics));
   document.querySelectorAll(".local-dashboard-only").forEach(el=>el.classList.toggle("hidden",managementAnalytics));
-  document.querySelectorAll(".analytics-global-filter").forEach(el=>el.classList.toggle("hidden",!["ADMIN","SUPERVISOR"].includes(user?.role)));
-  document.querySelectorAll(".analytics-network-only").forEach(el=>el.classList.toggle("hidden",!["ADMIN","SUPERVISOR"].includes(user?.role)));
+  document.querySelectorAll(".analytics-global-filter").forEach(el=>el.classList.toggle("hidden",user?.role!=="ADMIN"));
+  document.querySelectorAll(".analytics-network-only").forEach(el=>el.classList.toggle("hidden",user?.role!=="ADMIN"));
 
   document.querySelector('[data-view="quote"]')?.classList.toggle("hidden", !canSell);
   document.querySelector('[data-view="inventory"]')?.classList.toggle("hidden", !canManageStock);
@@ -167,9 +167,6 @@ function showApp(user) {
   const params = new URLSearchParams(window.location.search);
   if (!params.get("payment") && user?.role === "STORE_CLERK") {
     navigate("quote");
-  }
-  if (!params.get("payment") && user?.role === "SUPERVISOR") {
-    navigate("supervisor");
   }
   if (params.get("payment")) {
     const isTopup = user?.role === "CLIENT" && String(params.get("order") || "").startsWith("TOPUP-");
@@ -276,8 +273,8 @@ function navigate(name) {
     toast("Área exclusiva da administração Postal.", "error");
     return;
   }
-  if (name === "supervisor" && !["ADMIN","SUPERVISOR"].includes(state.user?.role)) {
-    toast("Área exclusiva da supervisão da rede.", "error");
+  if (name === "supervisor" && state.user?.role !== "ADMIN") {
+    toast("Área exclusiva da administração Postal.", "error");
     return;
   }
   if (state.user?.role === "STORE_CLERK" && !["quote","shipment","orders","collections","clients"].includes(name)) {
@@ -2347,7 +2344,7 @@ async function loadMaster() {
         if(roleInput==null) return;
         const role=String(roleInput).trim().toUpperCase();
         let storeId=user.store_id||null;
-        if(!["ADMIN","SUPERVISOR"].includes(role)){
+        if(role!=="ADMIN"){
           const storeCode=window.prompt("Código do ponto:",user.store_code||"");
           if(storeCode==null) return;
           const store=state.admin.stores.find(s=>s.code.toLowerCase()===String(storeCode).trim().toLowerCase());
@@ -2486,14 +2483,14 @@ $("#adminUserForm")?.addEventListener("submit",async event=>{
   try{
     await api("/api/admin/users",{method:"POST",body:JSON.stringify({
       name:$("#adminUserName").value.trim(),email:$("#adminUserEmail").value.trim(),
-      password:$("#adminUserPassword").value,role,storeId:["ADMIN","SUPERVISOR"].includes(role)?null:$("#adminUserStore").value
+      password:$("#adminUserPassword").value,role,storeId:role==="ADMIN"?null:$("#adminUserStore").value
     })});
     event.currentTarget.reset(); toast("Usuário criado."); await loadMaster();
   }catch(err){toast(err.message,"error");}finally{btn.disabled=false;}
 });
 
 $("#adminUserRole")?.addEventListener("change",()=>{
-  $("#adminUserStore").disabled=["ADMIN","SUPERVISOR"].includes($("#adminUserRole").value);
+  $("#adminUserStore").disabled=$("#adminUserRole").value==="ADMIN";
 });
 
 $("#adminCatalogForm")?.addEventListener("submit",async event=>{

@@ -255,7 +255,7 @@ async function transitionCollection({collectionId,user,status,assignedStoreId,sc
     const result=await conn.query("SELECT * FROM collection_requests WHERE id=$1 FOR UPDATE",[collectionId]);
     const current=result.rows[0];
     pointRules.assert(current,"Coleta não encontrada.",404);
-    const admin=["ADMIN","SUPERVISOR"].includes(user.role);
+    const admin=user.role==="ADMIN";
     pointRules.assert(admin||Boolean(user.storeId&&current.assigned_store_id===user.storeId),"Esta coleta não está atribuída ao seu ponto.",403);
     const nextStatus=String(status||current.status).toUpperCase();
     pointRules.assert(pointRules.canTransition(current.service_type,current.status,nextStatus),"Transição de coleta inválida.",409);

@@ -42,7 +42,7 @@ test("API e painel de operações restringem acesso e explicitam a diferença pa
   const client=fs.readFileSync(path.join(__dirname,"../public/app.js"),"utf8");
   assert.match(server,/app\.get\("\/api\/analytics\/custody",requireAuth,requireRole\("ADMIN","SUPERVISOR","STORE_OWNER"\)/);
   assert.match(server,/app\.get\("\/api\/analytics\/custody\.csv",requireAuth,requireRole\("ADMIN","SUPERVISOR","STORE_OWNER"\)/);
-  assert.match(server,/req\.user\.role==="STORE_OWNER" \? req\.user\.storeId/);
+  assert.match(server,/const storeId=reportStoreForUser\(req\.user,req\.query\.storeId\)/);
   assert.match(page,/o SLA contratual exige eventos de entrega confirmados/);
   assert.match(client,/\/api\/analytics\/custody\?/);
 });
