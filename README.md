@@ -156,6 +156,28 @@ Plataformas preparadas no catálogo de conexão:
 
 A ConectEnvios publica que possui API REST e integrações com e-commerces/ERPs e cita publicamente Nuvemshop, WooCommerce, Loja Integrada e Shopify. A Tray possui um aplicativo público da ConectEnvios. Entretanto, a documentação pública da API V1 disponível para este projeto não expõe endpoints de provisionamento/OAuth dessas integrações nativas. Por isso, a V1.6 cria a conexão Postal com status `AWAITING_PROVIDER_AUTH` e disponibiliza uma API de ponte para receber a ativação e os pedidos quando a ConectEnvios fornecer os dados privados de autorização.
 
+#### Integrações nativas atuais (posteriores à V1.6)
+
+| Plataforma | Como conecta | Sincronização |
+| --- | --- | --- |
+| WooCommerce | Autorização de leitura no WooCommerce da loja | Pedidos em processamento |
+| Nuvemshop | OAuth do aplicativo Postal, mediante `NUVEMSHOP_APP_ID` e `NUVEMSHOP_CLIENT_SECRET` | Pedidos abertos e pagos |
+| Loja Integrada | Personal token inserido pelo lojista e criptografado no servidor | Pedidos aprovados |
+| Shopify | OAuth de leitura do aplicativo Postal, mediante `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET` e `APP_PUBLIC_URL` HTTPS | Pedidos pagos, não cancelados e não enviados, via GraphQL Admin API |
+| Tray | Pendente do credenciamento do aplicativo Postal na Tray e liberação das chaves de acesso | Ponte disponível; integração nativa desabilitada até aprovação |
+
+**Configuração Shopify:**
+
+1. Cadastre o aplicativo Postal no painel de desenvolvedores da Shopify com permissão `read_orders`, distribuição adequada às lojas dos clientes e autorização para acesso aos dados protegidos de clientes usados nas postagens (conforme exigências da plataforma).
+2. Configure no aplicativo a URL de retorno `https://SEU_DOMINIO/api/integrations/shopify/callback` e o domínio público seguro do Postal Balcão; coloque `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET` e `APP_PUBLIC_URL=https://SEU_DOMINIO` nas variáveis privadas do serviço.
+3. No portal do cliente, escolha Shopify e informe o domínio **permanente** `minha-loja.myshopify.com`, mesmo que a loja tenha domínio personalizado. O lojista autoriza acesso de leitura. O sistema verifica o HMAC do retorno e um nonce de uso único que expira após 30 minutos.
+4. Credenciais de loja ficam criptografadas no PostgreSQL. Os tokens offline expiram e são renovados automaticamente antes da sincronização, com rotação do refresh token salva no banco. A sincronização inicial começa após a autorização e as demais acontecem no ciclo de dez minutos ou mediante comando manual.
+5. O cliente revisa e preenche CPF/CNPJ, número/bairro, peso e dimensões antes da cotação/postagem; não deduzimos informações que a Shopify não fornece. A importação **não compra fretes automaticamente nem movimenta saldo**.
+
+O acesso a pedidos e dados pessoais depende de aprovação e configuração do aplicativo Shopify; preencher as variáveis no Railway não substitui essa autorização. Para a Tray, o registro do aplicativo e a liberação de `consumer_key` e `consumer_secret` pelo setor de parcerias são pré-requisitos do fornecedor.
+
+Fontes: [Shopify — autorização de aplicativo independente](https://shopify.dev/docs/apps/build/authentication-authorization/authenticate-standalone-apps), [Shopify — expiração e renovação dos tokens](https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens), [Tray — chaves de acesso de aplicativos](https://partners.tray.com.br/loja-de-aplicativos/autorizacao-e-autenticacao/chaves-de-acesso).
+
 Endpoints da ponte:
 - `PATCH /api/integrations/v1/ecommerce/connections/:id`
 - `POST /api/integrations/v1/ecommerce/connections/:id/orders`

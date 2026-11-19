@@ -54,6 +54,12 @@ const ASAAS_DEFAULT_PARTNER_WALLET_ID = String(process.env.ASAAS_DEFAULT_PARTNER
 const INTEGRATION_API_KEY = String(process.env.INTEGRATION_API_KEY || "").trim();
 const NUVEMSHOP_APP_ID = String(process.env.NUVEMSHOP_APP_ID || "").trim();
 const NUVEMSHOP_CLIENT_SECRET = String(process.env.NUVEMSHOP_CLIENT_SECRET || "").trim();
+const SHOPIFY_CLIENT_ID = String(process.env.SHOPIFY_CLIENT_ID || "").trim();
+const SHOPIFY_CLIENT_SECRET = String(process.env.SHOPIFY_CLIENT_SECRET || "").trim();
+const SHOPIFY_API_VERSION = String(process.env.SHOPIFY_API_VERSION || "2026-10").trim();
+const SHOPIFY_READY = Boolean(SHOPIFY_CLIENT_ID && SHOPIFY_CLIENT_SECRET &&
+  /^20\d{2}-(01|04|07|10)$/.test(SHOPIFY_API_VERSION) &&
+  /^https:\/\/[^/]+/.test(String(process.env.APP_PUBLIC_URL || "")));
 const PAYMENT_SIMULATOR_ENABLED = String(process.env.PAYMENT_SIMULATOR_ENABLED || "true").toLowerCase() === "true";
 const ADMIN_PASSWORD_RESET_HASH = String(process.env.ADMIN_PASSWORD_RESET_HASH || "").trim();
 const CLIENT_PICKUP_FEE_PER_PACKAGE = Math.max(0, Number(process.env.CLIENT_PICKUP_FEE_PER_PACKAGE || 5));
@@ -242,7 +248,25 @@ function safeConnectionConfig(config={}) {
   delete out.accessToken;
   delete out.personalToken;
   delete out.apiKey;
+  delete out.oauthStateHash;
   return out;
+}
+
+function createShopifyState(connectionId) {
+  const state=signEcommerceState(connectionId)+"."+crypto.randomBytes(24).toString("base64url");
+  return {state,hash:crypto.createHash("sha256").update(state).digest("hex")};
+}
+
+function verifyShopifyState(state,config={}) {
+  const value=String(state||"");
+  const parts=value.split(".");
+  if(parts.length!==3 || !parts[2] || !config.oauthStateHash) return null;
+  const id=verifyEcommerceState(parts.slice(0,2).join("."));
+  const expected=Buffer.from(String(config.oauthStateHash),"hex");
+  const actual=crypto.createHash("sha256").update(value).digest();
+  if(!id || expected.length!==actual.length || !crypto.timingSafeEqual(expected,actual)) return null;
+  if(!Number.isFinite(Date.parse(config.oauthExpiresAt)) || Date.now()>Date.parse(config.oauthExpiresAt)) return null;
+  return id;
 }
 
 async function syncWooCommerceConnection(connection) {
@@ -354,12 +378,57 @@ async function syncLojaIntegradaConnection(connection) {
   return {imported};
 }
 
+const shopifySyncLocks=new Map();
+async function syncShopifyConnection(connection) {
+  if(!SHOPIFY_READY) throw new Error("Configure o aplicativo Shopify na Postal para sincronizar.");
+  const id=String(connection.id);
+  if(shopifySyncLocks.has(id)) return shopifySyncLocks.get(id);
+  const task=(async()=>{
+    let config=connection?.config||{};
+    if(!config.credentialBlob) throw new Error("Autorização Shopify ainda não concluída.");
+    const shop=ecommerce.normalizeShopifyShop(config.shop);
+    let credentials=ecommerce.decryptCredentials(config.credentialBlob,SESSION_SECRET);
+    if(!credentials.accessToken) throw new Error("Credencial Shopify inválida. Reconecte a loja.");
+    if(!credentials.expiresAt || Date.parse(credentials.expiresAt)<Date.now()+180000){
+      if(!credentials.refreshToken || (credentials.refreshExpiresAt && Date.parse(credentials.refreshExpiresAt)<Date.now())){
+        throw new Error("Autorização Shopify expirada. Desconecte e autorize a loja novamente.");
+      }
+      credentials=await ecommerce.refreshShopifyToken({shop,clientId:SHOPIFY_CLIENT_ID,
+        clientSecret:SHOPIFY_CLIENT_SECRET,refreshToken:credentials.refreshToken});
+      config={...config,credentialBlob:ecommerce.encryptCredentials(credentials,SESSION_SECRET),
+        tokenRefreshedAt:new Date().toISOString()};
+      // Salvar a rotação antes de qualquer outra chamada evita perder o novo refresh token.
+      await clientDb.updateConnection(connection.id,connection.user_id,{config});
+    }
+    const account=await clientDb.getCustomerAccount(connection.user_id);
+    const sender=account?.default_sender||{};
+    const orders=await ecommerce.fetchShopifyOrders({shop,accessToken:credentials.accessToken,
+      apiVersion:SHOPIFY_API_VERSION,maxPages:4});
+    let imported=0;
+    for(const order of orders){
+      const payload=ecommerce.normalizeShopifyOrder(order,sender);
+      if(!payload.source.orderId) continue;
+      await clientDb.importEcommerceOrder({connectionId:connection.id,
+        externalOrderId:payload.source.orderId,customerName:payload.recipient.name,
+        externalStatus:payload.source.status,payload});
+      imported++;
+    }
+    await clientDb.updateConnection(connection.id,connection.user_id,{
+      status:"CONNECTED",config:{...config,lastError:"",lastImportedCount:imported},markSynced:true
+    });
+    return {imported};
+  })();
+  shopifySyncLocks.set(id,task);
+  try {return await task;} finally {shopifySyncLocks.delete(id);}
+}
+
 async function syncEcommerceConnection(connection) {
   if(!connection) throw new Error("Conexão não encontrada.");
   const platform=String(connection.platform).toUpperCase();
   if(platform==="WOOCOMMERCE") return syncWooCommerceConnection(connection);
   if(platform==="LOJA_INTEGRADA") return syncLojaIntegradaConnection(connection);
   if(platform==="NUVEMSHOP") return syncNuvemshopConnection(connection);
+  if(platform==="SHOPIFY") return syncShopifyConnection(connection);
   throw new Error("Sincronização nativa desta plataforma ainda não está disponível.");
 }
 
@@ -368,7 +437,7 @@ async function processEcommerceSyncQueue() {
     const connections=await clientDb.listBridgeConnections(null,250);
     for(const connection of connections){
       const platform=String(connection.platform).toUpperCase();
-      if(!["WOOCOMMERCE","LOJA_INTEGRADA","NUVEMSHOP"].includes(platform)) continue;
+      if(!["WOOCOMMERCE","LOJA_INTEGRADA","NUVEMSHOP","SHOPIFY"].includes(platform)) continue;
       if(!["CONNECTED","SYNC_REQUESTED"].includes(String(connection.status||""))) continue;
       try{
         if(connection.status==="SYNC_REQUESTED"){
@@ -379,7 +448,10 @@ async function processEcommerceSyncQueue() {
         }
         await syncEcommerceConnection(connection);
       }catch(error){
-        const current=connection.config||{};
+        // Usar a versão atual evita desfazer uma eventual rotação de token Shopify
+        // já gravada antes de uma falha na consulta de pedidos.
+        const fresh=await clientDb.getConnectionById(connection.id).catch(()=>null);
+        const current=fresh?.config||connection.config||{};
         await clientDb.updateConnection(connection.id,connection.user_id,{
           status:"ERROR",
           config:{...current,lastError:String(error.message||"Falha de sincronização").slice(0,500)}
@@ -2707,7 +2779,7 @@ app.get("/api/client/connections", requireAuth, requireRole("CLIENT"), async (re
         {code:"NUVEMSHOP",name:"Nuvemshop",mode:"OAUTH",ready:Boolean(NUVEMSHOP_APP_ID&&NUVEMSHOP_CLIENT_SECRET)},
         {code:"WOOCOMMERCE",name:"WooCommerce",mode:"STORE_AUTH",ready:true},
         {code:"LOJA_INTEGRADA",name:"Loja Integrada",mode:"PERSONAL_TOKEN",ready:true},
-        {code:"SHOPIFY",name:"Shopify",mode:"OAUTH",ready:false},
+        {code:"SHOPIFY",name:"Shopify",mode:"OAUTH",ready:SHOPIFY_READY},
         {code:"TRAY",name:"Tray",mode:"OAUTH",ready:false}
       ],
       connections:connections.map(x=>({
@@ -2779,6 +2851,31 @@ app.post("/api/client/connections", requireAuth, requireRole("CLIENT"), async (r
         },
         authorizationUrl,
         message:"WooCommerce preparado. Autorize o acesso na sua loja."
+      });
+    }
+
+    if(platform==="SHOPIFY"){
+      if(!SHOPIFY_READY){
+        return res.status(503).json({error:"A integração Shopify precisa do Client ID, Client Secret e APP_PUBLIC_URL HTTPS do aplicativo Postal."});
+      }
+      const shop=ecommerce.normalizeShopifyShop(storeUrl);
+      const connection=await clientDb.createConnection({userId:req.user.userId,platform,displayName});
+      const oauth=createShopifyState(connection.id);
+      const authorizationUrl=ecommerce.buildShopifyAuthorizationUrl({
+        shop,clientId:SHOPIFY_CLIENT_ID,state:oauth.state,
+        redirectUri:String(process.env.APP_PUBLIC_URL||"").replace(/\/$/,"")+"/api/integrations/shopify/callback"
+      });
+      const updated=await clientDb.updateConnection(connection.id,req.user.userId,{
+        status:"AWAITING_PROVIDER_AUTH",authorizationUrl,
+        config:{whiteLabel:"POSTAL_SERVICOS",bridge:"DIRECT_SHOPIFY",shop,
+          storeUrl:"https://"+shop,oauthStateHash:oauth.hash,
+          oauthExpiresAt:new Date(Date.now()+30*60*1000).toISOString(),
+          authRequestedAt:new Date().toISOString(),lastError:""}
+      });
+      await audit(req,"CREATE_ECOMMERCE_CONNECTION","ECOMMERCE_CONNECTION",connection.id,{platform,shop});
+      return res.status(201).json({
+        connection:{id:updated.id,platform,status:updated.status,displayName:updated.display_name||"",authorizationUrl},
+        authorizationUrl,message:"Shopify preparada. Autorize o acesso aos pedidos na sua loja."
       });
     }
 
@@ -2863,7 +2960,7 @@ app.post("/api/client/connections/:id/sync", requireAuth, requireRole("CLIENT"),
       return res.status(409).json({error:"Conclua a autorização da loja antes de sincronizar."});
     }
 
-    if(["WOOCOMMERCE","LOJA_INTEGRADA","NUVEMSHOP"].includes(String(connection.platform).toUpperCase())){
+    if(["WOOCOMMERCE","LOJA_INTEGRADA","NUVEMSHOP","SHOPIFY"].includes(String(connection.platform).toUpperCase())){
       await clientDb.updateConnection(connection.id,req.user.userId,{
         status:"SYNCING",
         config:{...(connection.config||{}),lastError:""}
@@ -3722,6 +3819,59 @@ app.get("/api/integrations/nuvemshop/callback", async (req,res)=>{
   }
 });
 
+app.get("/api/integrations/shopify/callback", async (req,res)=>{
+  let claimed=null;
+  try{
+    if(!SHOPIFY_READY) return res.status(503).send("Aplicativo Shopify não configurado.");
+    if(!ecommerce.verifyShopifyCallbackHmac(req.query,SHOPIFY_CLIENT_SECRET)){
+      return res.status(401).send("Assinatura de autorização Shopify inválida.");
+    }
+    const state=String(req.query.state||"");
+    const code=String(req.query.code||"");
+    const shop=ecommerce.normalizeShopifyShop(req.query.shop);
+    const parts=state.split(".");
+    const id=parts.length===3?verifyEcommerceState(parts.slice(0,2).join(".")):null;
+    if(!id||!code) return res.status(400).send("Autorização Shopify inválida.");
+    const connection=await clientDb.getConnectionById(id);
+    if(!connection||String(connection.platform).toUpperCase()!=="SHOPIFY"){
+      return res.status(404).send("Conexão Shopify não encontrada.");
+    }
+    const config=connection.config||{};
+    if(config.shop!==shop || verifyShopifyState(state,config)!==id ||
+        connection.status!=="AWAITING_PROVIDER_AUTH"){
+      return res.status(400).send("Autorização Shopify expirada, já utilizada ou de outra loja.");
+    }
+    // Consome o nonce com alteração atômica para impedir reuso simultâneo do callback.
+    claimed=await clientDb.claimConnectionAuthorization(connection.id,connection.user_id);
+    if(!claimed) return res.status(409).send("Esta autorização Shopify já está sendo processada.");
+    const credentials=await ecommerce.exchangeShopifyCode({shop,clientId:SHOPIFY_CLIENT_ID,
+      clientSecret:SHOPIFY_CLIENT_SECRET,code});
+    if(!credentials.scope.split(",").map(s=>s.trim()).includes("read_orders")){
+      throw new Error("O lojista não concedeu acesso de leitura aos pedidos.");
+    }
+    const {oauthStateHash,oauthExpiresAt,...publicConfig}=config;
+    const updated=await clientDb.updateConnection(connection.id,connection.user_id,{
+      status:"CONNECTED",authorizationUrl:"",externalStoreId:shop,
+      config:{...publicConfig,credentialBlob:ecommerce.encryptCredentials(credentials,SESSION_SECRET),
+        scope:credentials.scope,connectedAt:new Date().toISOString(),lastError:""}
+    });
+    res.redirect("/cliente?integration=shopify");
+    setImmediate(()=>syncShopifyConnection(updated).catch(async error=>{
+      const fresh=await clientDb.getConnectionById(updated.id).catch(()=>null);
+      if(fresh) await clientDb.updateConnection(fresh.id,fresh.user_id,{
+        status:"ERROR",config:{...(fresh.config||{}),lastError:String(error.message||"Falha inicial na Shopify").slice(0,500)}
+      }).catch(()=>{});
+    }));
+  }catch(error){
+    console.error("shopify oauth callback error:",error.message);
+    if(claimed) await clientDb.updateConnection(claimed.id,claimed.user_id,{
+      status:"ERROR",authorizationUrl:"",
+      config:{...(claimed.config||{}),oauthStateHash:null,lastError:String(error.message).slice(0,500)}
+    }).catch(()=>{});
+    if(!res.headersSent) res.status(502).send("Não foi possível concluir a autorização Shopify. Desconecte e conecte a loja novamente.");
+  }
+});
+
 app.post("/api/integrations/woocommerce/callback", async (req,res)=>{
   try{
     const body=req.body||{};
@@ -3909,6 +4059,9 @@ app.get("/api/admin/go-live-readiness", requireAuth, requireRole("ADMIN"), async
       false);
     add("nuvemshop_app","Aplicativo Nuvemshop",Boolean(NUVEMSHOP_APP_ID&&NUVEMSHOP_CLIENT_SECRET),
       NUVEMSHOP_APP_ID&&NUVEMSHOP_CLIENT_SECRET?"App ID e Client Secret configurados.":"Credenciais do aplicativo ainda não configuradas no Railway.",
+      false);
+    add("shopify_app","Aplicativo Shopify",SHOPIFY_READY,
+      SHOPIFY_READY?"Aplicativo configurado para autorizar lojas via OAuth seguro.":"Aguardando Shopify Client ID, Client Secret e APP_PUBLIC_URL HTTPS.",
       false);
   }catch(error){
     add("ecommerce","Integrações de e-commerce",false,error.message,false);

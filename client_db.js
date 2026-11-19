@@ -962,6 +962,16 @@ async function getConnectionById(connectionId){
   return rows[0]||null;
 }
 
+async function claimConnectionAuthorization(connectionId,userId){
+  const db=database();
+  const {rows}=await db.query(
+    `UPDATE ecommerce_connections SET status='AUTHORIZING',updated_at=NOW()
+      WHERE id=$1 AND user_id=$2 AND status='AWAITING_PROVIDER_AUTH' RETURNING *`,
+    [connectionId,userId]
+  );
+  return rows[0]||null;
+}
+
 async function updateConnection(connectionId,userId,patch){
   const db=database();
   const {rows}=await db.query(
@@ -1198,7 +1208,7 @@ module.exports={
   createTopup,setTopupCheckout,getTopupByCheckoutId,getTopup,listTopups,markTopupPaid,updateTopupStatus,
   insertClientOrder,createClientOrderAndDebit,getClientOrderByBulkKey,listClientOrders,getClientOrder,choosePickupStore,createCollectionRequest,
   listCollections,getCollection,updateCollection,createPointEarning,listPointEarnings,referralStats,
-  createConnection,listConnections,listBridgeConnections,getConnectionById,updateConnection,deleteConnection,importEcommerceOrder,listEcommerceOrders,
+  createConnection,listConnections,listBridgeConnections,getConnectionById,claimConnectionAuthorization,updateConnection,deleteConnection,importEcommerceOrder,listEcommerceOrders,
   getImportedOrder,linkImportedOrder,listClientOperations,createBulkCollectionsAndDebit,
   listClientsByStore
 };
