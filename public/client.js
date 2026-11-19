@@ -983,7 +983,7 @@
     $("#referralEarningRule").textContent="A indicação prevê "+money(d.earningPerShipment)+" por envio emitido do cliente vinculado. Cadastro não gera comissão; homologação permanece simulada.";
     $("#refClients").textContent=d.stats.referredClients;$("#refShipments").textContent=d.stats.referredShipments;
     $("#refEarnings").textContent=money(d.stats.referralEarnings);
-    $("#refLogisticsEarnings").textContent=money(Number(d.stats.pickupEarnings||0)+Number(d.stats.dropoffEarnings||0));
+    $("#refLogisticsEarnings").textContent=money(Number(d.stats.pickupEarnings||0)+Number(d.stats.dropoffEarnings||0)+Number(d.stats.deliveryEarnings||0));
     $("#referralLink").value=d.link;
     $("#referredClientsList").innerHTML=d.clients.length?d.clients.map(x=>`
       <div class="inventory-row"><div><strong>${escapeHtml(x.name)}</strong><small>${escapeHtml(x.email)}</small></div>

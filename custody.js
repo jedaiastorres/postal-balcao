@@ -2,8 +2,8 @@
 
 const stages = Object.freeze({
   RECEIVED_POINT: { label:"Recebido no ponto", next:["TRANSFERRED","OUT_FOR_DELIVERY"] },
-  TRANSFERRED: { label:"Em transferência", next:["RECEIVED_HUB","OUT_FOR_DELIVERY"] },
-  RECEIVED_HUB: { label:"Recebido no hub", next:["OUT_FOR_DELIVERY"] },
+  TRANSFERRED: { label:"Em transferência", next:["RECEIVED_HUB"] },
+  RECEIVED_HUB: { label:"Recebido na unidade de destino", next:["TRANSFERRED","OUT_FOR_DELIVERY"] },
   OUT_FOR_DELIVERY: { label:"Saiu para entrega", next:["DELIVERY_RECORDED"] },
   DELIVERY_RECORDED: { label:"Entrega registrada internamente", next:[] }
 });

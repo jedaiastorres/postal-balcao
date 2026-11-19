@@ -24,6 +24,13 @@ async function api(path,options={}){
 async function boot(){
   try{
     const session=await api("/api/ops/scanner-session");csrf=session.csrfToken;
+    const destinations=$("destinationStoreId");
+    destinations.replaceChildren(new Option("Selecione ponto ou hub",""));
+    for(const unit of session.destinations||[]){
+      if(unit.id===session.storeId)continue;
+      const category=({POINT:"Ponto",HUB:"Hub",MIXED:"Mista"})[unit.unitType]||"Unidade";
+      destinations.add(new Option(unit.name+" · "+category,unit.id));
+    }
     $("auth").classList.add("hidden");$("work").classList.remove("hidden");
   }catch(error){
     $("auth").replaceChildren();text($("auth"),error.message+" Entre no painel com uma conta operacional da Postal Serviços. ");
@@ -40,6 +47,7 @@ async function loadHistory(){
     for(const scan of data.scans){
       const li=document.createElement("li"),name=document.createElement("strong"),date=document.createElement("span");
       text(name,scan.label);text(date,new Date(scan.createdAt).toLocaleString("pt-BR"));li.append(name,date);host.append(li);
+      if(scan.destination?.name){const place=document.createElement("small");place.textContent="Destino: "+scan.destination.name;li.append(place);}
       if(scan.proof){
         const info=document.createElement("small");info.textContent="Recebido por: "+(scan.proof.recipientName||"Não informado");li.append(info);
         if(scan.proof.hasPhoto){const link=document.createElement("a");link.textContent="Ver foto";link.target="_blank";link.rel="noopener";link.href="/api/ops/scans/"+encodeURIComponent(code)+"/photo/"+encodeURIComponent(scan.id);li.append(link);}
@@ -55,9 +63,10 @@ async function loadHistory(){
 }
 $("search").addEventListener("click",loadHistory);
 $("trackingCode").addEventListener("input",()=>{if(lastCode!==codeValue()){lastCode=codeValue();resetScanKey();}});
-function showProofInputs(){const show=$("stage").value==="DELIVERY_RECORDED";$("recipientWrap").classList.toggle("hidden",!show);$("deliveryProofFields").classList.toggle("hidden",!show);}
+function showProofInputs(){const show=$("stage").value==="DELIVERY_RECORDED";$("recipientWrap").classList.toggle("hidden",!show);$("deliveryProofFields").classList.toggle("hidden",!show);$("transferWrap").classList.toggle("hidden",$("stage").value!=="TRANSFERRED");$("destinationStoreId").required=$("stage").value==="TRANSFERRED";}
 $("stage").addEventListener("change",()=>{resetScanKey();showProofInputs();});
 $("recipientName").addEventListener("input",resetScanKey);
+$("destinationStoreId").addEventListener("change",resetScanKey);
 $("deliveryPhoto").addEventListener("change",resetScanKey);
 $("captureLocation").addEventListener("click",()=>{
   if(!navigator.geolocation)return notice("Localização indisponível neste navegador.");
@@ -81,9 +90,10 @@ $("record").addEventListener("click",async()=>{
   const button=$("record");button.disabled=true;
   try{
     const proof=$("stage").value==="DELIVERY_RECORDED";
+    if($("stage").value==="TRANSFERRED"&&!$("destinationStoreId").value)throw new Error("Selecione a unidade de destino da transferência.");
     const photo=proof?await readDeliveryPhoto():null;
     const data=await api("/api/ops/scans",{method:"POST",headers:{"Content-Type":"application/json","x-csrf-token":csrf},
-      body:JSON.stringify({trackingCode:code,stage:$("stage").value,recipientName:$("recipientName").value,idempotencyKey:scanKey,
+      body:JSON.stringify({trackingCode:code,stage:$("stage").value,destinationStoreId:$("stage").value==="TRANSFERRED"?$("destinationStoreId").value:null,recipientName:$("recipientName").value,idempotencyKey:scanKey,
         photo,latitude:proof?deliveryLocation?.latitude:null,longitude:proof?deliveryLocation?.longitude:null})});
     notice(data.replayed?"Leitura anterior já registrada.":data.label+" registrado com sucesso.",true);
     resetScanKey();await loadHistory();

@@ -303,7 +303,7 @@
           </label>
         </section>
 
-        <div id="pointQuoteActions" class="order-actions hidden"><button id="collectionFromQuoteBtn" class="ghost" type="button">+ Criar coleta</button><button class="ghost" data-go="clients" type="button">Cadastrar / escolher cliente</button></div>
+        <div id="pointQuoteActions" class="order-actions hidden"><button id="collectionFromQuoteBtn" class="ghost" type="button">+ Criar coleta</button><button class="primary" data-go="clients" type="button">+ Cadastrar cliente / indicação</button></div>
         <form id="quoteForm" class="quote-panel">
           <div class="package-type quote-volume-header">
             <div>
@@ -441,7 +441,7 @@
         <div class="cards-4">
           <article class="metric-card"><span>Ganhos totais</span><strong id="cashTotalEarnings">R$ 0,00</strong><small>Fretes + produtos + serviços + ganhos extras</small></article>
           <article class="metric-card"><span>Ganhos em vendas</span><strong id="cashSalesEarnings">R$ 0,00</strong><small>Receita do ponto nas vendas pagas</small></article>
-          <article class="metric-card"><span>Coletas e indicações</span><strong id="cashExtraEarnings">R$ 0,00</strong><small>Ganhos adicionais registrados</small></article>
+          <article class="metric-card"><span>Coletas, entregas e indicações</span><strong id="cashExtraEarnings">R$ 0,00</strong><small>Ganhos adicionais registrados</small></article>
           <article class="metric-card"><span>Repasse pendente</span><strong id="cashPendingRemittance">R$ 0,00</strong><small>Valores em dinheiro aguardando regularização</small></article>
         </div>
         <div class="analytics-grid cash-chart-grid">
@@ -535,44 +535,6 @@
             </div>
           </article>
         </div>
-      </section>
-
-      <section id="creditView" class="view hidden">
-        <div class="orders-head">
-          <div>
-            <div class="eyebrow">SERVIÇOS FINANCEIROS</div>
-            <h1>Crédito no Balcão</h1>
-            <p>Cadastre uma intenção de crédito para os produtos habilitados. Nesta fase nenhum crédito é concedido automaticamente.</p>
-          </div>
-          <span class="order-status info">Estrutura pronta para APIs financeiras</span>
-        </div>
-
-        <div class="credit-layout">
-          <article class="panel">
-            <div class="panel-head"><div><span class="eyebrow">OFERTAS DISPONÍVEIS</span><h3>Produtos financeiros</h3></div></div>
-            <div id="creditProductsList" class="credit-products"><div class="empty-state">Carregando ofertas...</div></div>
-          </article>
-          <article class="form-panel">
-            <div class="form-panel-head"><span class="step-number">R$</span><div><h3>Nova intenção</h3><p>Os dados ficam registrados como lead até conectarmos o parceiro financeiro.</p></div></div>
-            <form id="creditProposalForm" class="inventory-form">
-              <label>Produto*
-                <select id="creditProduct" required></select>
-              </label>
-              <label>Nome do cliente*<input id="creditApplicantName" required /></label>
-              <label>CPF/CNPJ*<input id="creditDocument" inputmode="numeric" required /></label>
-              <label>Telefone<input id="creditPhone" inputmode="tel" /></label>
-              <label>Valor solicitado*
-                <div class="money-field"><span>R$</span><input id="creditAmount" type="number" min="1" step="0.01" required /></div>
-              </label>
-              <label class="consent-line"><input id="creditConsent" type="checkbox" required /> <span>Cliente autorizou o registro e tratamento dos dados para esta solicitação.</span></label>
-              <button class="primary" type="submit">Registrar intenção</button>
-            </form>
-          </article>
-        </div>
-        <article class="panel">
-          <div class="panel-head"><div><span class="eyebrow">ACOMPANHAMENTO</span><h3>Propostas registradas</h3></div><button id="refreshCreditBtn" class="ghost" type="button">Atualizar</button></div>
-          <div id="creditProposalsList" class="inventory-list"><div class="empty-state">Nenhuma proposta carregada.</div></div>
-        </article>
       </section>
 
       <section id="clientHomeView" class="view hidden client-only">
@@ -836,7 +798,7 @@
       </section>
 
       <section id="clientsView" class="view hidden">
-        <div class="orders-head"><div><div class="eyebrow">RELACIONAMENTO</div><h1>Clientes do ponto</h1><p>Cadastre clientes e reutilize os dados em cotações e coletas.</p></div><button id="refreshPointClientsBtn" class="ghost" type="button">Atualizar</button></div>
+        <div class="orders-head"><div><div class="eyebrow">RELACIONAMENTO</div><h1>Clientes do ponto</h1><p>Cadastre clientes vinculados à indicação da unidade e reutilize os dados em cotações e coletas.</p></div><button id="refreshPointClientsBtn" class="ghost" type="button">Atualizar</button></div>
         <div class="master-grid">
           <article class="form-panel">
             <div class="form-panel-head"><span class="step-number">+</span><div><h3>Cadastrar cliente</h3><p>Crie uma conta de cliente vinculada ao seu ponto. Nenhum saldo é movimentado no cadastro.</p></div></div>
@@ -931,10 +893,11 @@
 
         <div class="master-grid">
           <article class="form-panel">
-            <div class="form-panel-head"><span class="step-number">1</span><div><h3>Novo ponto</h3><p>Comissão e carteira financeira ficam vinculadas ao estabelecimento.</p></div></div>
+            <div class="form-panel-head"><span class="step-number">1</span><div><h3>Nova unidade Postal</h3><p>Cadastre pontos, hubs operacionais e unidades mistas. Cada unidade possui seus próprios operadores.</p></div></div>
             <form id="adminStoreForm" class="inventory-form">
               <label>Código*<input id="adminStoreCode" placeholder="Ex.: PARAUAPEBAS-01" required /></label>
-              <label>Nome do ponto*<input id="adminStoreName" required /></label>
+              <label>Nome da unidade*<input id="adminStoreName" required /></label>
+              <label>Tipo da unidade*<select id="adminStoreUnitType"><option value="POINT">Ponto de Postagem</option><option value="HUB">Hub Operacional</option><option value="MIXED">Unidade Mista (loja e hub)</option></select></label>
               <label>CNPJ<input id="adminStoreCnpj" /></label>
               <label>E-mail<input id="adminStoreEmail" type="email" /></label>
               <label>CEP real do ponto<input id="adminStoreCep" inputmode="numeric" /></label>
@@ -1014,32 +977,6 @@
           <article class="panel">
             <div class="panel-head"><div><span class="eyebrow">CATÁLOGO</span><h3>Produtos e serviços</h3></div></div>
             <div id="adminCatalogList" class="inventory-list"><div class="empty-state">Carregando catálogo...</div></div>
-          </article>
-        </div>
-
-        <div class="master-grid">
-          <article class="form-panel">
-            <div class="form-panel-head"><span class="step-number">4</span><div><h3>Parceiro financeiro</h3><p>Prepare integrações de crédito e outros serviços futuros.</p></div></div>
-            <form id="adminCreditPartnerForm" class="inventory-form">
-              <label>Código*<input id="adminCreditPartnerCode" required /></label>
-              <label>Nome*<input id="adminCreditPartnerName" required /></label>
-              <label>Modo<select id="adminCreditPartnerMode"><option value="MANUAL">Manual</option><option value="API">API</option></select></label>
-              <label>URL da API<input id="adminCreditPartnerApi" /></label>
-              <button class="primary" type="submit">Salvar parceiro</button>
-            </form>
-          </article>
-          <article class="form-panel">
-            <div class="form-panel-head"><span class="step-number">5</span><div><h3>Produto de crédito</h3><p>Configure faixa de crédito e comissões do balcão.</p></div></div>
-            <form id="adminCreditProductForm" class="inventory-form">
-              <label>Parceiro*<select id="adminCreditProductPartner" required></select></label>
-              <label>Código*<input id="adminCreditProductCode" required /></label>
-              <label>Nome*<input id="adminCreditProductName" required /></label>
-              <label>Valor mínimo<input id="adminCreditMin" type="number" min="0" step="0.01" /></label>
-              <label>Valor máximo<input id="adminCreditMax" type="number" min="0" step="0.01" /></label>
-              <label>Comissão ponto %<input id="adminCreditPointCommission" type="number" min="0" max="100" step="0.1" value="0" /></label>
-              <label>Comissão Postal %<input id="adminCreditPostalCommission" type="number" min="0" max="100" step="0.1" value="0" /></label>
-              <button class="primary" type="submit">Salvar produto financeiro</button>
-            </form>
           </article>
         </div>
 

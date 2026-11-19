@@ -39,10 +39,13 @@ async function initDb() {
       operational_hub JSONB NOT NULL DEFAULT '{}'::jsonb,
       address JSONB NOT NULL DEFAULT '{}'::jsonb,
       commission_percent NUMERIC(6,3) NOT NULL DEFAULT 20,
+      unit_type TEXT NOT NULL DEFAULT 'POINT' CHECK (unit_type IN ('POINT','HUB','MIXED')),
       active BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    ALTER TABLE stores ADD COLUMN IF NOT EXISTS unit_type TEXT NOT NULL DEFAULT 'POINT';
 
     CREATE TABLE IF NOT EXISTS app_users (
       id UUID PRIMARY KEY,
@@ -1128,11 +1131,11 @@ async function createStore(store) {
   const db = requireDb();
   const id = store.id || require("crypto").randomUUID();
   const { rows } = await db.query(
-    `INSERT INTO stores(id,code,name,legal_name,cnpj,phone,email,asaas_wallet_id,quote_origin_cep,operational_hub,address,commission_percent,active)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13)
+    `INSERT INTO stores(id,code,name,legal_name,cnpj,phone,email,asaas_wallet_id,quote_origin_cep,operational_hub,address,commission_percent,active,unit_type)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14)
      RETURNING *`,
     [id,store.code,store.name,store.legalName||"",store.cnpj||"",store.phone||"",store.email||"",store.asaasWalletId||null,
-     store.quoteOriginCep||null,JSON.stringify(store.operationalHub||{}),JSON.stringify(store.address||{}),store.commissionPercent??20,store.active!==false]
+     store.quoteOriginCep||null,JSON.stringify(store.operationalHub||{}),JSON.stringify(store.address||{}),store.commissionPercent??20,store.active!==false,store.unitType||'POINT']
   );
   return rows[0];
 }
@@ -1144,7 +1147,7 @@ async function updateStore(id, patch) {
   const { rows } = await db.query(
     `UPDATE stores SET
       code=$2,name=$3,legal_name=$4,cnpj=$5,phone=$6,email=$7,asaas_wallet_id=$8,quote_origin_cep=$9,operational_hub=$10::jsonb,address=$11::jsonb,
-      commission_percent=$12,active=$13,updated_at=NOW()
+      commission_percent=$12,active=$13,unit_type=$14,updated_at=NOW()
      WHERE id=$1 RETURNING *`,
     [
       id,
@@ -1159,7 +1162,8 @@ async function updateStore(id, patch) {
       JSON.stringify(patch.operationalHub ?? current.operational_hub ?? {}),
       JSON.stringify(patch.address ?? current.address ?? {}),
       patch.commissionPercent ?? Number(current.commission_percent),
-      patch.active ?? current.active
+      patch.active ?? current.active,
+      patch.unitType ?? current.unit_type ?? 'POINT'
     ]
   );
   return rows[0] || null;
@@ -1178,7 +1182,7 @@ async function findStoreForQuoteOrigin(actualCep) {
   const { rows } = await db.query(
     `SELECT *
        FROM stores
-      WHERE active=TRUE
+      WHERE active=TRUE AND unit_type IN ('POINT','MIXED')
         AND (
           regexp_replace(COALESCE(address->>'cep',''),'\\D','','g')=$1
           OR LEFT(regexp_replace(COALESCE(address->>'cep',''),'\\D','','g'),5)=LEFT($1,5)
@@ -1254,21 +1258,21 @@ async function addOrderEvent(orderId,eventType,title,detail="",metadata={}) {
 
 async function listCustodyScans(orderId,trackingCode){
   const {rows}=await requireDb().query(
-    `SELECT id,tracking_code,stage,proof,created_at FROM custody_scans
+    `SELECT id,tracking_code,stage,actor_store_id,proof,created_at FROM custody_scans
        WHERE order_id=$1 AND tracking_code=$2 ORDER BY created_at,id`,
     [orderId,trackingCode]
   );
   return rows;
 }
 
-async function recordCustodyScan({orderId,trackingCode,stage,actorUserId,actorStoreId,idempotencyKey,proofName,latitude,longitude,photo}){
+async function recordCustodyScan({orderId,trackingCode,stage,actorUserId,actorStoreId,idempotencyKey,proofName,latitude,longitude,photo,destinationStoreId,isManager=false,deliveryEarning=0}){
   const crypto=require("node:crypto");
   const {validateScan,stages}=require("./custody");
   const connection=await requireDb().connect();
   try{
     await connection.query("BEGIN");
     const locked=await connection.query(
-      `SELECT id,payment_status,is_simulation FROM freight_orders WHERE id=$1
+      `SELECT id,store_id,payment_status,is_simulation,package_data->>'carrierMode' AS carrier_mode FROM freight_orders WHERE id=$1
          AND (tracking_code=$2 OR EXISTS (
            SELECT 1 FROM jsonb_array_elements(COALESCE(shipment_volumes,'[]'::jsonb)) AS v
            WHERE COALESCE(v->>'trackingCode',v->>'tracking_code')=$2
@@ -1280,22 +1284,43 @@ async function recordCustodyScan({orderId,trackingCode,stage,actorUserId,actorSt
     const existing=await connection.query("SELECT * FROM custody_scans WHERE actor_user_id=$1 AND idempotency_key=$2",[actorUserId,idempotencyKey]);
     if(existing.rows.length){
       const previous=existing.rows[0];
-      if(previous.order_id!==orderId||previous.tracking_code!==trackingCode||previous.stage!==stage){
+      if(previous.order_id!==orderId||previous.tracking_code!==trackingCode||previous.stage!==stage||(stage==='TRANSFERRED'&&previous.proof?.destinationStoreId!==destinationStoreId)){
         throw Object.assign(new Error("Identificador de leitura reutilizado para outro evento."),{status:409});
       }
       await connection.query("COMMIT");
       return {scan:previous,replayed:true};
     }
     const previous=await connection.query(
-      `SELECT stage FROM custody_scans WHERE order_id=$1 AND tracking_code=$2 ORDER BY created_at DESC,id DESC LIMIT 1`,
+      `SELECT stage,actor_store_id,proof FROM custody_scans WHERE order_id=$1 AND tracking_code=$2 ORDER BY created_at DESC,id DESC LIMIT 1`,
       [orderId,trackingCode]
     );
-    const validated=validateScan({code:trackingCode,stage,idempotencyKey,recipientName:proofName,latitude,longitude,photo},previous.rows[0]?.stage||null);
+    const last=previous.rows[0]||null;
+    // Cada leitura pertence à unidade que detém o pacote ou ao destino registrado na transferência.
+    if(!isManager){
+      if(!actorStoreId)throw Object.assign(new Error("Usuário sem unidade vinculada."),{status:403});
+      const responsible=last
+        ? (last.stage==='TRANSFERRED'?last.proof?.destinationStoreId:last.actor_store_id)
+        : locked.rows[0].store_id;
+      if(!responsible||String(responsible)!==String(actorStoreId))
+        throw Object.assign(new Error("Este pacote está sob responsabilidade de outra unidade."),{status:403});
+    }
+    let destination=null;
+    if(stage==='TRANSFERRED'){
+      if(!/^[0-9a-f]{8}-[0-9a-f-]{27,36}$/i.test(String(destinationStoreId||'')))
+        throw Object.assign(new Error("Selecione o ponto ou hub de destino."),{status:400});
+      const {rows}=await connection.query('SELECT id,name,unit_type,active FROM stores WHERE id=$1',[destinationStoreId]);
+      destination=rows[0]||null;
+      if(!destination?.active || String(destination.id)===String(actorStoreId))
+        throw Object.assign(new Error("Destino inativo ou igual à unidade atual."),{status:400});
+    }else if(destinationStoreId){
+      throw Object.assign(new Error("Destino só pode ser informado na transferência."),{status:400});
+    }
+    const validated=validateScan({code:trackingCode,stage,idempotencyKey,recipientName:proofName,latitude,longitude,photo},last?.stage||null);
     const scanId=crypto.randomUUID();
     const proof=stage==="DELIVERY_RECORDED"?{
       recipientName:validated.proofName,latitude:validated.latitude,longitude:validated.longitude,
       photo:validated.photo||null
-    }:{};
+    }:stage==='TRANSFERRED'?{destinationStoreId:destination.id,destinationName:destination.name}:{};
     const inserted=await connection.query(
       `INSERT INTO custody_scans(id,order_id,tracking_code,stage,actor_user_id,actor_store_id,idempotency_key,proof)
        VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb) RETURNING *`,
@@ -1304,8 +1329,19 @@ async function recordCustodyScan({orderId,trackingCode,stage,actorUserId,actorSt
     await connection.query(
       `INSERT INTO order_events(id,order_id,event_type,title,detail,metadata)
        VALUES($1,$2,'CUSTODY_SCAN',$3,$4,$5::jsonb)`,
-      [crypto.randomUUID(),orderId,stages[stage].label,"Leitura interna da rede Postal",JSON.stringify({scanId,trackingCode,stage})]
+      [crypto.randomUUID(),orderId,stages[stage].label,stage==='TRANSFERRED'?'Destino: '+destination.name:'Leitura interna da rede Postal',
+       JSON.stringify({scanId,trackingCode,stage,destinationStoreId:destination?.id||null})]
     );
+    if(stage==='DELIVERY_RECORDED'&&locked.rows[0].carrier_mode==='POSTAL_OWN'&&actorStoreId&&Number(deliveryEarning)>0){
+      // Lançamento financeiro idempotente: não dispara split nem pagamento automático.
+      await connection.query(
+        `INSERT INTO point_earnings(id,store_id,client_user_id,earning_type,amount,status,reference_type,reference_id,metadata)
+         VALUES($1,$2,NULL,'DELIVERY',$3,'EARNED','POSTAL_VOLUME',$4,$5::jsonb)
+         ON CONFLICT(store_id,earning_type,reference_type,reference_id) DO NOTHING`,
+        [crypto.randomUUID(),actorStoreId,Number(deliveryEarning),trackingCode,
+         JSON.stringify({orderId,scanId,description:'Entrega final Postal Regional'})]
+      );
+    }
     await connection.query("COMMIT");
     return {scan:inserted.rows[0],replayed:false};
   }catch(error){await connection.query("ROLLBACK");throw error;}
