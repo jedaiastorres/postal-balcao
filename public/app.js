@@ -1356,10 +1356,8 @@ async function openProviderDocument(url) {
 }
 
 async function openOrderLabels(order) {
-  const volumes=Array.isArray(order?.shipmentVolumes)?order.shipmentVolumes:[];
-  if(volumes.length<=1){
-    return openProviderDocument(order?.labelA6Url||order?.labelA4Url||volumes[0]?.labelA6Url||volumes[0]?.labelA4Url);
-  }
+  if(!order?.id)return toast("Pedido ainda não está disponível para impressão.","error");
+  // O pedido Postal possui etiqueta interna; URLs do provedor não são utilizadas nesta rota.
   const target=window.open("","_blank");
   if(!target){toast("Permita pop-ups para imprimir as etiquetas.","error");return;}
   target.document.write("<p style=\"font-family:Arial\">Montando etiquetas dos volumes...</p>");
@@ -1885,57 +1883,6 @@ $("#storeFinancialForm")?.addEventListener("submit", async event => {
     btn.textContent = original;
   }
 });
-async function loadCredit() {
-  try {
-    const [productsResult, proposalsResult] = await Promise.all([
-      api("/api/credit/products"),
-      api("/api/credit/proposals")
-    ]);
-    state.creditProducts = productsResult.products || [];
-    state.creditProposals = proposalsResult.proposals || [];
-
-    const select = $("#creditProduct");
-    const list = $("#creditProductsList");
-    if (select) {
-      select.innerHTML = state.creditProducts.length
-        ? state.creditProducts.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} · ${escapeHtml(p.partnerName)}</option>`).join("")
-        : '<option value="">Nenhum produto disponível</option>';
-    }
-
-    if (list) {
-      if (!state.creditProducts.length) {
-        list.innerHTML = '<div class="empty-state">Nenhuma linha de crédito habilitada ainda. O módulo já está preparado para receber parceiros.</div>';
-      } else {
-        list.innerHTML = state.creditProducts.map(p => `
-          <article class="credit-product-card">
-            <span class="addon-type">${escapeHtml(p.partnerName)}</span>
-            <strong>${escapeHtml(p.name)}</strong>
-            <p>${escapeHtml(p.description || "Produto financeiro disponível no balcão.")}</p>
-            <div><span>Faixa</span><b>${p.minAmount ? money(p.minAmount) : "—"} a ${p.maxAmount ? money(p.maxAmount) : "—"}</b></div>
-            <div><span>Comissão do ponto</span><b>${Number(p.pointCommissionPercent || 0).toFixed(1)}%</b></div>
-          </article>`).join("");
-      }
-    }
-
-    const proposals = $("#creditProposalsList");
-    if (proposals) {
-      proposals.innerHTML = state.creditProposals.length
-        ? state.creditProposals.map(p => `
-          <div class="inventory-row">
-            <div><span class="addon-type">${escapeHtml(p.partner_name || "PARCEIRO")}</span><strong>${escapeHtml(p.product_name || "")}</strong><small>#${escapeHtml(String(p.id).slice(0,8).toUpperCase())}</small></div>
-            <div><span>Cliente</span><strong>${escapeHtml(p.applicant_name || "")}</strong></div>
-            <div><span>Valor</span><strong>${money(p.requested_amount)}</strong></div>
-            <div><span>Status</span><strong>${escapeHtml(p.status || "LEAD")}</strong></div>
-          </div>`).join("")
-        : '<div class="empty-state">Nenhuma intenção de crédito registrada.</div>';
-    }
-  } catch (err) {
-    toast(err.message, "error");
-  }
-}
-
-
-
 function compactMoney(value){
   const n=Number(value||0);
   if(Math.abs(n)>=1000000) return "R$ "+(n/1000000).toFixed(1).replace(".",",")+" mi";
@@ -2214,6 +2161,7 @@ async function loadCash() {
         '<div class="inventory-row"><div><span class="addon-type">VENDAS</span><strong>Pedidos pagos</strong></div><div><strong>'+Number(s.paidOrders||0)+'</strong><small>Clientes pagaram '+money(s.customerReceived||0)+'</small></div></div>'+
         '<div class="inventory-row"><div><span class="addon-type">COLETAS</span><strong>Remuneração por coleta</strong></div><div><strong>'+money(s.pickupEarnings||0)+'</strong></div></div>'+
         '<div class="inventory-row"><div><span class="addon-type">POSTAGEM</span><strong>Recebimento no ponto</strong></div><div><strong>'+money(s.dropoffEarnings||0)+'</strong></div></div>'+
+        '<div class="inventory-row"><div><span class="addon-type">ENTREGA POSTAL</span><strong>Entrega final pela unidade</strong></div><div><strong>'+money(s.deliveryEarnings||0)+'</strong></div></div>'+
         '<div class="inventory-row"><div><span class="addon-type">INDICAÇÃO</span><strong>Clientes indicados</strong></div><div><strong>'+money(s.referralEarnings||0)+'</strong></div></div>';
     }
     if(movementsHost){
@@ -2281,13 +2229,11 @@ window.addEventListener("resize",()=>{
 async function loadMaster() {
   if (state.user?.role !== "ADMIN") return;
   try {
-    const [overview, stores, users, catalog, partners, products, auditResult, readiness] = await Promise.all([
+    const [overview, stores, users, catalog, auditResult, readiness] = await Promise.all([
       api("/api/admin/overview"),
       api("/api/admin/stores"),
       api("/api/admin/users"),
       api("/api/admin/catalog"),
-      api("/api/admin/credit/partners"),
-      api("/api/admin/credit/products"),
       api("/api/admin/audit?limit=80"),
       api("/api/admin/go-live-readiness")
     ]);
@@ -2295,8 +2241,6 @@ async function loadMaster() {
     state.admin.stores = stores.stores || [];
     state.admin.users = users.users || [];
     state.admin.catalog = catalog.items || [];
-    state.admin.creditPartners = partners.partners || [];
-    state.admin.creditProducts = products.products || [];
 
     $("#masterStores").textContent = overview.activeStores || 0;
     $("#masterUsers").textContent = overview.activeUsers || 0;
@@ -2329,7 +2273,7 @@ async function loadMaster() {
     if (storesHost) {
       storesHost.innerHTML = state.admin.stores.length ? state.admin.stores.map(s=>`
         <div class="admin-row" data-store-id="${escapeHtml(s.id)}">
-          <div><strong>${escapeHtml(s.name)}</strong><span>${escapeHtml(s.code)} · ${escapeHtml(s.cnpj || "CNPJ não informado")}</span></div>
+          <div><strong>${escapeHtml(s.name)}</strong><span>${escapeHtml(s.code)} · ${escapeHtml(({POINT:"Ponto de Postagem",HUB:"Hub Operacional",MIXED:"Unidade Mista"})[s.unitType]||"Ponto de Postagem")} · ${escapeHtml(s.cnpj || "CNPJ não informado")}</span></div>
           <div><span>Comissão</span><strong>${Number(s.commissionPercent||0).toFixed(1)}%</strong></div>
           <div><span>Usuários</span><strong>${Number(s.activeUsers||0)}</strong></div>
           <div><span>Fretes</span><strong>${Number(s.totalOrders||0)}</strong></div>
@@ -2344,6 +2288,10 @@ async function loadMaster() {
         if(!store) return;
         const commission=window.prompt("Comissão do ponto (%):",String(store.commissionPercent));
         if(commission==null) return;
+        const unitType=window.prompt("Tipo: POINT (ponto), HUB (operacional), MIXED (mista)",store.unitType||"POINT");
+        if(unitType===null)return;
+        const normalizedType=unitType.trim().toUpperCase();
+        if(!["POINT","HUB","MIXED"].includes(normalizedType))return toast("Tipo de unidade inválido.","error");
         const wallet=window.prompt("Wallet Asaas (pode ficar vazia):",store.asaasWalletId||"");
         if(wallet==null) return;
         const quoteCep=window.prompt("CEP operacional para cotação/postagem (vazio = usar CEP real):",store.quoteOriginCep||"");
@@ -2363,7 +2311,7 @@ async function loadMaster() {
         }
         const active=window.confirm("OK = ponto ativo. Cancelar = desativar o ponto.");
         try{
-          await api(`/api/admin/stores/${store.id}`,{method:"PATCH",body:JSON.stringify({commissionPercent:Number(String(commission).replace(",",".")),asaasWalletId:wallet.trim(),quoteOriginCep:cleanQuoteCep,operationalHub,active})});
+          await api(`/api/admin/stores/${store.id}`,{method:"PATCH",body:JSON.stringify({unitType:normalizedType,commissionPercent:Number(String(commission).replace(",",".")),asaasWalletId:wallet.trim(),quoteOriginCep:cleanQuoteCep,operationalHub,active})});
           toast("Ponto atualizado."); await loadMaster();
         }catch(err){toast(err.message,"error");}
       }));
@@ -2498,6 +2446,7 @@ $("#adminStoreForm")?.addEventListener("submit",async event=>{
     await api("/api/admin/stores",{method:"POST",body:JSON.stringify({
       code:$("#adminStoreCode").value.trim(),
       name:$("#adminStoreName").value.trim(),
+      unitType:$("#adminStoreUnitType").value,
       cnpj:$("#adminStoreCnpj").value.trim(),
       email:$("#adminStoreEmail").value.trim(),
       address:{
@@ -2557,42 +2506,6 @@ $("#adminCatalogForm")?.addEventListener("submit",async event=>{
     })});
     event.currentTarget.reset(); $("#adminCatalogPointShare").value="100"; $("#adminCatalogPostalShare").value="0"; $("#adminCatalogProviderShare").value="0";
     toast("Item salvo no catálogo."); await loadMaster();
-  }catch(err){toast(err.message,"error");}finally{btn.disabled=false;}
-});
-
-$("#adminCreditPartnerForm")?.addEventListener("submit",async event=>{
-  event.preventDefault(); const btn=event.currentTarget.querySelector("button[type='submit']");btn.disabled=true;
-  try{
-    await api("/api/admin/credit/partners",{method:"POST",body:JSON.stringify({
-      code:$("#adminCreditPartnerCode").value.trim(),name:$("#adminCreditPartnerName").value.trim(),
-      integrationMode:$("#adminCreditPartnerMode").value,apiBaseUrl:$("#adminCreditPartnerApi").value.trim()
-    })});
-    event.currentTarget.reset();toast("Parceiro financeiro salvo.");await loadMaster();
-  }catch(err){toast(err.message,"error");}finally{btn.disabled=false;}
-});
-
-$("#adminCreditProductForm")?.addEventListener("submit",async event=>{
-  event.preventDefault(); const btn=event.currentTarget.querySelector("button[type='submit']");btn.disabled=true;
-  try{
-    await api("/api/admin/credit/products",{method:"POST",body:JSON.stringify({
-      partnerId:$("#adminCreditProductPartner").value,code:$("#adminCreditProductCode").value.trim(),
-      name:$("#adminCreditProductName").value.trim(),minAmount:Number($("#adminCreditMin").value||0),
-      maxAmount:Number($("#adminCreditMax").value||0),pointCommissionPercent:Number($("#adminCreditPointCommission").value||0),
-      postalCommissionPercent:Number($("#adminCreditPostalCommission").value||0)
-    })});
-    event.currentTarget.reset();toast("Produto financeiro salvo.");await loadMaster();
-  }catch(err){toast(err.message,"error");}finally{btn.disabled=false;}
-});
-
-$("#creditProposalForm")?.addEventListener("submit",async event=>{
-  event.preventDefault(); const btn=event.currentTarget.querySelector("button[type='submit']");btn.disabled=true;
-  try{
-    await api("/api/credit/proposals",{method:"POST",body:JSON.stringify({
-      productId:$("#creditProduct").value,applicantName:$("#creditApplicantName").value.trim(),
-      document:$("#creditDocument").value.trim(),phone:$("#creditPhone").value.trim(),
-      requestedAmount:Number($("#creditAmount").value||0),consent:$("#creditConsent").checked
-    })});
-    event.currentTarget.reset();toast("Intenção de crédito registrada.");await loadCredit();
   }catch(err){toast(err.message,"error");}finally{btn.disabled=false;}
 });
 
@@ -2756,7 +2669,7 @@ $("#printReceiptBtn")?.addEventListener("click", () => {
   if (!state.shipmentResult) return;
   openReceipt(receiptPayload(false), true);
 });
-$("#printLabelBtn")?.addEventListener("click", () => openProviderDocument(state.shipmentResult?.labelA6Url || state.shipmentResult?.labelA4Url));
+$("#printLabelBtn")?.addEventListener("click", () => openOrderLabels({id:state.shipmentResult?.orderId||state.shipmentResult?.id}));
 
 window.addEventListener("error", event => {
   console.error("Erro de interface:", event.error || event.message);
