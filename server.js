@@ -1384,6 +1384,7 @@ function publicOrder(order) {
     cashRemittanceTotal: round2(Number(order.cash_remittance_amount || 0) + Number(order.payment_surcharge || 0)),
     salePrice: Number(order.sale_price || 0),
     addonsTotal: Number(order.addons_total || 0),
+    hubTransferTotal: Number(order.hub_transfer_total || 0),
     customerSubtotal: Number(order.customer_subtotal || order.sale_price || 0),
     totalToCustomer: round2(Number(order.customer_subtotal || order.sale_price || 0) + Number(order.payment_surcharge || 0)),
     pointRevenueTotal: Number(order.point_revenue_total || order.partner_commission || 0),
@@ -1395,6 +1396,7 @@ function publicOrder(order) {
       quantity: Number(addon.quantity || 0),
       unitPrice: Number(addon.unit_price || 0),
       totalPrice: Number(addon.total_price || 0),
+      isManualExtra: addon.metadata?.source === "POINT_MANUAL_EXTRA",
       pointRevenue: Number(addon.point_revenue || 0)
     })) : [],
     carrier: order.carrier || "",
