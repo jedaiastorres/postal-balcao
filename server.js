@@ -3299,6 +3299,7 @@ app.get("/api/store/cash", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_
            COALESCE(SUM(pe.amount),0) AS extra_earnings,
            COALESCE(SUM(pe.amount) FILTER (WHERE pe.earning_type='PICKUP'),0) AS pickup_earnings,
            COALESCE(SUM(pe.amount) FILTER (WHERE pe.earning_type='DROPOFF'),0) AS dropoff_earnings,
+           COALESCE(SUM(pe.amount) FILTER (WHERE pe.earning_type='DELIVERY'),0) AS delivery_earnings,
            COALESCE(SUM(pe.amount) FILTER (WHERE pe.earning_type='REFERRAL'),0) AS referral_earnings,
            COALESCE(SUM(pe.amount) FILTER (WHERE pe.paid_at IS NULL),0) AS unpaid_extra_earnings
          FROM point_earnings pe
@@ -3323,6 +3324,7 @@ app.get("/api/store/cash", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_
                 CASE pe.earning_type
                   WHEN 'PICKUP' THEN 'Remuneração de coleta'
                   WHEN 'DROPOFF' THEN 'Remuneração de postagem/recebimento'
+                  WHEN 'DELIVERY' THEN 'Entrega final Postal Regional'
                   WHEN 'REFERRAL' THEN 'Comissão por cliente indicado'
                   ELSE 'Ganho do ponto'
                 END AS description,
@@ -3358,6 +3360,7 @@ app.get("/api/store/cash", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_
         totalEarnings:round2(primarySalesEarnings+extraEarnings),
         pickupEarnings:Number(extras.pickup_earnings||0),
         dropoffEarnings:Number(extras.dropoff_earnings||0),
+        deliveryEarnings:Number(extras.delivery_earnings||0),
         referralEarnings:Number(extras.referral_earnings||0),
         unpaidExtraEarnings:Number(extras.unpaid_extra_earnings||0),
         pendingRemittance:Number(sales.pending_remittance||0)
@@ -3523,7 +3526,7 @@ app.get("/api/store/referral", requireAuth, requireRole("STORE_OWNER"), async (r
       stats:{
         referredClients:Number(stats.referred_clients||0),referredShipments:Number(stats.referred_shipments||0),
         referralEarnings:Number(stats.referral_earnings||0),pickupEarnings:Number(stats.pickup_earnings||0),
-        dropoffEarnings:Number(stats.dropoff_earnings||0)
+        dropoffEarnings:Number(stats.dropoff_earnings||0),deliveryEarnings:Number(stats.delivery_earnings||0)
       },
       clients
     });
@@ -3945,7 +3948,7 @@ app.get("/api/admin/stores", requireAuth, requireRole("ADMIN","SUPERVISOR"), asy
       cnpj: store.cnpj || "", phone: store.phone || "", email: store.email || "",
       asaasWalletId: store.asaas_wallet_id || "",
       quoteOriginCep: store.quote_origin_cep || "",
-      operationalHub: store.operational_hub || {},
+      operationalHub: store.operational_hub || {},unitType:store.unit_type||'POINT',
       address: store.address || {}, commissionPercent: Number(store.commission_percent || 0),
       active: Boolean(store.active), activeUsers: Number(store.active_users || 0),
       totalOrders: Number(store.total_orders || 0), grossSales: Number(store.gross_sales || 0)
@@ -3960,6 +3963,8 @@ app.post("/api/admin/stores", requireAuth, requireRole("ADMIN"), async (req, res
     const body = req.body || {};
     const code = String(body.code || "").trim().toUpperCase().replace(/[^A-Z0-9_-]/g,"");
     const name = String(body.name || "").trim();
+    const unitType=String(body.unitType||'POINT').toUpperCase();
+    if(!['POINT','HUB','MIXED'].includes(unitType))return res.status(400).json({error:'Tipo de unidade inválido.'});
     const commissionPercent = Number(body.commissionPercent ?? 20);
     const quoteOriginCep = cleanDigits(body.quoteOriginCep || "");
     const operationalHub = body.operationalHub && typeof body.operationalHub==="object" ? {...body.operationalHub} : {};
@@ -3977,7 +3982,7 @@ app.post("/api/admin/stores", requireAuth, requireRole("ADMIN"), async (req, res
     }
     const store = await db.createStore({
       code,name,legalName:body.legalName,cnpj:cleanDigits(body.cnpj),phone:body.phone,email:body.email,
-      asaasWalletId:body.asaasWalletId||null,quoteOriginCep:quoteOriginCep||null,operationalHub:quoteOriginCep?operationalHub:{},address:body.address||{},commissionPercent,active:body.active!==false
+      asaasWalletId:body.asaasWalletId||null,quoteOriginCep:quoteOriginCep||null,operationalHub:quoteOriginCep?operationalHub:{},address:body.address||{},commissionPercent,active:body.active!==false,unitType
     });
     await audit(req,"CREATE_STORE","STORE",store.id,{code:store.code});
     res.status(201).json({ store });
@@ -3990,6 +3995,8 @@ app.post("/api/admin/stores", requireAuth, requireRole("ADMIN"), async (req, res
 app.patch("/api/admin/stores/:id", requireAuth, requireRole("ADMIN"), async (req, res) => {
   try {
     const commissionPercent = req.body.commissionPercent == null ? undefined : Number(req.body.commissionPercent);
+    const unitType=req.body.unitType===undefined?undefined:String(req.body.unitType).toUpperCase();
+    if(unitType!==undefined&&!['POINT','HUB','MIXED'].includes(unitType))return res.status(400).json({error:'Tipo de unidade inválido.'});
     const currentStore=await db.getStore(req.params.id);
     if(!currentStore) return res.status(404).json({error:"Ponto não encontrado."});
     const quoteOriginCep = req.body.quoteOriginCep === undefined ? undefined : cleanDigits(req.body.quoteOriginCep || "");
@@ -4010,7 +4017,7 @@ app.patch("/api/admin/stores/:id", requireAuth, requireRole("ADMIN"), async (req
     if (commissionPercent != null && (!Number.isFinite(commissionPercent) || commissionPercent < 0 || commissionPercent > 50)) {
       return res.status(400).json({ error: "Comissão inválida." });
     }
-    const store = await db.updateStore(req.params.id,{...req.body,commissionPercent,quoteOriginCep,operationalHub:effectiveQuoteCep?operationalHub:{}});
+    const store = await db.updateStore(req.params.id,{...req.body,unitType,commissionPercent,quoteOriginCep,operationalHub:effectiveQuoteCep?operationalHub:{}});
     if(!store) return res.status(404).json({error:"Ponto não encontrado."});
     await audit(req,"UPDATE_STORE","STORE",store.id,{active:store.active,commissionPercent:Number(store.commission_percent)});
     res.json({store});
@@ -4142,97 +4149,6 @@ app.use("/api/credit",(_req,res)=>res.status(410).json({error:"Módulo de crédi
 app.use("/api/admin/credit",(_req,res)=>res.status(410).json({error:"Módulo de crédito descontinuado."}));
 app.use("/api/integrations/v1/credit",(_req,res)=>res.status(410).json({error:"Módulo de crédito descontinuado."}));
 
-app.get("/api/admin/credit/partners", requireAuth, requireRole("ADMIN"), async (_req,res)=>{
-  try { res.json({partners:await db.listCreditPartners()}); }
-  catch(error){ res.status(500).json({error:"Não foi possível carregar parceiros de crédito."}); }
-});
-
-app.post("/api/admin/credit/partners", requireAuth, requireRole("ADMIN"), async (req,res)=>{
-  try {
-    const body=req.body||{};
-    if(!body.code||!body.name) return res.status(400).json({error:"Código e nome são obrigatórios."});
-    const partner=await db.upsertCreditPartner({
-      code:String(body.code).trim().toUpperCase(),name:String(body.name).trim(),
-      integrationMode:String(body.integrationMode||"MANUAL").toUpperCase(),apiBaseUrl:body.apiBaseUrl||null,
-      active:body.active!==false,metadata:body.metadata||{}
-    });
-    await audit(req,"UPSERT_CREDIT_PARTNER","CREDIT_PARTNER",partner.id,{code:partner.code});
-    res.json({partner});
-  } catch(error){ res.status(500).json({error:"Não foi possível salvar o parceiro."}); }
-});
-
-app.get("/api/admin/credit/products", requireAuth, requireRole("ADMIN"), async (_req,res)=>{
-  try { res.json({products:await db.listCreditProducts(false)}); }
-  catch(error){ res.status(500).json({error:"Não foi possível carregar produtos de crédito."}); }
-});
-
-app.post("/api/admin/credit/products", requireAuth, requireRole("ADMIN"), async (req,res)=>{
-  try {
-    const body=req.body||{};
-    if(!body.partnerId||!body.code||!body.name) return res.status(400).json({error:"Parceiro, código e nome são obrigatórios."});
-    const product=await db.upsertCreditProduct({
-      partnerId:body.partnerId,code:String(body.code).trim().toUpperCase(),name:String(body.name).trim(),
-      description:body.description||"",minAmount:Number(body.minAmount||0)||null,maxAmount:Number(body.maxAmount||0)||null,
-      pointCommissionPercent:Number(body.pointCommissionPercent||0),postalCommissionPercent:Number(body.postalCommissionPercent||0),
-      active:body.active!==false,metadata:body.metadata||{}
-    });
-    await audit(req,"UPSERT_CREDIT_PRODUCT","CREDIT_PRODUCT",product.id,{code:product.code});
-    res.json({product});
-  } catch(error){ res.status(500).json({error:"Não foi possível salvar o produto de crédito."}); }
-});
-
-app.get("/api/credit/products", requireAuth, requireRole("ADMIN","STORE_OWNER"), async (_req,res)=>{
-  try {
-    const products=await db.listCreditProducts(true);
-    res.json({products:products.map(p=>({
-      id:p.id,code:p.code,name:p.name,description:p.description||"",partnerName:p.partner_name,
-      minAmount:Number(p.min_amount||0),maxAmount:Number(p.max_amount||0),
-      pointCommissionPercent:Number(p.point_commission_percent||0)
-    }))});
-  } catch(error){ res.status(500).json({error:"Não foi possível carregar as ofertas."}); }
-});
-
-app.get("/api/credit/proposals", requireAuth, requireRole("ADMIN","STORE_OWNER"), async (req,res)=>{
-  try {
-    const proposals=await db.listCreditProposals(req.user.role==="ADMIN"?{}:{storeId:req.user.storeId||null});
-    res.json({proposals});
-  } catch(error){ res.status(500).json({error:"Não foi possível carregar as propostas."}); }
-});
-
-app.post("/api/credit/proposals", requireAuth, requireRole("ADMIN","STORE_OWNER"), async (req,res)=>{
-  try {
-    const body=req.body||{};
-    const applicantName=String(body.applicantName||"").trim();
-    const document=cleanDigits(body.document);
-    const requestedAmount=Number(body.requestedAmount||0);
-    if(!body.productId||!applicantName||document.length<11||!Number.isFinite(requestedAmount)||requestedAmount<=0||body.consent!==true){
-      return res.status(400).json({error:"Preencha os dados da proposta e confirme o consentimento."});
-    }
-    const documentHash=crypto.createHash("sha256").update(document).digest("hex");
-    const proposal=await db.createCreditProposal({
-      storeId:req.user.storeId||null,userId:req.user.userId||null,productId:body.productId,
-      applicantName,documentHash,documentLast4:document.slice(-4),phone:String(body.phone||""),
-      requestedAmount,status:"LEAD",metadata:{source:"BALCAO"}
-    });
-    await audit(req,"CREATE_CREDIT_LEAD","CREDIT_PROPOSAL",proposal.id,{productId:body.productId,requestedAmount});
-    res.status(201).json({proposal:{id:proposal.id,status:proposal.status,createdAt:proposal.created_at}});
-  } catch(error){ res.status(500).json({error:"Não foi possível registrar a proposta."}); }
-});
-
-/**
- * COTAÇÃO
- * ConectEnvios:
- * POST /package/shipping
- * {
- *   type: "box",
- *   weight: 1000,  // gramas
- *   width: 15,
- *   height: 10,
- *   length: 20,
- *   cep_from: "68515000",
- *   cep_to: "01310100"
- * }
- */
 app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK","CLIENT"), async (req, res) => {
   const startedAt = Date.now();
   try {
@@ -4619,23 +4535,6 @@ app.get("/api/inventory/movements", requireAuth, requireRole("ADMIN","STORE_OWNE
 });
 
 // API versionada para futuras integrações de produtos, serviços e ofertas financeiras.
-app.get("/api/integrations/v1/credit/products", requireIntegrationAuth, async (_req,res)=>{
-  try { res.json({version:"v1",products:await db.listCreditProducts(false)}); }
-  catch(error){ res.status(500).json({error:"Falha ao consultar produtos financeiros."}); }
-});
-
-app.patch("/api/integrations/v1/credit/proposals/:id", requireIntegrationAuth, async (req,res)=>{
-  try {
-    const status=String(req.body.status||"").trim().toUpperCase();
-    if(!status) return res.status(400).json({error:"status é obrigatório."});
-    const proposal=await db.updateCreditProposalStatus(
-      req.params.id,status,req.body.externalRef||null,req.body.metadata||{}
-    );
-    if(!proposal) return res.status(404).json({error:"Proposta não encontrada."});
-    res.json({ok:true,version:"v1",proposal});
-  } catch(error){ res.status(500).json({error:"Falha ao atualizar a proposta."}); }
-});
-
 app.get("/api/integrations/v1/catalog/items", requireIntegrationAuth, async (req, res) => {
   try {
     const itemType = req.query.type ? String(req.query.type).toUpperCase() : null;
@@ -4816,15 +4715,27 @@ app.get("/api/orders/:id", requireAuth, async (req, res) => {
 // Operational proof of internal hand-offs; it never changes the carrier's POD
 // or triggers payment, shipment creation or external tracking mutations.
 const scannerRoles=["ADMIN","SUPERVISOR","OPS","STORE_OWNER","STORE_CLERK"];
-app.get("/api/ops/scanner-session",requireAuth,requireRole(...scannerRoles),requireCurrentUser,(req,res)=>{
-  res.setHeader("Cache-Control","no-store");
-  res.json({csrfToken:String(req.user.csrf||""),role:req.user.role,stages:custody.stages});
+app.get("/api/ops/scanner-session",requireAuth,requireRole(...scannerRoles),requireCurrentUser,async(req,res)=>{
+  try {
+    const stores=await db.listStores();
+    res.setHeader("Cache-Control","no-store");
+    res.json({csrfToken:String(req.user.csrf||""),role:req.user.role,storeId:req.user.storeId||null,stages:custody.stages,
+      destinations:stores.filter(s=>s.active).map(s=>({id:s.id,name:s.name,code:s.code,unitType:s.unit_type||'POINT'}))});
+  }catch(error){res.status(503).json({error:"Não foi possível carregar os destinos de transferência."});}
 });
 
 async function scopedScanOrder(req,trackingCode){
   const order=await db.findOrderByTrackingCode(trackingCode);
   if(!order)return null;
-  return db.getOrder(order.id,scopeForUser(req.user));
+  if(['ADMIN','SUPERVISOR'].includes(req.user.role))return db.getOrder(order.id);
+  if(!req.user.storeId)return null;
+  const scans=await db.listCustodyScans(order.id,trackingCode);
+  const last=scans.at(-1);
+  const responsible=last
+    ? (last.stage==='TRANSFERRED'?last.proof?.destinationStoreId:last.actor_store_id)
+    : order.store_id;
+  if(String(responsible||'')!==String(req.user.storeId))return null;
+  return db.getOrder(order.id);
 }
 
 app.get("/api/ops/scans/:code",requireAuth,requireRole(...scannerRoles),requireCurrentUser,async(req,res)=>{
@@ -4840,7 +4751,8 @@ app.get("/api/ops/scans/:code",requireAuth,requireRole(...scannerRoles),requireC
         proof:scan.stage==="DELIVERY_RECORDED"?{
           recipientName:scan.proof?.recipientName||"",latitude:scan.proof?.latitude??null,longitude:scan.proof?.longitude??null,
           hasPhoto:Boolean(scan.proof?.photo)
-        }:null}))});
+        }:null,
+        destination:scan.stage==='TRANSFERRED'?{id:scan.proof?.destinationStoreId||null,name:scan.proof?.destinationName||''}:null}))});
   }catch(error){console.error("scan history error",error.message);res.status(503).json({error:"Não foi possível consultar a movimentação."});}
 });
 
@@ -4854,8 +4766,10 @@ app.post("/api/ops/scans",requireAuth,requireRole(...scannerRoles),requireCurren
     if(!order)return res.status(404).json({error:"Envio não encontrado ou sem permissão para leitura."});
     const result=await db.recordCustodyScan({orderId:order.id,trackingCode:code,stage:String(body.stage||""),
       actorUserId:req.user.userId,actorStoreId:req.user.storeId,idempotencyKey:String(body.idempotencyKey||""),
-      proofName:String(body.recipientName||""),latitude:body.latitude??null,longitude:body.longitude??null,photo:body.photo||null});
-    if(!result.replayed)await audit(req,"CUSTODY_SCAN","FREIGHT_ORDER",order.id,{trackingCode:code,stage:body.stage});
+      proofName:String(body.recipientName||""),latitude:body.latitude??null,longitude:body.longitude??null,photo:body.photo||null,
+      destinationStoreId:body.destinationStoreId||null,isManager:["ADMIN","SUPERVISOR"].includes(req.user.role),
+      deliveryEarning:POINT_PICKUP_EARNING_PER_PACKAGE});
+    if(!result.replayed)await audit(req,"CUSTODY_SCAN","FREIGHT_ORDER",order.id,{trackingCode:code,stage:body.stage,destinationStoreId:body.destinationStoreId||null});
     res.status(result.replayed?200:201).json({ok:true,replayed:result.replayed,
       stage:result.scan.stage,label:custody.stages[result.scan.stage]?.label,createdAt:result.scan.created_at});
   }catch(error){
