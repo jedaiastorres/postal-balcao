@@ -221,6 +221,9 @@ async function initClientDb() {
       paid_at TIMESTAMPTZ
     );
 
+    ALTER TABLE point_earnings DROP CONSTRAINT IF EXISTS point_earnings_earning_type_check;
+    ALTER TABLE point_earnings ADD CONSTRAINT point_earnings_earning_type_check CHECK (earning_type IN ('PICKUP','DROPOFF','REFERRAL','DELIVERY'));
+
     CREATE UNIQUE INDEX IF NOT EXISTS point_earnings_reference_uidx
       ON point_earnings(store_id,earning_type,reference_type,reference_id);
 
@@ -421,7 +424,7 @@ async function listPublicStores() {
     `SELECT id,code,name,address,pickup_enabled,pickup_radius_km,latitude,longitude,
             referral_code
        FROM stores
-      WHERE active=TRUE
+      WHERE active=TRUE AND unit_type IN ('POINT','MIXED')
       ORDER BY name`
   );
   return rows;
@@ -433,7 +436,7 @@ async function listPickupStores() {
     `SELECT id,code,name,address,pickup_enabled,pickup_radius_km,latitude,longitude,
             pickup_rate,dropoff_rate,referral_code
        FROM stores
-      WHERE active=TRUE AND pickup_enabled=TRUE
+      WHERE active=TRUE AND pickup_enabled=TRUE AND unit_type IN ('POINT','MIXED')
       ORDER BY name`
   );
   return rows;
@@ -899,7 +902,8 @@ async function referralStats(storeId){
       (SELECT COUNT(*) FROM freight_orders WHERE referral_store_id=$1 AND client_user_id IS NOT NULL)::int AS referred_shipments,
       COALESCE((SELECT SUM(amount) FROM point_earnings WHERE store_id=$1 AND earning_type='REFERRAL' AND status='EARNED'),0) AS referral_earnings,
       COALESCE((SELECT SUM(amount) FROM point_earnings WHERE store_id=$1 AND earning_type='PICKUP' AND status='EARNED'),0) AS pickup_earnings,
-      COALESCE((SELECT SUM(amount) FROM point_earnings WHERE store_id=$1 AND earning_type='DROPOFF' AND status='EARNED'),0) AS dropoff_earnings`,
+      COALESCE((SELECT SUM(amount) FROM point_earnings WHERE store_id=$1 AND earning_type='DROPOFF' AND status='EARNED'),0) AS dropoff_earnings,
+      COALESCE((SELECT SUM(amount) FROM point_earnings WHERE store_id=$1 AND earning_type='DELIVERY' AND status IN ('EARNED','PAID')),0) AS delivery_earnings`,
     [storeId]
   ); return rows[0];
 }
