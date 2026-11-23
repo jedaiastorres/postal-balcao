@@ -2498,7 +2498,26 @@ async function loadMaster() {
           <div><span>Ponto</span><strong>${Number(item.point_share_percent||0)}%</strong></div>
           <div><span>Postal</span><strong>${Number(item.postal_share_percent||0)}%</strong></div>
           <div><span>Fornecedor</span><strong>${Number(item.provider_share_percent||0)}%</strong></div>
+          <div><span>Situação</span><strong>${item.active?"Ativo":"Inativo"}</strong></div>
+          <div class="inventory-actions"><button class="ghost" data-catalog-edit="${escapeHtml(item.code)}" type="button">Editar</button></div>
         </div>`).join(""):'<div class="empty-state">Catálogo vazio.</div>';
+      catalogHost.querySelectorAll("[data-catalog-edit]").forEach(btn=>btn.addEventListener("click",()=>{
+        const item=state.admin.catalog.find(x=>x.code===btn.dataset.catalogEdit);
+        if(!item)return;
+        $("#adminCatalogCode").value=item.code;
+        $("#adminCatalogName").value=item.name;
+        $("#adminCatalogType").value=item.item_type;
+        $("#adminCatalogCategory").value=item.category;
+        $("#adminCatalogPrice").value=Number(item.unit_price||0).toFixed(2);
+        $("#adminCatalogCost").value=Number(item.cost_price||0).toFixed(2);
+        $("#adminCatalogStock").checked=Boolean(item.track_stock);
+        $("#adminCatalogActive").checked=Boolean(item.active);
+        $("#adminCatalogPointShare").value=Number(item.point_share_percent||0);
+        $("#adminCatalogPostalShare").value=Number(item.postal_share_percent||0);
+        $("#adminCatalogProviderShare").value=Number(item.provider_share_percent||0);
+        $("#adminCatalogProvider").value=item.external_provider||"";
+        $("#adminCatalogForm").scrollIntoView({behavior:"smooth",block:"center"});
+      }));
     }
 
     const partnerSelect=$("#adminCreditProductPartner");
@@ -2704,9 +2723,9 @@ $("#adminCatalogForm")?.addEventListener("submit",async event=>{
       pointSharePercent:Number($("#adminCatalogPointShare").value||0),
       postalSharePercent:Number($("#adminCatalogPostalShare").value||0),
       providerSharePercent:Number($("#adminCatalogProviderShare").value||0),
-      externalProvider:$("#adminCatalogProvider").value.trim()
+      externalProvider:$("#adminCatalogProvider").value.trim(),active:$("#adminCatalogActive").checked
     })});
-    event.currentTarget.reset(); $("#adminCatalogPointShare").value="100"; $("#adminCatalogPostalShare").value="0"; $("#adminCatalogProviderShare").value="0";
+    event.currentTarget.reset(); $("#adminCatalogPointShare").value="100"; $("#adminCatalogPostalShare").value="0"; $("#adminCatalogProviderShare").value="0"; $("#adminCatalogActive").checked=true;
     toast("Item salvo no catálogo."); await loadMaster();
   }catch(err){toast(err.message,"error");}finally{btn.disabled=false;}
 });
