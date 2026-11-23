@@ -57,9 +57,11 @@ function money(v) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(v || 0));
 }
 
+function neutralDisplay(value) { return String(value ?? "").replace(/conect\s*envios/gi, "plataforma logística"); }
+
 function toast(message, type = "ok") {
   const el = $("#toast");
-  el.textContent = message;
+  el.textContent = neutralDisplay(message);
   el.className = `toast show ${type === "error" ? "error" : ""}`;
   setTimeout(() => el.classList.remove("show"), 3400);
 }
@@ -76,7 +78,7 @@ async function api(url, options = {}) {
   });
   const type = response.headers.get("content-type") || "";
   const data = type.includes("application/json") ? await response.json() : await response.text();
-  if (!response.ok) throw new Error(data?.error || "Não foi possível concluir a operação.");
+  if (!response.ok) throw new Error(neutralDisplay(data?.error || "Não foi possível concluir a operação."));
   return data;
 }
 
@@ -862,7 +864,7 @@ function maskCep(v) {
 }
 
 function escapeHtml(value) {
-  return String(value || "")
+  return neutralDisplay(value)
     .replaceAll("&","&amp;")
     .replaceAll("<","&lt;")
     .replaceAll(">","&gt;")
