@@ -372,7 +372,7 @@
             </label>
           </div>
 
-          <section class="quote-extras-panel" aria-labelledby="quoteExtrasTitle">
+          <section id="quoteExtrasPanel" class="quote-extras-panel" aria-labelledby="quoteExtrasTitle">
             <div class="quote-extras-heading">
               <div><span class="eyebrow">VENDA COMPLEMENTAR</span><h2 id="quoteExtrasTitle">Embalagens e manuseio</h2>
                 <p>Adicione caixas, envelopes e serviços do catálogo antes de cotar. Custos e preços de venda são definidos pelo MASTER.</p></div>
@@ -1008,7 +1008,7 @@
 
         <div class="master-grid">
           <article class="form-panel">
-            <div class="form-panel-head"><span class="step-number">3</span><div><h3>Catálogo central</h3><p>Cadastre produtos e serviços com divisão financeira configurável.</p></div></div>
+            <div class="form-panel-head"><span class="step-number">3</span><div><h3>Catálogo central MASTER</h3><p>Defina custo, preço, disponibilidade e divisão financeira dos itens da rede.</p></div></div>
             <form id="adminCatalogForm" class="inventory-form">
               <label>Código*<input id="adminCatalogCode" required /></label>
               <label>Nome*<input id="adminCatalogName" required /></label>
@@ -1019,6 +1019,7 @@
               <label>Preço de venda MASTER<div class="money-field"><span>R$</span><input id="adminCatalogPrice" type="number" min="0" step="0.01" value="0" required /></div></label>
               <label>Custo unitário MASTER<div class="money-field"><span>R$</span><input id="adminCatalogCost" type="number" min="0" step="0.01" value="0" required /></div></label>
               <label><input id="adminCatalogStock" type="checkbox" /> Controla estoque físico</label>
+              <label><input id="adminCatalogActive" type="checkbox" checked /> Disponível para venda</label>
               <div class="shares-grid">
                 <label>Ponto %<input id="adminCatalogPointShare" type="number" min="0" max="100" step="0.1" value="100" /></label>
                 <label>Postal %<input id="adminCatalogPostalShare" type="number" min="0" max="100" step="0.1" value="0" /></label>
