@@ -15,6 +15,8 @@ const state = {
   selectedOption: null,
   shipmentResult: null,
   editingOrderId: null,
+  whiteLabelCarriers: [],
+  editingWhiteLabelId: null,
   fiscalDocument: null,
   orders: [],
   catalog: [],
@@ -2300,6 +2302,7 @@ async function loadMaster() {
     state.admin.stores = stores.stores || [];
     state.admin.users = users.users || [];
     state.admin.catalog = catalog.items || [];
+    void loadWhiteLabels();
 
     $("#masterStores").textContent = overview.activeStores || 0;
     $("#masterUsers").textContent = overview.activeUsers || 0;
@@ -2477,6 +2480,103 @@ async function loadMaster() {
     toast(err.message,"error");
   }
 }
+
+
+function resetWhiteLabelForm(){
+  state.editingWhiteLabelId=null;
+  $("#whiteLabelForm")?.reset();
+  if($("#wlPostalFeePercent"))$("#wlPostalFeePercent").value="0";
+  if($("#wlPostalFeeFixed"))$("#wlPostalFeeFixed").value="0";
+  if($("#wlColorPrimary"))$("#wlColorPrimary").value="#d7083b";
+  if($("#wlColorSecondary"))$("#wlColorSecondary").value="#222638";
+  if($("#whiteLabelFormTitle"))$("#whiteLabelFormTitle").textContent="Nova transportadora";
+  if($("#saveWhiteLabelBtn"))$("#saveWhiteLabelBtn").textContent="Cadastrar White Label";
+  $("#cancelWhiteLabelEditBtn")?.classList.add("hidden");
+}
+function renderWhiteLabels(){
+  const host=$("#whiteLabelsList");
+  if(!host)return;
+  const carriers=state.whiteLabelCarriers||[];
+  host.innerHTML=carriers.length?carriers.map(carrier=>{
+    const fees=[
+      Number(carrier.postalFeePercent)>0?Number(carrier.postalFeePercent).toLocaleString("pt-BR",{maximumFractionDigits:2})+"% do frete":"",
+      Number(carrier.postalFeeFixed)>0?money(carrier.postalFeeFixed)+" por envio":""
+    ].filter(Boolean).join(" + ");
+    const primary=/^#[0-9a-fA-F]{6}$/.test(carrier.brandPrimary||"")?carrier.brandPrimary:"#d7083b";
+    return `<div class="white-label-entry">
+      <div class="white-label-entry-top">
+        <div><h4>${escapeHtml(carrier.brandName)}</h4><small>${escapeHtml(carrier.code)} · ${escapeHtml(carrier.baseCity)}/${escapeHtml(carrier.baseState)}</small></div>
+        <span class="white-label-dot" style="background:${primary}"></span>
+      </div>
+      <div class="white-label-status">Cadastro em homologação · sem acesso operacional</div>
+      <small>CNPJ: ${escapeHtml(carrier.cnpj)} · Contato: ${escapeHtml(carrier.adminName)}</small>
+      <small>Remuneração Postal: <strong>${escapeHtml(fees)}</strong></small>
+      <small>Asaas: ${carrier.asaasWalletId?"Wallet informada (não ativa)":"Carteira pendente"}</small>
+      <div class="white-label-actions"><button class="ghost" type="button" data-edit-white-label="${escapeHtml(carrier.id)}">Editar cadastro</button></div>
+    </div>`;
+  }).join(""):'<div class="empty-state">Nenhuma transportadora cadastrada. Preencha o formulário ao lado para registrar sua primeira empresa White Label.</div>';
+  host.querySelectorAll("[data-edit-white-label]").forEach(button=>button.addEventListener("click",()=>{
+    const carrier=state.whiteLabelCarriers.find(item=>item.id===button.dataset.editWhiteLabel);
+    if(!carrier)return;
+    state.editingWhiteLabelId=carrier.id;
+    const fields={
+      Code:"code",BrandName:"brandName",LegalName:"legalName",Cnpj:"cnpj",
+      AdminName:"adminName",AdminEmail:"adminEmail",AdminPhone:"adminPhone",
+      BaseCity:"baseCity",BaseState:"baseState",AsaasWallet:"asaasWalletId",
+      PostalFeePercent:"postalFeePercent",PostalFeeFixed:"postalFeeFixed",
+      LogoUrl:"logoUrl",ColorPrimary:"brandPrimary",ColorSecondary:"brandSecondary",Notes:"notes"
+    };
+    for(const [suffix,key] of Object.entries(fields)){
+      const input=$("#wl"+suffix);if(input)input.value=carrier[key]??"";
+    }
+    $("#whiteLabelFormTitle").textContent="Editar "+carrier.brandName;
+    $("#saveWhiteLabelBtn").textContent="Salvar alterações";
+    $("#cancelWhiteLabelEditBtn")?.classList.remove("hidden");
+    $("#whiteLabelForm")?.scrollIntoView({behavior:"smooth",block:"start"});
+    $("#wlBrandName")?.focus({preventScroll:true});
+  }));
+}
+async function loadWhiteLabels(){
+  if(state.user?.role!=="ADMIN")return;
+  const host=$("#whiteLabelsList");
+  try{
+    const response=await api("/api/admin/white-label-carriers");
+    state.whiteLabelCarriers=Array.isArray(response.carriers)?response.carriers:[];
+    renderWhiteLabels();
+  }catch(error){
+    if(host)host.innerHTML='<div class="empty-state">Não foi possível consultar White Label: '+escapeHtml(error.message)+'</div>';
+  }
+}
+$("#refreshWhiteLabelsBtn")?.addEventListener("click",loadWhiteLabels);
+$("#cancelWhiteLabelEditBtn")?.addEventListener("click",resetWhiteLabelForm);
+$("#whiteLabelForm")?.addEventListener("submit",async event=>{
+  event.preventDefault();
+  if(state.user?.role!=="ADMIN")return toast("Cadastro exclusivo do MASTER.","error");
+  const value=suffix=>String($("#wl"+suffix)?.value||"").trim();
+  const payload={
+    code:value("Code"),brandName:value("BrandName"),legalName:value("LegalName"),
+    cnpj:value("Cnpj"),adminName:value("AdminName"),adminEmail:value("AdminEmail"),
+    adminPhone:value("AdminPhone"),baseCity:value("BaseCity"),baseState:value("BaseState"),
+    asaasWalletId:value("AsaasWallet"),postalFeePercent:Number(value("PostalFeePercent")||0),
+    postalFeeFixed:Number(value("PostalFeeFixed")||0),logoUrl:value("LogoUrl"),
+    brandPrimary:value("ColorPrimary"),brandSecondary:value("ColorSecondary"),notes:value("Notes")
+  };
+  if(payload.postalFeePercent<=0 && payload.postalFeeFixed<=0){
+    return toast("Defina uma remuneração Postal maior que zero.","error");
+  }
+  const editing=state.editingWhiteLabelId;
+  const btn=$("#saveWhiteLabelBtn"),oldText=btn.textContent;
+  btn.disabled=true;btn.textContent="Salvando cadastro...";
+  try{
+    const result=await api(editing?"/api/admin/white-label-carriers/"+encodeURIComponent(editing):"/api/admin/white-label-carriers",{
+      method:editing?"PATCH":"POST",body:JSON.stringify(payload)
+    });
+    resetWhiteLabelForm();
+    toast(result.message||"Transportadora White Label salva.");
+    await loadWhiteLabels();
+  }catch(error){toast(error.message||"Não foi possível salvar a transportadora.","error");}
+  finally{btn.disabled=false;if(!state.editingWhiteLabelId)btn.textContent="Cadastrar White Label";else btn.textContent=oldText;}
+});
 
 $("#refreshGoLiveBtn")?.addEventListener("click",loadMaster);
 $("#refreshMasterBtn")?.addEventListener("click",loadMaster);

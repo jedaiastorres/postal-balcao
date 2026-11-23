@@ -48,6 +48,33 @@ async function initDb() {
 
     ALTER TABLE stores ADD COLUMN IF NOT EXISTS unit_type TEXT NOT NULL DEFAULT 'POINT';
 
+    /* Cadastro comercial separado de pontos: nenhuma operação White Label é ativada aqui. */
+    CREATE TABLE IF NOT EXISTS white_label_carriers (
+      id UUID PRIMARY KEY,
+      code TEXT NOT NULL UNIQUE,
+      brand_name TEXT NOT NULL,
+      legal_name TEXT NOT NULL DEFAULT '',
+      cnpj TEXT NOT NULL UNIQUE,
+      admin_name TEXT NOT NULL,
+      admin_email TEXT NOT NULL,
+      admin_phone TEXT NOT NULL,
+      base_city TEXT NOT NULL,
+      base_state CHAR(2) NOT NULL,
+      asaas_wallet_id TEXT,
+      postal_fee_percent NUMERIC(6,2) NOT NULL DEFAULT 0 CHECK (postal_fee_percent BETWEEN 0 AND 50),
+      postal_fee_fixed NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (postal_fee_fixed BETWEEN 0 AND 10000),
+      logo_url TEXT NOT NULL DEFAULT '',
+      brand_primary TEXT NOT NULL DEFAULT '#d7083b',
+      brand_secondary TEXT NOT NULL DEFAULT '#222638',
+      notes TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'DRAFT' CHECK (status = 'DRAFT'),
+      created_by UUID,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT white_label_postal_fee_required CHECK (postal_fee_percent > 0 OR postal_fee_fixed > 0)
+    );
+    CREATE INDEX IF NOT EXISTS white_label_carriers_created_idx ON white_label_carriers(created_at DESC);
+
     CREATE TABLE IF NOT EXISTS app_users (
       id UUID PRIMARY KEY,
       store_id UUID REFERENCES stores(id) ON DELETE SET NULL,
@@ -1195,6 +1222,52 @@ async function touchUserLogin(id) {
   await db.query("UPDATE app_users SET last_login_at=NOW(),updated_at=NOW() WHERE id=$1",[id]);
 }
 
+async function listWhiteLabelCarriers(){
+  const {rows}=await requireDb().query(
+    "SELECT * FROM white_label_carriers ORDER BY created_at DESC,id"
+  );
+  return rows;
+}
+async function getWhiteLabelCarrier(id){
+  const {rows}=await requireDb().query(
+    "SELECT * FROM white_label_carriers WHERE id=$1 LIMIT 1",[id]
+  );
+  return rows[0]||null;
+}
+async function createWhiteLabelCarrier(carrier,adminUserId){
+  const {rows}=await requireDb().query(
+    `INSERT INTO white_label_carriers (
+       id,code,brand_name,legal_name,cnpj,admin_name,admin_email,admin_phone,
+       base_city,base_state,asaas_wallet_id,postal_fee_percent,postal_fee_fixed,
+       logo_url,brand_primary,brand_secondary,notes,status,created_by
+     ) VALUES (
+       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'DRAFT',$18
+     ) RETURNING *`,
+    [require("crypto").randomUUID(),carrier.code,carrier.brandName,carrier.legalName,carrier.cnpj,
+     carrier.adminName,carrier.adminEmail,carrier.adminPhone,carrier.baseCity,carrier.baseState,
+     carrier.asaasWalletId||null,carrier.postalFeePercent,carrier.postalFeeFixed,carrier.logoUrl,
+     carrier.brandPrimary,carrier.brandSecondary,carrier.notes,adminUserId||null]
+  );
+  return rows[0];
+}
+async function updateWhiteLabelCarrier(id,carrier){
+  const {rows}=await requireDb().query(
+    `UPDATE white_label_carriers SET
+       code=$2,brand_name=$3,legal_name=$4,cnpj=$5,
+       admin_name=$6,admin_email=$7,admin_phone=$8,
+       base_city=$9,base_state=$10,asaas_wallet_id=$11,
+       postal_fee_percent=$12,postal_fee_fixed=$13,
+       logo_url=$14,brand_primary=$15,brand_secondary=$16,notes=$17,
+       updated_at=NOW()
+     WHERE id=$1 AND status='DRAFT' RETURNING *`,
+    [id,carrier.code,carrier.brandName,carrier.legalName,carrier.cnpj,
+     carrier.adminName,carrier.adminEmail,carrier.adminPhone,carrier.baseCity,carrier.baseState,
+     carrier.asaasWalletId||null,carrier.postalFeePercent,carrier.postalFeeFixed,carrier.logoUrl,
+     carrier.brandPrimary,carrier.brandSecondary,carrier.notes]
+  );
+  return rows[0]||null;
+}
+
 async function createStore(store) {
   const db = requireDb();
   const id = store.id || require("crypto").randomUUID();
@@ -1698,6 +1771,10 @@ module.exports = {
   deleteUser,
   listStoreUsers,
   touchUserLogin,
+  listWhiteLabelCarriers,
+  getWhiteLabelCarrier,
+  createWhiteLabelCarrier,
+  updateWhiteLabelCarrier,
   createStore,
   updateStore,
   getStore,

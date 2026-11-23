@@ -2,7 +2,7 @@
 const crypto=require('node:crypto');
 const expectedScope={project:'c81472ed-1eb0-4ef9-890d-291f3621d971',environment:'c275bd66-38a7-4b28-a6dd-c844b3170642',service:'ba5581ad-014e-42bb-b5a3-65082906aa49'};
 // Reference product definitions stay available; only operational/customer data is cleared.
-const referenceTables=['catalog_items','credit_partners','credit_products','postal_route_tariffs'];
+const referenceTables=['catalog_items','credit_partners','credit_products','postal_route_tariffs','white_label_carriers'];
 const clearTables=['payment_webhook_events','custody_scans','postal_operating_costs','order_events','order_addons','point_earnings','collection_requests','ecommerce_orders','ecommerce_connections','wallet_transactions','wallet_topups','quote_shares','customer_saved_addresses','customer_accounts','credit_proposals','inventory_movements','partner_inventory','freight_orders','partner_accounts','audit_logs','stores'];
 const allTables=[...clearTables,...referenceTables,'app_users'];
 function check(condition,message){if(!condition)throw Error(message);}
