@@ -1,5 +1,6 @@
 const $ = s => document.querySelector(s);
-const escapeHtml = value => String(value ?? "")
+const neutralDisplay = value => String(value ?? "").replace(/conect\s*envios/gi, "plataforma logística");
+const escapeHtml = value => neutralDisplay(value)
   .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
   .replaceAll('"',"&quot;").replaceAll("'","&#039;");
 
@@ -17,13 +18,13 @@ function dateLabel(value){
   return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString("pt-BR",{timeZone:"America/Belem"});
 }
 function showError(message){
-  $("#errorBox").textContent=message;
+  $("#errorBox").textContent=neutralDisplay(message);
   $("#errorBox").classList.remove("hidden");
   $("#trackingResult").classList.add("hidden");
 }
 function clearError(){ $("#errorBox").classList.add("hidden"); }
 function showCarrier(carrier){
-  const name=String(carrier||"").trim()||"Postal Serviços";
+  const name=neutralDisplay(carrier).trim()||"Postal Serviços";
   const isPartner=Boolean(String(carrier||"").trim());
   $("#carrierHeading").textContent=isPartner?"Transportadora do envio":"Operação";
   $("#carrierName").textContent=name;
@@ -55,7 +56,7 @@ async function track(code){
     $("#trackingDisplay").textContent=data.trackingCode||clean;
     $("#statusLabel").innerHTML='<i class="dot"></i>'+escapeHtml(data.statusLabel||"Em acompanhamento");
     showCarrier(data.carrier);
-    $("#service").textContent=data.service||"Entrega";
+    $("#service").textContent=neutralDisplay(data.service||"Entrega");
     $("#senderName").textContent=data.sender?.name||"—";
     $("#recipientName").textContent=data.recipient?.name||"—";
     const recipientAddress=[data.recipient?.address,data.recipient?.number,data.recipient?.complement,data.recipient?.neighborhood,data.recipient?.city,data.recipient?.cep?formatCep(data.recipient.cep):""].filter(Boolean).join(", ");
