@@ -4350,11 +4350,14 @@ app.put("/api/admin/catalog/:code", requireAuth, requireRole("ADMIN"), async (re
     const name=String(body.name||"").trim();
     const code=String(req.params.code||"").trim().toUpperCase();
     if(!name||!code||!["PRODUCT","SERVICE"].includes(itemType)) return res.status(400).json({error:"Código, nome e tipo válidos são obrigatórios."});
+    const unitPrice=Number(body.unitPrice);
+    const costPrice=Number(body.costPrice ?? 0);
+    if(!Number.isFinite(unitPrice)||unitPrice<0||!Number.isFinite(costPrice)||costPrice<0) return res.status(400).json({error:"Custos e preços devem ser valores não negativos."});
     const shares=[Number(body.pointSharePercent||0),Number(body.postalSharePercent||0),Number(body.providerSharePercent||0)];
     if(shares.some(v=>!Number.isFinite(v)||v<0)||shares.reduce((a,b)=>a+b,0)>100.0001) return res.status(400).json({error:"Divisão financeira inválida."});
     const item=await db.upsertCatalogItem({
       code,itemType,category:String(body.category||"OUTROS").toUpperCase(),name,description:body.description||"",
-      unitPrice:Number(body.unitPrice||0),costPrice:Number(body.costPrice||0),trackStock:Boolean(body.trackStock),
+      unitPrice,costPrice,trackStock:itemType==="PRODUCT"&&Boolean(body.trackStock),
       pointSharePercent:shares[0],postalSharePercent:shares[1],providerSharePercent:shares[2],
       externalProvider:body.externalProvider||null,externalRef:body.externalRef||null,active:body.active!==false,metadata:body.metadata||{}
     });
@@ -4570,7 +4573,7 @@ app.post("/api/prazo", requireAuth, async (req, res) => {
 app.get("/api/catalog", requireAuth, async (req, res) => {
   try {
     const items = await db.getPartnerCatalog(inventoryOwner(req.user));
-    const salesOnly = req.user.role === "STORE_CLERK";
+    const salesOnly = req.user.role !== "ADMIN";
     res.json({
       items: items.map(item => {
         const saleItem = {
@@ -4660,7 +4663,7 @@ app.get("/api/inventory", requireAuth, requireRole("ADMIN","STORE_OWNER","OPS"),
         reservedQuantity: Number(item.reserved_quantity || 0),
         availableQuantity: Number(item.available_quantity || 0),
         minQuantity: Number(item.min_quantity || 0),
-        averageCost: Number(item.average_cost || 0)
+        ...(req.user.role === "ADMIN" ? { averageCost: Number(item.cost_price || 0) } : {})
       }))
     });
   } catch (error) {
@@ -4673,20 +4676,13 @@ app.post("/api/inventory/receive", requireAuth, requireRole("ADMIN","STORE_OWNER
   try {
     const code = String(req.body.code || "").trim();
     const quantity = Number(req.body.quantity || 0);
-    const requestedSalePrice = req.body.salePrice === "" || req.body.salePrice == null ? null : Number(req.body.salePrice);
-    if (req.user.role !== "ADMIN" && requestedSalePrice != null) {
-      return res.status(403).json({ error: "Preço e margem são definidos exclusivamente pelo Painel Master." });
+    if (Object.hasOwn(req.body || {}, "salePrice") || Object.hasOwn(req.body || {}, "unitCost")) {
+      return res.status(403).json({ error: "Custos e preços são configurados exclusivamente no catálogo MASTER." });
     }
-    const salePrice = req.user.role === "ADMIN" ? requestedSalePrice : null;
-    const unitCost = Math.max(0, Number(req.body.unitCost || 0));
     const lotCode = String(req.body.lotCode || "").trim();
     if (!code || !Number.isFinite(quantity) || quantity <= 0) {
       return res.status(400).json({ error: "Informe produto e quantidade válida." });
     }
-    if (salePrice != null && (!Number.isFinite(salePrice) || salePrice < 0)) {
-      return res.status(400).json({ error: "Preço de venda inválido." });
-    }
-
     const item = await db.getCatalogItemByCode(code);
     if (!item || !item.active) return res.status(404).json({ error: "Produto não encontrado." });
     if (!item.track_stock) return res.status(400).json({ error: "Este item não controla estoque físico." });
@@ -4696,8 +4692,8 @@ app.post("/api/inventory/receive", requireAuth, requireRole("ADMIN","STORE_OWNER
       item.id,
       quantity,
       String(req.body.note || "Recebimento pelo ponto"),
-      salePrice,
-      unitCost,
+      null,
+      Number(item.cost_price || 0),
       lotCode || null
     );
     await audit(req,"INVENTORY_RECEIVE","CATALOG_ITEM",item.id,{code:item.code,quantity,lotCode:lotCode||null});
@@ -4713,11 +4709,9 @@ app.post("/api/inventory/adjust", requireAuth, requireRole("ADMIN","STORE_OWNER"
     const code = String(req.body.code || "").trim();
     const quantity = Number(req.body.quantity || 0);
     const minQuantity = Math.max(0, Number(req.body.minQuantity || 0));
-    const requestedSalePrice = req.body.salePrice === "" || req.body.salePrice == null ? null : Number(req.body.salePrice);
-    if (req.user.role !== "ADMIN" && requestedSalePrice != null) {
-      return res.status(403).json({ error: "Preço e margem são definidos exclusivamente pelo Painel Master." });
+    if (Object.hasOwn(req.body || {}, "salePrice") || Object.hasOwn(req.body || {}, "unitCost")) {
+      return res.status(403).json({ error: "Custos e preços são configurados exclusivamente no catálogo MASTER." });
     }
-    const salePrice = req.user.role === "ADMIN" ? requestedSalePrice : null;
     if (!code || !Number.isFinite(quantity) || quantity < 0) {
       return res.status(400).json({ error: "Informe produto e estoque atual válido." });
     }
@@ -4732,7 +4726,7 @@ app.post("/api/inventory/adjust", requireAuth, requireRole("ADMIN","STORE_OWNER"
       quantity,
       minQuantity,
       String(req.body.note || "Ajuste pelo ponto"),
-      salePrice
+      null
     );
     await audit(req,"INVENTORY_ADJUST","CATALOG_ITEM",item.id,{code:item.code,quantity,minQuantity});
     res.json({ ok: true, inventory });
@@ -4747,7 +4741,7 @@ app.get("/api/inventory/movements", requireAuth, requireRole("ADMIN","STORE_OWNE
     const movements=await db.listInventoryMovements(inventoryOwner(req.user),Number(req.query.limit||100));
     res.json({movements:movements.map(m=>({
       id:m.id,code:m.code,name:m.name,movementType:m.movement_type,
-      quantity:Number(m.quantity||0),lotCode:m.lot_code||"",unitCost:Number(m.unit_cost||0),
+      quantity:Number(m.quantity||0),lotCode:m.lot_code||"",...(req.user.role==="ADMIN" ? { unitCost:Number(m.unit_cost||0) } : {}),
       note:m.note||"",referenceType:m.reference_type||"",referenceId:m.reference_id||"",
       createdAt:m.created_at
     }))});
@@ -4817,6 +4811,9 @@ app.post("/api/integrations/v1/inventory/receive", requireIntegrationAuth, async
     if (!partnerEmail || !code || !Number.isFinite(quantity) || quantity <= 0) {
       return res.status(400).json({ error: "partnerEmail, code e quantity são obrigatórios." });
     }
+    if (Object.hasOwn(req.body||{}, "salePrice") || Object.hasOwn(req.body||{}, "unitCost")) {
+      return res.status(403).json({error:"Custos e preços são definidos no catálogo MASTER."});
+    }
     const item = await db.getCatalogItemByCode(code);
     if (!item || !item.track_stock) return res.status(404).json({ error: "Produto de estoque não encontrado." });
     const inventory = await db.receiveInventory(
@@ -4824,7 +4821,8 @@ app.post("/api/integrations/v1/inventory/receive", requireIntegrationAuth, async
       item.id,
       quantity,
       String(req.body.note || "Recebimento via integração"),
-      req.body.salePrice == null ? null : Number(req.body.salePrice)
+      null,
+      Number(item.cost_price || 0)
     );
     res.json({ ok: true, version: "v1", inventory });
   } catch (error) {
