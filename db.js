@@ -675,7 +675,10 @@ async function listProviderPaymentRetryCandidates(limit = 20) {
        FROM freight_orders f
       WHERE f.payment_status='PAID'
         AND f.status IN ('PAID_WAITING_SHIPMENT','PAYMENT_CONFIRMED','SHIPMENT_ERROR','PROVIDER_PAYMENT_PENDING')
-        AND f.provider_payment_status IN ('PENDING','AWAITING_FUNDS','ERROR')
+        AND (
+          f.provider_payment_status='AWAITING_FUNDS'
+          OR (f.provider_payment_status='PENDING' AND f.provider_payment_attempts=0)
+        )
         AND f.conect_cart_id IS NULL
         AND f.conect_package_id IS NULL
         AND f.provider_payment_attempts < 20
