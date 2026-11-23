@@ -1493,7 +1493,8 @@ function publicOrder(order) {
     labelA4Url: order.label_a4_url || "",
     labelA6Url: order.label_a6_url || "",
     declarationUrl: order.declaration_url || "",
-    publicTrackingUrl: order.public_tracking_url || "",
+    // Nunca expor URL de rastreamento do prestador, inclusive em pedidos antigos.
+    publicTrackingUrl: order.tracking_code ? "/rastreio?codigo="+encodeURIComponent(String(order.tracking_code).trim()) : "",
     shipmentVolumes: Array.isArray(order.shipment_volumes) ? order.shipment_volumes.map(v => ({
       index:Number(v.index || 0),
       packageId:v.packageId || null,
@@ -1501,7 +1502,7 @@ function publicOrder(order) {
       labelA4Url:v.labelA4Url || "",
       labelA6Url:v.labelA6Url || "",
       declarationUrl:v.declarationUrl || "",
-      publicTrackingUrl:postalTrackingUrl(v.trackingCode || v.tracking_code || "")
+      publicTrackingUrl:(v.trackingCode || v.tracking_code) ? "/rastreio?codigo="+encodeURIComponent(String(v.trackingCode || v.tracking_code).trim()) : ""
     })) : [],
     providerPaymentStatus: order.provider_payment_status || "PENDING",
     providerPaymentRef: order.provider_payment_ref || "",

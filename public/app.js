@@ -1311,7 +1311,7 @@ function buildReceiptHtml(data) {
   const trackingCodes = Array.isArray(data.trackingCodes) && data.trackingCodes.length
     ? data.trackingCodes.filter(Boolean)
     : [data.trackingCode].filter(Boolean);
-  const trackingUrl = data.publicTrackingUrl ? `<div class="tiny">${escapeHtml(data.publicTrackingUrl)}</div>` : "";
+  const trackingUrl = data.trackingCode && !data.preview ? `<div class="tiny">${escapeHtml(postalTrackingPath(data.trackingCode))}</div>` : "";
   const trackingBlock = trackingCodes.length > 1
     ? `<div class="label">${trackingCodes.length} códigos de rastreio</div>${trackingCodes.map((code,index)=>`<div class="row"><span>Volume ${index+1}</span><b class="tiny">${escapeHtml(code)}</b></div>`).join("")}`
     : `<div class="label">Código de rastreio</div><div class="tracking">${escapeHtml(trackingCodes[0] || "AGUARDANDO")}</div>${trackingUrl}`;
@@ -1491,6 +1491,12 @@ function paymentMethodLabel(method) {
   return ({ PIX: "PIX", CARTAO: "Cartão", DINHEIRO: "Dinheiro", SALDO: "Saldo Postal" })[method] || method || "-";
 }
 
+function postalTrackingPath(trackingCode) {
+  const code=String(trackingCode||"").trim();
+  if(!/^[A-Za-z0-9]{6,40}$/.test(code))return "/rastreio";
+  return "/rastreio?codigo="+encodeURIComponent(code);
+}
+
 function receiptPayloadFromOrder(order) {
   const p = order.packageData || {};
   const volumes = Array.isArray(p.volumes) && p.volumes.length ? p.volumes : [{
@@ -1521,7 +1527,7 @@ function receiptPayloadFromOrder(order) {
     paymentStatus: order.paymentStatus || "",
     trackingCode: order.trackingCode || trackingCodes[0] || "",
     trackingCodes,
-    publicTrackingUrl: order.publicTrackingUrl || "",
+    publicTrackingUrl: postalTrackingPath(order.trackingCode || trackingCodes[0] || ""),
     cartId: "", packageId: "",
     carrier: order.carrier || "",
     service: order.serviceName || "",
@@ -1823,7 +1829,7 @@ function renderOrders() {
 
     if (order.trackingCode && !order.isSimulation) {
       const trackBtn=document.createElement("button"); trackBtn.className="ghost"; trackBtn.type="button"; trackBtn.textContent="Rastrear";
-      trackBtn.addEventListener("click",()=>window.open(order.publicTrackingUrl || ("/rastreio?codigo="+encodeURIComponent(order.trackingCode)),"_blank"));
+      trackBtn.addEventListener("click",()=>window.open(postalTrackingPath(order.trackingCode),"_blank","noopener,noreferrer"));
       actions.appendChild(trackBtn);
     }
 
