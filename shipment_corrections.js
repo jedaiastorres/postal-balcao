@@ -44,6 +44,9 @@ function canRetryShipment(order) {
       order.is_simulation || !RETRY_STATUSES.has(String(order.status))) return false;
   if (order.conect_cart_id || order.conect_package_id) return true;
   const providerStatus=String(order.provider_payment_status||"").toUpperCase();
+  if(providerStatus==="REJECTED_INPUT" &&
+     /servi[cç]o selecionado|servi[cç]o postal|valor da declara[cç][aã]o|documento fiscal/i.test(
+       String(order.provider_payment_last_error||"").toLowerCase())) return false;
   return ["AWAITING_FUNDS","REJECTED_INPUT"].includes(providerStatus) ||
     Number(order.provider_payment_attempts||0)===0;
 }
@@ -82,6 +85,14 @@ function correctedParty(previous, submitted, label) {
 
 function providerErrorSummary(input) {
   const raw=String(input||"").toLowerCase();
+  const invalidService=/postal_service_name|servi[cç]o postal.*inv[aá]lid|nome do servi[cç]o postal|servi[cç]o selecionado|mapeamento do servi[cç]o/i.test(raw);
+  const invalidDeclaration=/declaration|declara[cç][aã]o|valor em r\$|valor declarado/i.test(raw);
+  if (invalidService && invalidDeclaration)
+    return "A integração recusou o serviço selecionado e o valor da declaração. O cadastro do cliente não resolve isso; é necessária correção da integração ConectEnvios.";
+  if (invalidService)
+    return "O serviço postal selecionado foi rejeitado pela ConectEnvios. Revise o mapeamento do serviço antes da emissão.";
+  if (invalidDeclaration)
+    return "O valor da declaração de conteúdo foi rejeitado. Não altere o valor real sem confirmar a regra da transportadora.";
   if (/cpfcnpj|cpf\/cnpj|cpf|cnpj|documento|document/.test(raw))
     return "Documento rejeitado. Confira o CPF/CNPJ do remetente e destinatário.";
   if (/logradouro|endereço|endereco|bairro|neighborhood|street|address/.test(raw))
