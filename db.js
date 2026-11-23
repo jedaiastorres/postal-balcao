@@ -492,6 +492,25 @@ async function listOrders(partnerEmail, limit = 100) {
   return listOrdersScoped({ partnerEmail }, limit);
 }
 
+// Só corrige cadastro de pedidos sem envio remoto confirmado: jamais altera preço ou pagamento.
+async function updateOrderShippingParties(id, scope, sender, recipient) {
+  const storeId=scope?.storeId||null;
+  const {rows}=await requireDb().query(`
+    UPDATE freight_orders SET
+      sender=$3::jsonb, recipient=$4::jsonb, updated_at=NOW()
+    WHERE id=$1
+      AND ($2::uuid IS NULL OR store_id=$2::uuid)
+      AND status IN ('SHIPMENT_ERROR','PROVIDER_PAYMENT_PENDING','PAYMENT_SETUP_PENDING','PARTNER_FINANCIAL_SETUP_REQUIRED')
+      AND conect_cart_id IS NULL AND conect_package_id IS NULL
+      AND tracking_code IS NULL AND shipped_at IS NULL
+      AND NULLIF(label_a4_url,'') IS NULL
+      AND NULLIF(label_a6_url,'') IS NULL
+      AND COALESCE(provider_payment_status,'') <> 'PROCESSING'
+    RETURNING id,store_id,status,updated_at
+  `,[id,storeId,JSON.stringify(sender),JSON.stringify(recipient)]);
+  return rows[0]||null;
+}
+
 async function getOrder(id, scope = null) {
   const db = requireDb();
   const params = [id];
@@ -1650,6 +1669,7 @@ module.exports = {
   setCheckout,
   markPaid,
   updateStatus,
+  updateOrderShippingParties,
   updateProviderPayment,
   listProviderPaymentRetryCandidates,
   listProviderConfirmationCandidates,

@@ -14,6 +14,7 @@ const state = {
   currentQuote: null,
   selectedOption: null,
   shipmentResult: null,
+  editingOrderId: null,
   fiscalDocument: null,
   orders: [],
   catalog: [],
@@ -1591,10 +1592,13 @@ function openOrderDetails(order) {
     <div class="detail-party"><h4>Remetente</h4><b>${escapeHtml(order.sender?.name||"")}</b><span>${escapeHtml(addressText(order.sender||{}))}</span></div>
     <div class="detail-party"><h4>Destinatário</h4><b>${escapeHtml(order.recipient?.name||"")}</b><span>${escapeHtml(addressText(order.recipient||{}))}</span></div>
     ${addons.length ? `<div class="detail-section"><h4>Produtos e serviços</h4>${addons.map(a=>`<div class="detail-line"><span>${escapeHtml(a.itemName)} ×${Number(a.quantity)}</span><b>${money(a.totalPrice)}</b></div>`).join("")}</div>` : ""}
+    ${order.providerPaymentLastError ? `<div class="payment-method-note"><strong>Diagnóstico da emissão:</strong> ${escapeHtml(order.providerPaymentLastError)}</div>` : ""}
+    ${order.canEditShippingDetails ? `<div class="order-actions"><button type="button" class="primary" id="editFromDetailsBtn">Editar dados deste frete</button></div>` : ""}
     <div class="detail-section"><h4>Linha do tempo</h4>
       <div class="order-timeline">${events.length ? events.map(e=>`<div class="timeline-event"><i></i><div><b>${escapeHtml(e.title)}</b><span>${escapeHtml(e.detail||"")}</span><small>${new Date(e.createdAt).toLocaleString("pt-BR")}</small></div></div>`).join("") : '<div class="empty-state">Sem eventos registrados.</div>'}</div>
     </div>`;
   modal.classList.remove("hidden");
+  $("#editFromDetailsBtn")?.addEventListener("click",()=>openOrderEditor(order));
 }
 
 async function reprocessOrderShipment(orderId, button) {
@@ -1617,6 +1621,53 @@ async function reprocessOrderShipment(orderId, button) {
   }
 }
 
+const editablePartyFields=["Name","Document","Phone","Email","Address","Number","Neighborhood","Complement","City"];
+const editablePartyKeys=["name","document","phone","email","address","number","neighborhood","complement","city"];
+function closeOrderEditor(){
+  $("#editOrderModal")?.classList.add("hidden");
+  state.editingOrderId=null;
+}
+function openOrderEditor(order){
+  if(!order?.canEditShippingDetails){
+    return toast("A edição está bloqueada: a transportadora já pode ter registrado esta postagem.","error");
+  }
+  state.editingOrderId=order.id;
+  $("#editOrderTitle").textContent="Corrigir pedido #"+String(order.id||"").slice(0,8).toUpperCase();
+  for(const [label,party] of [["Sender",order.sender||{}],["Recipient",order.recipient||{}]]){
+    editablePartyFields.forEach((field,index)=>{
+      const input=$("#edit"+label+field);
+      if(input)input.value=String(party[editablePartyKeys[index]]||"");
+    });
+  }
+  $("#orderDetailModal")?.classList.add("hidden");
+  $("#editOrderModal")?.classList.remove("hidden");
+  $("#editSenderName")?.focus();
+}
+$("#closeEditOrderBtn")?.addEventListener("click",closeOrderEditor);
+$("#cancelEditOrderBtn")?.addEventListener("click",closeOrderEditor);
+$("#editOrderModal")?.addEventListener("click",event=>{
+  if(event.target.id==="editOrderModal")closeOrderEditor();
+});
+$("#editOrderForm")?.addEventListener("submit",async event=>{
+  event.preventDefault();
+  const orderId=state.editingOrderId;
+  if(!orderId)return;
+  const btn=$("#saveEditOrderBtn"),original=btn.textContent;
+  btn.disabled=true;btn.textContent="Salvando...";
+  const party=prefix=>Object.fromEntries(editablePartyFields.map((field,index)=>[
+    editablePartyKeys[index],String($("#edit"+prefix+field)?.value||"").trim()
+  ]));
+  try{
+    const result=await api("/api/orders/"+encodeURIComponent(orderId)+"/shipping-details",{
+      method:"PATCH",body:JSON.stringify({sender:party("Sender"),recipient:party("Recipient")})
+    });
+    closeOrderEditor();
+    toast(result.message||"Dados atualizados no pedido original.");
+    await loadOrders();
+  }catch(error){toast(error.message||"Não foi possível corrigir os dados.","error");}
+  finally{btn.disabled=false;btn.textContent=original;}
+});
+
 function renderOrders() {
   const host = $("#ordersList");
   if (!host) return;
@@ -1629,6 +1680,7 @@ function renderOrders() {
   $("#ordersReadyCount").textContent = allOrders.filter(o => ["LABEL_AVAILABLE","LABEL_AVAILABLE_SIMULATED"].includes(o.status)).length;
   const clientOrdersMode = state.user?.role === "CLIENT";
   const clerkMode = state.user?.role === "STORE_CLERK";
+  const canManagePostage=["ADMIN","STORE_OWNER","STORE_CLERK"].includes(state.user?.role);
   const financialSummaryTile = document.querySelector("#ordersView .orders-summary > div:nth-child(3)");
   financialSummaryTile?.classList.toggle("hidden", clerkMode);
   const summaryLabel = document.querySelector("#ordersView .orders-summary > div:nth-child(3) span");
@@ -1668,7 +1720,7 @@ function renderOrders() {
         <div><span>${Number(order.packageCount||1)>1?"Volumes":"Rastreio"}</span><strong>${Number(order.packageCount||1)>1?Number(order.packageCount):escapeHtml(order.trackingCode || "—")}</strong></div>
       </div>
       ${order.addons?.length ? `<div class="order-addons"><strong>Adicionais:</strong> ${order.addons.map(a => `${escapeHtml(a.itemName)} ×${Number(a.quantity)} (${money(a.totalPrice)})`).join(" · ")}</div>` : ""}
-      <div class="order-bottom"><span>${escapeHtml(description)}</span><div class="order-actions"></div></div>`;
+      <div class="order-bottom"><span>${escapeHtml(description)}${order.providerPaymentLastError?" · "+escapeHtml(order.providerPaymentLastError):""}</span><div class="order-actions"></div></div>`;
     const actions = card.querySelector(".order-actions");
 
     if (!clerkMode && order.status === "CASH_REMITTANCE_PENDING") {
@@ -1688,8 +1740,7 @@ function renderOrders() {
       btn.addEventListener("click",()=>{window.location.href=order.paymentCheckoutUrl;}); actions.appendChild(btn);
     }
 
-    if (order.paymentStatus === "PAID" && !order.isSimulation &&
-        ["SHIPMENT_ERROR","PROVIDER_PAYMENT_PENDING","PAID_WAITING_SHIPMENT","PAYMENT_CONFIRMED"].includes(order.status)) {
+    if (canManagePostage && order.canReprocessShipment) {
       const retryBtn=document.createElement("button");
       retryBtn.className="primary"; retryBtn.type="button";
       retryBtn.textContent="Reprocessar emissão";
@@ -1697,6 +1748,11 @@ function renderOrders() {
       actions.appendChild(retryBtn);
     }
 
+    if (canManagePostage && order.canEditShippingDetails) {
+      const editBtn=document.createElement("button");
+      editBtn.className="ghost";editBtn.type="button";editBtn.textContent="Editar dados";
+      editBtn.addEventListener("click",()=>openOrderEditor(order));actions.appendChild(editBtn);
+    }
     if (order.status === "LABEL_AVAILABLE") {
       const labelBtn=document.createElement("button"); labelBtn.className="primary"; labelBtn.type="button"; labelBtn.textContent=Number(order.packageCount||1)>1?`Imprimir ${Number(order.packageCount)} etiquetas`:"Imprimir etiqueta A6";
       labelBtn.addEventListener("click",()=>openOrderLabels(order)); actions.appendChild(labelBtn);

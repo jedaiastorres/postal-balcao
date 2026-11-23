@@ -19,6 +19,7 @@ const publicPoints = require("./public_points");
 const publicQuote = require("./public_quote");
 const custody = require("./custody");
 const quotePricing = require("./quote_pricing");
+const shipmentCorrections = require("./shipment_corrections");
 const operationalMetrics = require("./operational_metrics");
 const postalOperations = require("./postal_operations");
 const postalRegional = require("./postal_regional");
@@ -1384,8 +1385,9 @@ async function createShipmentFromOrderUnlocked(order) {
       timeout: 45000
     });
   } catch (error) {
-    const failureStatus=providerPaymentFailureStatus(error);
-    const detail=providerFailureText(error).slice(0,1000);
+    const failureStatus=providerPaymentFailureStatus(error)==="AWAITING_FUNDS"?"AWAITING_FUNDS":([400,422].includes(Number(error.status))?"REJECTED_INPUT":"ERROR");
+    const detail=(shipmentCorrections.providerErrorSummary(providerFailureText(error))+(error.status?" (HTTP "+Number(error.status)+")":"")).slice(0,1000);
+    console.error("provider cart failure:",{orderId:order.id,httpStatus:Number(error.status)||null,reason:detail});
     await db.updateProviderPayment(order.id,{status:failureStatus,error:detail});
     await db.updateStatus(order.id,"PROVIDER_PAYMENT_PENDING","PAID");
     await db.addOrderEvent(
@@ -1402,7 +1404,7 @@ async function createShipmentFromOrderUnlocked(order) {
     const err = new Error(providerFailureText({providerData:providerPayload}) || "A ConectEnvios recusou a postagem.");
     err.providerData = providerPayload;
     const failureStatus=providerPaymentFailureStatus(err);
-    await db.updateProviderPayment(order.id,{status:failureStatus,error:providerFailureText(err).slice(0,1000)});
+    await db.updateProviderPayment(order.id,{status:failureStatus,error:shipmentCorrections.providerErrorSummary(providerFailureText(err)).slice(0,1000)});
     await db.updateStatus(order.id,"PROVIDER_PAYMENT_PENDING","PAID");
     throw err;
   }
@@ -1520,7 +1522,9 @@ function publicOrder(order) {
     providerPaymentStatus: order.provider_payment_status || "PENDING",
     providerPaymentRef: order.provider_payment_ref || "",
     providerPaymentAttempts: Number(order.provider_payment_attempts || 0),
-    providerPaymentLastError: order.provider_payment_last_error || "",
+    providerPaymentLastError: shipmentCorrections.providerErrorSummary(order.provider_payment_last_error),
+    canEditShippingDetails: shipmentCorrections.canEditOrder(order),
+    canReprocessShipment: shipmentCorrections.canRetryShipment(order),
     clientUserId: order.client_user_id || null,
     firstMileType: order.first_mile_type || "",
     firstMileFee: Number(order.first_mile_fee || 0),
@@ -1563,11 +1567,14 @@ function validateFreightParties(sender, recipient, items) {
     const label = pair[0];
     const party = pair[1] || {};
     const missing = required.filter(key => !String(party[key] || "").trim());
-    if (missing.length) throw new Error("Preencha os dados obrigatórios do " + label + ".");
+    if (missing.length) throw Object.assign(new Error("Preencha os dados obrigatórios do " + label + "."),{status:400});
+    if (!shipmentCorrections.validDocument(party.document)) {
+      throw Object.assign(new Error("CPF/CNPJ do " + label + " inválido. Corrija os dígitos verificadores."),{status:400});
+    }
   }
   if (!Array.isArray(items) || !items.length) throw new Error("Informe ao menos um item da encomenda.");
   if (items.some(item => !String(item.description || "").trim() || Number(item.quantity) <= 0 || Number(item.value) < 0)) {
-    throw new Error("Revise os itens da encomenda.");
+    throw Object.assign(new Error("Revise os itens da encomenda."),{status:400});
   }
 }
 
@@ -1811,7 +1818,7 @@ async function processAsaasWebhookEvent(eventRow) {
         try {
           await createShipmentFromOrder(paidOrder);
         } catch (shipmentError) {
-          console.error("shipment after payment error:", shipmentError.message);
+          console.error("shipment after payment error:",{orderId:order.id,httpStatus:Number(shipmentError.status)||null,reason:shipmentCorrections.providerErrorSummary(providerFailureText(shipmentError))});
           await db.updateStatus(order.id, "SHIPMENT_ERROR", "PAID");
         }
       }
@@ -4969,6 +4976,38 @@ app.get("/api/ops/scans/:code/photo/:scanId",requireAuth,requireRole(...scannerR
   }catch(error){console.error("delivery photo error",error.message);res.sendStatus(503);}
 });
 
+// Edição restrita da postagem existente: não recria cobrança nem toca no valor pago.
+app.patch("/api/orders/:id/shipping-details",requireAuth,requireRole("ADMIN","STORE_OWNER","STORE_CLERK"),async(req,res)=>{
+  try{
+    const order=await db.getOrder(req.params.id,scopeForUser(req.user));
+    if(!order)return res.status(404).json({error:"Pedido não encontrado nesta unidade."});
+    if(!shipmentCorrections.canEditOrder(order)){
+      return res.status(409).json({error:"Este frete não pode mais ser editado: já há emissão em andamento ou postagem vinculada à transportadora."});
+    }
+    const sender=shipmentCorrections.correctedParty(order.sender,req.body?.sender,"remetente");
+    const recipient=shipmentCorrections.correctedParty(order.recipient,req.body?.recipient,"destinatário");
+    validateFreightParties(sender,recipient,order.items||[]);
+    if(order.package_data?.carrierMode==="POSTAL_OWN" &&
+       (!postalRegional.matchesCity(sender.city,order.package_data?.ownRoute?.originCity) ||
+        !postalRegional.matchesCity(recipient.city,order.package_data?.ownRoute?.destinationCity))) {
+      return res.status(400).json({error:"A cidade deve corresponder à rota já contratada. Para mudar o trajeto, solicite revisão da cotação."});
+    }
+    const changed=await db.updateOrderShippingParties(order.id,scopeForUser(req.user),sender,recipient);
+    if(!changed)return res.status(409).json({error:"O pedido mudou de situação durante a edição; atualize antes de tentar novamente."});
+    await db.addOrderEvent(order.id,"SHIPPING_DETAILS_CORRECTED","Dados cadastrais corrigidos",
+      "Remetente e destinatário revisados. Cotação, pagamento, valores, CEP e volumes preservados.");
+    await audit(req,"EDIT_ORDER_SHIPPING_DETAILS","FREIGHT_ORDER",order.id,{status:order.status});
+    const updated=await db.getOrder(order.id,scopeForUser(req.user));
+    res.json({ok:true,order:publicOrderForUser(updated,req.user),
+      message:shipmentCorrections.canRetryShipment(updated)
+        ?"Dados corrigidos. Você pode solicitar nova emissão sem pagar outra vez."
+        :"Dados corrigidos no pedido original. Emissão anterior exige conferência com a transportadora antes de reprocessar, para evitar duplicidade."});
+  }catch(error){
+    res.status(error.status>=400&&error.status<500?error.status:500)
+      .json({error:error.status?error.message:"Não foi possível salvar as correções. Tente novamente."});
+  }
+});
+
 // Reprocessamento manual: conserva o pedido pago e nunca cria um novo checkout.
 app.post("/api/orders/:id/reprocess-shipment", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_CLERK"), async (req,res)=>{
   try {
@@ -4984,9 +5023,7 @@ app.post("/api/orders/:id/reprocess-shipment", requireAuth, requireRole("ADMIN",
     // Sem identificador remoto, só repetir POST /cart quando o erro foi explicitamente
     // falta de saldo. Em falhas desconhecidas o provedor pode ter criado um carrinho.
     const hasProviderRef=Boolean(order.conect_cart_id || order.conect_package_id);
-    const isKnownFundsFailure=String(order.provider_payment_status||"").toUpperCase()==="AWAITING_FUNDS";
-    const neverAttempted=Number(order.provider_payment_attempts||0)===0;
-    if (!hasProviderRef && !isKnownFundsFailure && !neverAttempted) {
+    if (!shipmentCorrections.canRetryShipment(order)) {
       return res.status(409).json({error:"A emissão anterior não possui confirmação do provedor. É necessária conferência manual para evitar postagem duplicada."});
     }
     const shipment=await createShipmentFromOrder(order);
