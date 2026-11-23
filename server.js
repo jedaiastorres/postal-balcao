@@ -5072,11 +5072,20 @@ app.post("/api/orders/:id/reprocess-shipment", requireAuth, requireRole("ADMIN",
     if (!["SHIPMENT_ERROR","PROVIDER_PAYMENT_PENDING","PAID_WAITING_SHIPMENT","PAYMENT_CONFIRMED","LABEL_AVAILABLE"].includes(order.status)) {
       return res.status(409).json({error:"Este pedido não está aguardando emissão."});
     }
-    // Sem identificador remoto, só repetir POST /cart quando o erro foi explicitamente
-    // falta de saldo. Em falhas desconhecidas o provedor pode ter criado um carrinho.
+    // O mesmo pedido pago é reutilizado. Só tentamos novamente um POST /cart
+    // quando a rejeição HTTP 400/422 é explícita (REJECTED_INPUT), falta saldo
+    // ou nunca houve tentativa; resultado incerto permanece bloqueado.
+    // Se há carrinho remoto, createShipmentFromOrder faz GET no mesmo carrinho.
     const hasProviderRef=Boolean(order.conect_cart_id || order.conect_package_id);
     if (!shipmentCorrections.canRetryShipment(order)) {
-      return res.status(409).json({error:"A emissão anterior não possui confirmação do provedor. É necessária conferência manual para evitar postagem duplicada."});
+      return res.status(409).json({error:"A ConectEnvios não confirmou se a tentativa anterior criou o envio. Confira o pedido na transportadora antes de repetir, para evitar duas postagens."});
+    }
+    const retryStatus=String(order.provider_payment_status||"").toUpperCase();
+    if (retryStatus==="REJECTED_INPUT" && !hasProviderRef) {
+      const lastAttempt=Date.parse(order.provider_payment_updated_at||"");
+      if (Number.isFinite(lastAttempt) && Date.now()-lastAttempt<20000) {
+        return res.status(429).json({error:"Aguarde 20 segundos entre tentativas de emissão do mesmo frete."});
+      }
     }
     const shipment=await createShipmentFromOrder(order);
     const updated=await db.getOrder(order.id,scopeForUser(req.user));
@@ -5090,12 +5099,15 @@ app.post("/api/orders/:id/reprocess-shipment", requireAuth, requireRole("ADMIN",
       order:publicOrderForUser(updated,req.user)
     });
   } catch(error) {
-    console.error("manual reprocess shipment error:",req.params.id,providerFailureText(error));
+    const errorSummary=shipmentCorrections.providerErrorSummary(providerFailureText(error));
+    console.error("manual reprocess shipment error:",{orderId:req.params.id,httpStatus:Number(error.status)||null,reason:errorSummary});
     const updated=await db.getOrder(req.params.id,scopeForUser(req.user)).catch(()=>null);
     return res.status(error.status && error.status>=400 && error.status<500 ? error.status : 502).json({
       error:providerPaymentFailureStatus(error)==="AWAITING_FUNDS"
-        ?"Saldo da ConectEnvios ainda insuficiente ou postagem aguardando pagamento. Após regularizar, tente novamente."
-        :"Não foi possível liberar a etiqueta. O pedido pago foi preservado; consulte os detalhes antes de tentar novamente.",
+        ?"Saldo da ConectEnvios ainda insuficiente ou postagem aguardando pagamento. O pedido já pago foi preservado."
+        :errorSummary
+          ?errorSummary+" O pedido pago foi preservado; não efetue outro pagamento."
+          :"Não foi possível liberar a etiqueta. O pedido pago foi preservado; consulte os detalhes antes de tentar novamente.",
       order:updated?publicOrderForUser(updated,req.user):undefined
     });
   }
