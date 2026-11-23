@@ -44,9 +44,10 @@ function canRetryShipment(order) {
       order.is_simulation || !RETRY_STATUSES.has(String(order.status))) return false;
   if (order.conect_cart_id || order.conect_package_id) return true;
   const providerStatus=String(order.provider_payment_status||"").toUpperCase();
-  if(providerStatus==="REJECTED_INPUT" &&
-     /servi[cç]o selecionado|servi[cç]o postal|valor da declara[cç][aã]o|documento fiscal/i.test(
-       String(order.provider_payment_last_error||"").toLowerCase())) return false;
+  // Resposta HTTP 400/422 do POST /cart é uma recusa explícita de
+  // validação. O usuário pode corrigir o pedido e repetir MANUALMENTE;
+  // o worker automático continua excluindo REJECTED_INPUT.
+  // Nunca repetimos resposta incerta (ERROR) sem uma referência remota.
   return ["AWAITING_FUNDS","REJECTED_INPUT"].includes(providerStatus) ||
     Number(order.provider_payment_attempts||0)===0;
 }

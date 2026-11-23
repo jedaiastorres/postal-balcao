@@ -91,11 +91,28 @@ test("worker não reenvia rejeições 422 nem erros de resultado incerto",()=>{
   assert.match(worker,/providerErrorSummary\(providerFailureText\(error\)\)/);
 });
 
-test("422 de serviço incompatível fica em revisão, sem induzir repetição de postagem",()=>{
+test("422 de serviço incompatível permite ação MANUAL, sem repetir respostas incertas",()=>{
   const message="A integração recusou o serviço selecionado e o valor da declaração.";
   const previous={...baseOrder,provider_payment_status:"REJECTED_INPUT",provider_payment_last_error:message};
-  assert.equal(corrections.canRetryShipment(previous),false);
+  assert.equal(corrections.canRetryShipment(previous),true);
+  assert.equal(corrections.canRetryShipment({...previous,provider_payment_status:"ERROR"}),false);
+  assert.equal(corrections.canRetryShipment({...previous,status:"LABEL_AVAILABLE"}),false);
   const visible=corrections.providerErrorSummary(message);
   assert.match(visible,/serviço selecionado/);
   assert.match(visible,/valor da declaração/);
+});
+
+test("o comando manual pede confirmação e não cria outro checkout",()=>{
+  const client=fs.readFileSync(require.resolve("../public/app.js"),"utf8");
+  const server=fs.readFileSync(require.resolve("../server"),"utf8");
+  assert.match(client,/retryBtn\.textContent="Reprocessar emissão"/);
+  assert.match(client,/window\.confirm\("Reprocessar a emissão deste pedido na ConectEnvios/);
+  assert.match(client,/method:"POST",body:JSON\.stringify\(\{\}\)/);
+  const handler=server.slice(server.indexOf('app.post("/api/orders/:id/reprocess-shipment"'),server.indexOf('app.post("/api/orders",'));
+  assert.match(handler,/shipmentCorrections\.canRetryShipment\(order\)/);
+  assert.match(handler,/retryStatus==="REJECTED_INPUT"/);
+  assert.match(handler,/Date\.now\(\)-lastAttempt<20000/);
+  assert.match(handler,/createShipmentFromOrder\(order\)/);
+  assert.doesNotMatch(handler,/asaas\.createCheckout|db\.insertOrder\(/);
+  assert.match(handler,/providerErrorSummary\(providerFailureText\(error\)\)/);
 });
