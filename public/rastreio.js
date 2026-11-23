@@ -95,6 +95,19 @@ async function track(code){
     $("#trackingForm").setAttribute("aria-busy","false");
   }
 }
+$("#copyTrackingBtn")?.addEventListener("click",async()=>{
+  const code=$("#trackingDisplay")?.textContent?.trim();
+  if(!code || code==="—")return;
+  try {
+    await navigator.clipboard.writeText(code);
+    const btn=$("#copyTrackingBtn");
+    btn.textContent="Copiado!";
+    btn.setAttribute("aria-label","Código copiado");
+  } catch {
+    $("#trackingCode").select();
+    document.execCommand("copy");
+  }
+});
 $("#trackingForm").addEventListener("submit",event=>{
   event.preventDefault();
   track($("#trackingCode").value);
