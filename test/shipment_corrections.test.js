@@ -90,3 +90,12 @@ test("worker não reenvia rejeições 422 nem erros de resultado incerto",()=>{
   assert.doesNotMatch(worker,/console\.error\("ConectEnvios retry stopped:", order\.id, providerFailureText\(error\)\)/);
   assert.match(worker,/providerErrorSummary\(providerFailureText\(error\)\)/);
 });
+
+test("422 de serviço incompatível fica em revisão, sem induzir repetição de postagem",()=>{
+  const message="A integração recusou o serviço selecionado e o valor da declaração.";
+  const previous={...baseOrder,provider_payment_status:"REJECTED_INPUT",provider_payment_last_error:message};
+  assert.equal(corrections.canRetryShipment(previous),false);
+  const visible=corrections.providerErrorSummary(message);
+  assert.match(visible,/serviço selecionado/);
+  assert.match(visible,/valor da declaração/);
+});
