@@ -397,6 +397,21 @@ async function initDb() {
   // Migração idempotente, preservando pedidos históricos.
   await pool.query(pricingLockSql);
 
+  // Modelos de itens controlados pelo MASTER: inativos e sem preços
+  // até configuração expressa; jamais criar receita/preço sem aprovação.
+  await pool.query(`
+    INSERT INTO catalog_items
+      (id,code,item_type,category,name,description,unit_price,cost_price,track_stock,active)
+    VALUES
+      (gen_random_uuid(),'CAIXA_PEQUENA','PRODUCT','EMBALAGENS','Caixa pequena','Embalagem para postagem',0,0,TRUE,FALSE),
+      (gen_random_uuid(),'CAIXA_MEDIA','PRODUCT','EMBALAGENS','Caixa média','Embalagem para postagem',0,0,TRUE,FALSE),
+      (gen_random_uuid(),'CAIXA_GRANDE','PRODUCT','EMBALAGENS','Caixa grande','Embalagem para postagem',0,0,TRUE,FALSE),
+      (gen_random_uuid(),'ENVELOPE_PLASTICO','PRODUCT','EMBALAGENS','Envelope plástico','Envelope para postagem',0,0,TRUE,FALSE),
+      (gen_random_uuid(),'ENVELOPE_BOLHA','PRODUCT','EMBALAGENS','Envelope com bolha','Embalagem protetora',0,0,TRUE,FALSE),
+      (gen_random_uuid(),'SERVICO_MANUSEIO','SERVICE','MANUSEIO','Serviço de manuseio','Preparação e manuseio da encomenda',0,0,FALSE,FALSE)
+    ON CONFLICT (code) DO NOTHING
+  `);
+
   return true;
 }
 
