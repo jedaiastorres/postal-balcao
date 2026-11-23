@@ -33,6 +33,26 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid #4361
 @media(max-width:720px){.top{height:86px}.brand img{width:120px;height:80px}.home{display:block;font-size:11px;padding:9px 11px}main{padding:30px 16px 45px}.card{padding:20px}.search input{font-size:15px}.search button{min-height:48px}.section-title{align-items:flex-start;flex-direction:column;gap:8px}.summary{gap:16px}.shipment-info{gap:8px}h1{letter-spacing:-1px}.route-box{padding:14px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 
-body{background:radial-gradient(ellipse at 50% 0,#fff0e9,transparent 50%),#faf7f6}
 :root{--postal:#da0c3b;--postal-dark:#b71b18;--ink:#27242b;--line:#eadfe1}
-.search:focus-within{border-color:#da0c3b}
+body{background:linear-gradient(160deg,#fff5f7 0%,#f5f6fa 40%,#fff 100%)}
+.top{border-bottom:3px solid var(--postal);box-shadow:0 6px 24px #62132c0a}
+.top-nav a:hover{border-color:var(--postal);color:var(--postal)}
+.hero{padding:33px 26px 36px;background:linear-gradient(135deg,#6d1029 0%,#ad0836 58%,#d7083b 100%);border-radius:28px;color:#fff;box-shadow:0 20px 55px #95112f33}
+.hero h1{font-size:clamp(30px,4.2vw,47px);letter-spacing:-1.5px}
+.hero .eyebrow{color:#ffe2e9;letter-spacing:2px}
+.hero p{color:#ffebf1}
+.tracking-hero-brand{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.tracking-hero-brand img{width:83px;height:54px;object-fit:contain;background:#fff;padding:4px 9px;border-radius:10px}
+.tracking-hero-brand span{border:1px solid #ffffff66;border-radius:999px;padding:8px 12px;font-size:10px;font-weight:900;letter-spacing:1.2px}
+.search{position:relative;margin-top:-19px;box-shadow:0 14px 36px #71133122;border:1px solid #e8d8de}
+.search:focus-within{border-color:var(--postal);box-shadow:0 0 0 3px #d7083b22,0 14px 36px #71133122}
+.card{border:1px solid #ecdde1}
+.status-label{background:#fff0f4;border-color:#f4c6d4;color:#a50937}
+.event:first-child .pin{background:var(--postal)}
+.tracking-code-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.copy-tracking{border:1px solid #ecc6d2;background:#fff6f8;color:#a00631;border-radius:8px;padding:7px 12px;font-size:11px;font-weight:800;cursor:pointer}
+.copy-tracking:hover{background:#ffe7ed}
+.timeline-card{border-top:3px solid var(--postal)}
+.contact-footer{border-top:2px solid #f0dbe3}
+@media(max-width:720px){.hero{padding:28px 20px 34px;border-radius:20px}.search{margin-top:-16px}.tracking-hero-brand img{width:70px;height:46px}.tracking-hero-brand span{font-size:9px}}
+
