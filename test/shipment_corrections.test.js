@@ -106,7 +106,7 @@ test("o comando manual pede confirmação e não cria outro checkout",()=>{
   const client=fs.readFileSync(require.resolve("../public/app.js"),"utf8");
   const server=fs.readFileSync(require.resolve("../server"),"utf8");
   assert.match(client,/retryBtn\.textContent="Reprocessar emissão"/);
-  assert.match(client,/window\.confirm\("Reprocessar a emissão deste pedido na ConectEnvios/);
+  assert.match(client,/window\.confirm\("Reprocessar a emissão deste pedido na transportadora/);
   assert.match(client,/method:"POST",body:JSON\.stringify\(\{\}\)/);
   const handler=server.slice(server.indexOf('app.post("/api/orders/:id/reprocess-shipment"'),server.indexOf('app.post("/api/orders",'));
   assert.match(handler,/shipmentCorrections\.canRetryShipment\(order\)/);
