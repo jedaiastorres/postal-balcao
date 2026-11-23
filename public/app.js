@@ -99,8 +99,8 @@ async function loadConfig() {
     applyDataResetVersion(state.config.dataResetVersion);
     if (state.config.providerConfigured) {
       badge.className = "status-badge connected";
-      badge.innerHTML = '<span class="dot"></span> ConectEnvios conectada';
-      $("#quoteModeLabel").textContent = "Cotação real pela ConectEnvios";
+      badge.innerHTML = '<span class="dot"></span> Integração logística ativa';
+      $("#quoteModeLabel").textContent = "Cotação real disponível";
     } else {
       badge.className = "status-badge demo";
       badge.innerHTML = '<span class="dot"></span> Modo demonstração';
@@ -649,7 +649,7 @@ $("#quoteForm").addEventListener("submit", async (event) => {
     renderResults(result, payload);
     saveRecent(result, payload);
     refreshDashboard();
-    if (result.demo) toast("Cotação demonstrativa concluída. Adicione o token da ConectEnvios para consultar a API real.");
+    if (result.demo) toast("Cotação demonstrativa concluída. A emissão real depende da configuração da integração logística.");
     else toast("Cotação real concluída.");
   } catch (err) {
     toast(err.message, "error");
@@ -702,8 +702,8 @@ function renderResults(result, payload) {
       </div>
       <div class="result-block result-price price-reveal" tabindex="0" role="button"
            aria-label="Preço ao cliente ${money(option.precoVenda)}. Passe o mouse ou toque para ver a comissão do ponto.">
-        <span class="price-total-label">Valor do frete</span>
-        <strong class="price-total">${money(option.precoVenda)}</strong>
+        <span class="price-total-label">Frete + produtos e serviços</span>
+        <strong class="price-total">${money(Number(option.precoVenda||0)+selectedAddonsAmount())}</strong>
         <span class="price-commission-label">Sua comissão</span>
         <strong class="price-commission">${money(option.comissaoParceiro)}</strong>
         <small>${option.hubTransferApplied ? "Inclui "+money(option.hubTransferTotal)+" de transferência ao hub • " : ""}Taxa de pagamento é somada no fechamento • passe o mouse para ver sua comissão</small>
@@ -743,7 +743,7 @@ function renderResults(result, payload) {
         $("#selectedCarrier").textContent = option.transportadora;
         $("#selectedService").textContent = option.produto;
         $("#selectedDeadline").textContent = `${option.prazoEntrega || "—"} dias`;
-        $("#selectedPrice").textContent = money(option.precoVenda);
+        $("#selectedPrice").textContent = money(Number(option.precoVenda||0)+selectedAddonsAmount());
         summary.classList.remove("hidden");
         summary.scrollIntoView({ behavior: "smooth", block: "nearest" });
       }
@@ -753,6 +753,7 @@ function renderResults(result, payload) {
   });
 
   $("#resultsWrap").classList.remove("hidden");
+  updateQuoteAddonsTotal();
   $("#resultsWrap").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -934,67 +935,104 @@ function appendManualExtra() {
 $("#addManualExtraBtn")?.addEventListener("click",appendManualExtra);
 
 async function loadShipmentCatalog() {
-  const host = $("#addonsCatalog");
-  if (!host) return;
-  host.innerHTML = '<div class="empty-state">Carregando produtos e serviços...</div>';
+  const hosts=["#addonsCatalog","#quoteAddonsCatalog"].map(selector=>$(selector)).filter(Boolean);
+  if(!hosts.length) return;
+  hosts.forEach(host=>host.innerHTML='<div class="empty-state">Carregando produtos e serviços...</div>');
   try {
-    const result = await api("/api/catalog");
-    state.catalog = result.items || [];
-    renderShipmentCatalog();
-  } catch (err) {
-    host.innerHTML = `<div class="empty-state">Não foi possível carregar o catálogo. ${escapeHtml(err.message)}</div>`;
-  }
-}
-
-function renderShipmentCatalog() {
-  const host = $("#addonsCatalog");
-  if (!host) return;
-  const items = (state.catalog || []).filter(item => {
-    if (item.itemType === "PRODUCT") {
-      return Number(item.unitPrice || 0) > 0 && Number(item.availableQuantity || 0) > 0;
+    const result=await api("/api/catalog");
+    state.catalog=result.items||[];
+    // Não manter itens cuja disponibilidade ou preço foi revogado no MASTER.
+    const available=new Map(state.catalog.map(item=>[item.code,item]));
+    for(const [code,quantity] of state.selectedAddons) {
+      const item=available.get(code);
+      if(!item || Number(item.unitPrice)<=0 || (item.trackStock && Number(item.availableQuantity)<quantity)) {
+        state.selectedAddons.delete(code);
+      }
     }
-    return Number(item.unitPrice || 0) >= 0;
-  });
-
-  if (!items.length) {
-    host.innerHTML = '<div class="empty-state">Nenhum produto com estoque e preço disponível. Use Produtos & Estoque para receber embalagens e definir preço.</div>';
-    return;
+    renderShipmentCatalog();
+  } catch(err) {
+    hosts.forEach(host=>host.innerHTML='<div class="empty-state">Não foi possível carregar o catálogo. Tente atualizar.</div>');
   }
-
-  host.innerHTML = "";
-  items.forEach(item => {
-    const row = document.createElement("div");
-    row.className = "addon-item";
-    const current = Number(state.selectedAddons.get(item.code) || 0);
-    const stockText = item.itemType === "PRODUCT"
-      ? `${Number(item.availableQuantity || 0)} disponível(is)`
-      : "Serviço";
-    row.innerHTML = `
-      <div class="addon-main">
-        <span class="addon-type">${item.itemType === "PRODUCT" ? "PRODUTO" : "SERVIÇO"} · ${escapeHtml(item.category || "")}</span>
-        <strong>${escapeHtml(item.name)}</strong>
-        <small>${escapeHtml(item.description || stockText)}</small>
-      </div>
-      <div class="addon-stock">${escapeHtml(stockText)}</div>
-      <div class="addon-price">${money(item.unitPrice)}</div>
-      <label class="addon-qty">Qtd.
-        <input type="number" min="0" step="1" value="${current}" />
-      </label>
-    `;
-
-    const input = row.querySelector("input");
-    input.max = item.itemType === "PRODUCT" ? String(item.availableQuantity || 0) : "999";
-    input.addEventListener("input", async () => {
-      let qty = Math.max(0, Number(input.value || 0));
-      if (item.itemType === "PRODUCT") qty = Math.min(qty, Number(item.availableQuantity || 0));
-      input.value = String(qty);
-      if (qty > 0) state.selectedAddons.set(item.code, qty);
-      else state.selectedAddons.delete(item.code);
-      await refreshPaymentPreview();
-    });
-    host.appendChild(row);
-  });
 }
+
+function selectedAddonsAmount(){
+  return Math.round([...state.selectedAddons].reduce((sum,[code,qty])=>{
+    const item=(state.catalog||[]).find(entry=>entry.code===code);
+    return sum+Number(item?.unitPrice||0)*Number(qty||0);
+  },0)*100)/100;
+}
+
+function updateQuoteAddonsTotal(){
+  const total=selectedAddonsAmount();
+  if($("#quoteAddonsTotal")) $("#quoteAddonsTotal").textContent=money(total);
+  $$("#resultsList .result-card").forEach(card=>{
+    const index=Number(card.dataset.optionIndex);
+    const opt=[...(state.lastQuoteResult?.options||[])].sort((a,b)=>{
+      const sort=$("#quoteSort")?.value||"price";
+      if(sort==="deadline")return (Number(a.prazoEntrega)||999)-(Number(b.prazoEntrega)||999)||Number(a.precoVenda)-Number(b.precoVenda);
+      if(sort==="carrier")return String(a.transportadora||"").localeCompare(String(b.transportadora||""),"pt-BR");
+      return Number(a.precoVenda)-Number(b.precoVenda);
+    })[index];
+    if(!opt)return;
+    const price=card.querySelector(".price-total");
+    if(price)price.textContent=money(Number(opt.precoVenda||0)+total);
+    const label=card.querySelector(".price-total-label");
+    if(label)label.textContent=total>0?"Frete + produtos e serviços":"Valor do frete";
+  });
+  if(state.selectedOption&&$("#selectedPrice")){
+    $("#selectedPrice").textContent=money(Number(state.selectedOption.precoVenda||0)+total);
+  }
+}
+
+function renderShipmentCatalog(){
+  const hosts=["#addonsCatalog","#quoteAddonsCatalog"].map(sel=>$(sel)).filter(Boolean);
+  const items=(state.catalog||[]).filter(item=>Number(item.unitPrice||0)>0 &&
+    (item.itemType==="SERVICE" || (!item.trackStock || Number(item.availableQuantity||0)>0)));
+  for(const host of hosts){
+    if(!items.length) {
+      host.innerHTML='<div class="empty-state">Ainda não há itens disponíveis. O MASTER deve cadastrar preços e o ponto precisa receber as embalagens no estoque.</div>';
+      continue;
+    }
+    host.innerHTML="";
+    items.forEach(item=>{
+      const row=document.createElement("div");
+      row.className="addon-item";
+      const current=Number(state.selectedAddons.get(item.code)||0);
+      const stockText=item.itemType==="PRODUCT"
+        ? (item.trackStock?`${Number(item.availableQuantity||0)} disponível(is)`:"Sem controle de estoque")
+        :"Serviço";
+      row.innerHTML=`
+        <div class="addon-main">
+          <span class="addon-type">${item.itemType==="PRODUCT"?"EMBALAGEM / PRODUTO":"SERVIÇO"} · ${escapeHtml(item.category||"")}</span>
+          <strong>${escapeHtml(item.name)}</strong>
+          <small>${escapeHtml(item.description||stockText)}</small>
+        </div>
+        <div class="addon-stock">${escapeHtml(stockText)}</div>
+        <div class="addon-price">${money(item.unitPrice)}</div>
+        <label class="addon-qty">Qtd.
+          <input type="number" min="0" step="1" value="${current}" aria-label="Quantidade de ${escapeHtml(item.name)}" />
+        </label>`;
+      const input=row.querySelector("input");
+      input.max=item.trackStock?String(item.availableQuantity||0):"999";
+      input.addEventListener("input",()=>{
+        let qty=Math.max(0,Math.min(999,Math.floor(Number(input.value||0))));
+        if(item.trackStock)qty=Math.min(qty,Number(item.availableQuantity||0));
+        if(Number(input.value)!==qty) input.value=String(qty);
+        if(qty)state.selectedAddons.set(item.code,qty);
+        else state.selectedAddons.delete(item.code);
+        $$("#addonsCatalog input, #quoteAddonsCatalog input").forEach(peer=>{
+          if(peer!==input&&peer.closest(".addon-item")?.querySelector(".addon-main strong")?.textContent===item.name)
+            peer.value=String(qty);
+        });
+        updateQuoteAddonsTotal();
+        refreshPaymentPreview();
+      });
+      host.appendChild(row);
+    });
+  }
+  updateQuoteAddonsTotal();
+}
+$("#refreshQuoteCatalogBtn")?.addEventListener("click",loadShipmentCatalog);
 
 async function refreshPaymentPreview() {
   const option = state.selectedOption;
@@ -1077,17 +1115,17 @@ async function loadInventory() {
         const row = document.createElement("div");
         row.className = "inventory-row";
         const low = item.trackStock && Number(item.availableQuantity || 0) <= Number(item.minQuantity || 0);
-        const cost = Number(item.averageCost || 0);
+        const cost = state.user?.role==="ADMIN"?Number(item.averageCost||0):null;
         const price = Number(item.unitPrice || 0);
-        const margin = price > 0 ? ((price-cost)/price)*100 : 0;
+        const margin = cost!=null&&price>0 ? ((price-cost)/price)*100 : null;
         row.innerHTML = `
           <div>
             <span class="addon-type">${item.itemType === "PRODUCT" ? "PRODUTO" : "SERVIÇO"} · ${escapeHtml(item.category || "")}</span>
             <strong>${escapeHtml(item.name)}</strong>
             <small>${escapeHtml(item.code)}${low ? " · REPOR ESTOQUE" : ""}</small>
           </div>
-          <div><span>Custo médio</span><strong>${money(cost)}</strong></div>
-          <div><span>Preço</span><strong>${money(price)}</strong><small>Margem ${Number(margin||0).toFixed(1)}%</small></div>
+          ${cost==null ? "" : `<div><span>Custo MASTER</span><strong>${money(cost)}</strong></div>`}
+          <div><span>Preço de venda</span><strong>${money(price)}</strong>${margin==null?"":`<small>Margem ${margin.toFixed(1)}%</small>`}</div>
           <div><span>Disponível</span><strong class="${low ? "stock-low" : ""}">${Number(item.availableQuantity || 0)}</strong></div>
           <div><span>Reservado</span><strong>${Number(item.reservedQuantity || 0)}</strong></div>
           <div class="inventory-actions"><button type="button" class="ghost">Ajustar</button></div>
@@ -1105,8 +1143,7 @@ async function loadInventory() {
               minQuantity:Number(minText),
               note:"Ajuste manual pelo ponto"
             };
-            if(state.user?.role==="ADMIN") adjustment.salePrice=price;
-            await api("/api/inventory/adjust", {
+                    await api("/api/inventory/adjust", {
               method: "POST",
               body: JSON.stringify(adjustment)
             });
@@ -1126,7 +1163,7 @@ async function loadInventory() {
           <div class="inventory-row movement-row">
             <div><span class="addon-type">${escapeHtml(m.movementType)}</span><strong>${escapeHtml(m.name)}</strong><small>${escapeHtml(m.note || m.code)}</small></div>
             <div><span>Quantidade</span><strong>${Number(m.quantity||0)}</strong></div>
-            <div><span>Custo un.</span><strong>${m.unitCost ? money(m.unitCost) : "—"}</strong></div>
+            ${state.user?.role==="ADMIN"?`<div><span>Custo un.</span><strong>${m.unitCost ? money(m.unitCost) : "—"}</strong></div>`:""}
             <div><span>Lote</span><strong>${escapeHtml(m.lotCode || "—")}</strong></div>
             <div><span>Data</span><strong>${new Date(m.createdAt).toLocaleString("pt-BR")}</strong></div>
           </div>`).join("")
@@ -1135,8 +1172,7 @@ async function loadInventory() {
 
     const selected = products[0];
     if (selected) {
-      $("#inventorySalePrice").value = Number(selected.unitPrice || 0).toFixed(2);
-      $("#inventoryUnitCost").value = Number(selected.averageCost || 0).toFixed(2);
+      // Preços e custos são administrados exclusivamente no catálogo MASTER.
     }
   } catch (err) {
     host.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
@@ -1148,7 +1184,7 @@ function prepareShipmentView() {
   $("#shipCarrier").textContent = state.selectedOption.transportadora;
   $("#shipService").textContent = state.selectedOption.produto;
   $("#shipDeadline").textContent = `${state.selectedOption.prazoEntrega || "—"} dias`;
-  $("#shipPrice").textContent = money(state.selectedOption.precoVenda);
+  $("#shipPrice").textContent = money(Number(state.selectedOption.precoVenda||0)+selectedAddonsAmount());
   $("#senderCep").value = maskCep(state.currentQuote.cepOrigem);
   $("#recipientCep").value = maskCep(state.currentQuote.cepDestino);
   fillAddressFromCep("sender");
@@ -1158,16 +1194,15 @@ function prepareShipmentView() {
   $("#shipmentSuccess").classList.add("hidden");
   $("#paymentMethod").value = "";
   $("#trackingLink")?.classList.add("hidden");
-  state.selectedAddons = new Map();
   state.paymentPreview = null;
   const initialHubTransfer=Number(state.selectedOption.hubTransferTotal||0);
   $("#paymentFreight").textContent = money(Number(state.selectedOption.precoVenda||0)-initialHubTransfer);
   $("#paymentHubTransfer").textContent = money(initialHubTransfer);
   $("#paymentHubTransferRow").classList.toggle("hidden",initialHubTransfer<=0);
-  $("#paymentAddons").textContent = money(0);
+  $("#paymentAddons").textContent = money(selectedAddonsAmount());
   $("#paymentFee").textContent = "Selecione o pagamento";
-  $("#paymentTotal").textContent = money(state.selectedOption.precoVenda);
-  loadShipmentCatalog();
+  $("#paymentTotal").textContent = money(Number(state.selectedOption.precoVenda||0)+selectedAddonsAmount());
+  loadShipmentCatalog().then(refreshPaymentPreview);
 
   if (!$("#contentItems").children.length) {
     addContentItem({ quantity: 1, value: Number(state.currentQuote.vlDeclarado || 0) });
@@ -1435,7 +1470,7 @@ function orderStatusMeta(status) {
     PAYMENT_PENDING: ["Aguardando pagamento", "warning", "A etiqueta não será criada enquanto o pagamento não for confirmado."],
     PAYMENT_CONFIRMED: ["Pagamento confirmado", "info", "Pagamento recebido. Preparando a postagem."],
     PAID_WAITING_SHIPMENT: ["Pago • etiqueta pendente", "info", "Pagamento confirmado. A emissão real da etiqueta está bloqueada até a homologação final."],
-    PROVIDER_PAYMENT_PENDING: ["Aguardando ConectEnvios", "warning", "O pagamento do cliente está confirmado; a plataforma aguarda a liberação financeira/etiqueta da ConectEnvios."],
+    PROVIDER_PAYMENT_PENDING: ["Emissão pendente", "warning", "Pagamento confirmado. Aguardando a liberação da etiqueta pela transportadora."],
     LABEL_AVAILABLE: ["Etiqueta disponível", "success", "Pagamento e postagem confirmados."],
     LABEL_AVAILABLE_SIMULATED: ["Etiqueta de teste", "info", "Homologação concluída sem movimentação financeira ou postagem real."],
     SHIPMENT_ERROR: ["Revisão necessária", "danger", "O pagamento foi confirmado, mas houve erro ao gerar a postagem."],
@@ -1605,7 +1640,7 @@ function openOrderDetails(order) {
 
 async function reprocessOrderShipment(orderId, button) {
   if (!orderId || button.disabled) return;
-  if (!window.confirm("Reprocessar a emissão deste pedido na ConectEnvios? O sistema usará o mesmo frete pago, sem criar outra cobrança Asaas. Se o serviço ou a declaração ainda forem rejeitados, a etiqueta continuará pendente.")) return;
+  if (!window.confirm("Reprocessar a emissão deste pedido na transportadora? O sistema usará o mesmo frete pago, sem criar outra cobrança Asaas. Se o serviço ou a declaração ainda forem rejeitados, a etiqueta continuará pendente.")) return;
   button.disabled=true;
   const original=button.textContent;
   button.textContent="Consultando postagem...";
@@ -1747,7 +1782,7 @@ function renderOrders() {
       const retryBtn=document.createElement("button");
       retryBtn.className="primary"; retryBtn.type="button";
       retryBtn.textContent="Reprocessar emissão";
-      retryBtn.title="Tentar novamente na ConectEnvios usando o pedido original, sem novo checkout.";
+      retryBtn.title="Tentar novamente na transportadora usando o pedido original, sem novo pagamento.";
       retryBtn.addEventListener("click",()=>reprocessOrderShipment(order.id,retryBtn));
       actions.appendChild(retryBtn);
     }
@@ -2454,6 +2489,7 @@ async function loadMaster() {
         <div class="inventory-row">
           <div><span class="addon-type">${escapeHtml(item.item_type)} · ${escapeHtml(item.category)}</span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.code)}</small></div>
           <div><span>Preço</span><strong>${money(item.unit_price)}</strong></div>
+          <div><span>Custo MASTER</span><strong>${money(item.cost_price)}</strong></div>
           <div><span>Ponto</span><strong>${Number(item.point_share_percent||0)}%</strong></div>
           <div><span>Postal</span><strong>${Number(item.postal_share_percent||0)}%</strong></div>
           <div><span>Fornecedor</span><strong>${Number(item.provider_share_percent||0)}%</strong></div>
@@ -2658,7 +2694,7 @@ $("#adminCatalogForm")?.addEventListener("submit",async event=>{
     const code=$("#adminCatalogCode").value.trim().toUpperCase();
     await api("/api/admin/catalog/"+encodeURIComponent(code),{method:"PUT",body:JSON.stringify({
       name:$("#adminCatalogName").value.trim(),itemType:$("#adminCatalogType").value,
-      category:$("#adminCatalogCategory").value.trim(),unitPrice:Number($("#adminCatalogPrice").value||0),
+      category:$("#adminCatalogCategory").value.trim(),unitPrice:Number($("#adminCatalogPrice").value||0),costPrice:Number($("#adminCatalogCost").value||0),
       trackStock:$("#adminCatalogStock").checked,
       pointSharePercent:Number($("#adminCatalogPointShare").value||0),
       postalSharePercent:Number($("#adminCatalogPostalShare").value||0),
@@ -2693,8 +2729,6 @@ $("#inventoryReceiveForm")?.addEventListener("submit", async event => {
       body: JSON.stringify({
         code: $("#inventoryProduct").value,
         quantity: Number($("#inventoryQuantity").value || 0),
-        salePrice: state.user?.role === "ADMIN" ? Number($("#inventorySalePrice").value || 0) : undefined,
-        unitCost: Number($("#inventoryUnitCost").value || 0),
         lotCode: $("#inventoryLotCode").value.trim(),
         note: $("#inventoryNote").value.trim()
       })
