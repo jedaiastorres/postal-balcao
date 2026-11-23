@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#d7083b" />
   <title>Postal Serviços | Balcão Parceiro</title>
-  <link rel="stylesheet" href="/styles.css?v=1.18.0" />
+  <link rel="stylesheet" href="/styles.css?v=1.19.0" />
 </head>
 <body>
   <div id="toast" class="toast" aria-live="polite"></div>
@@ -666,6 +666,50 @@
           <div><div class="eyebrow">CARTEIRA POSTAL</div><h1>Saldo</h1><p>Adicione créditos e acompanhe cada movimentação da sua conta.</p></div>
           <strong id="walletBalanceHero" class="wallet-hero-value">R$ 0,00</strong>
         </div>
+
+        <article class="panel master-section white-label-section" id="whiteLabelSection">
+          <div class="panel-head">
+            <div><span class="eyebrow">NOVA MODALIDADE · MASTER</span><h3>Transportadoras White Label</h3>
+              <p>Cadastre a transportadora regional com sua marca e o contrato de remuneração da Postal.</p></div>
+            <button id="refreshWhiteLabelsBtn" class="ghost" type="button">Atualizar lista</button>
+          </div>
+          <div class="white-label-intro"><strong>Cadastro em homologação.</strong> Nesta etapa, você registra o primeiro parceiro e configura sua identidade comercial. Usuários, rotas, tarifas, cobranças e acesso ao painel White Label somente serão liberados após o isolamento entre empresas, testes e ativação pelo MASTER.</div>
+          <div class="white-label-layout">
+            <div class="form-panel">
+              <div class="form-panel-head"><span class="step-number">WL</span><div><h3 id="whiteLabelFormTitle">Nova transportadora</h3><p>O cadastro é independente dos pontos da rede Postal.</p></div></div>
+              <form id="whiteLabelForm">
+                <div class="white-label-fields">
+                  <label>Código interno*<input id="wlCode" maxlength="30" placeholder="EX.: TRANSPORTADORA-SUL" required /></label>
+                  <label>Marca comercial*<input id="wlBrandName" maxlength="90" required placeholder="Nome exibido ao cliente" /></label>
+                  <label>Razão social<input id="wlLegalName" maxlength="130" /></label>
+                  <label>CNPJ*<input id="wlCnpj" maxlength="18" inputmode="numeric" required placeholder="00.000.000/0000-00" /></label>
+                  <label>Responsável*<input id="wlAdminName" maxlength="100" required /></label>
+                  <label>E-mail do responsável*<input id="wlAdminEmail" type="email" maxlength="160" required /></label>
+                  <label>Telefone com DDD*<input id="wlAdminPhone" inputmode="tel" maxlength="20" required /></label>
+                  <label>Cidade base*<input id="wlBaseCity" maxlength="100" required /></label>
+                  <label>UF*<input id="wlBaseState" maxlength="2" required placeholder="PA" /></label>
+                  <label>Carteira Asaas (walletId)<input id="wlAsaasWallet" maxlength="128" placeholder="Opcional nesta etapa" /></label>
+                  <label>Taxa Postal (%)<input id="wlPostalFeePercent" type="number" min="0" max="50" step="0.01" value="0" required /></label>
+                  <label>Taxa Postal fixa por frete (R$)<input id="wlPostalFeeFixed" type="number" min="0" max="10000" step="0.01" value="0" required /></label>
+                  <label class="full">URL da logomarca (HTTPS)<input id="wlLogoUrl" type="url" maxlength="500" placeholder="https://..." /></label>
+                  <label>Cor principal<input id="wlColorPrimary" type="color" value="#d7083b" /></label>
+                  <label>Cor complementar<input id="wlColorSecondary" type="color" value="#222638" /></label>
+                  <label class="full">Observações comerciais<textarea id="wlNotes" maxlength="1000" placeholder="Região atendida, negociação, próximos passos..."></textarea></label>
+                </div>
+                <div class="white-label-actions">
+                  <button id="saveWhiteLabelBtn" class="primary" type="submit">Cadastrar White Label</button>
+                  <button id="cancelWhiteLabelEditBtn" class="ghost hidden" type="button">Cancelar edição</button>
+                </div>
+                <small>Informe ao menos uma taxa Postal maior que zero. A cobrança ainda não será ativada.</small>
+              </form>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><div><span class="eyebrow">CONTRATOS CADASTRADOS</span><h3>Empresas White Label</h3></div></div>
+              <div id="whiteLabelsList" class="white-label-list"><div class="empty-state">Carregando transportadoras...</div></div>
+            </div>
+          </div>
+        </article>
+
         <div class="master-grid">
           <article class="form-panel">
             <div class="form-panel-head"><span class="step-number">+</span><div><h3>Adicionar saldo</h3><p>As taxas do meio de pagamento são somadas ao valor pago, sem reduzir seu crédito.</p></div></div>
@@ -1274,7 +1318,7 @@
   </div>
 
   <div id="editOrderModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="editOrderTitle">
-    <div class="modal-card" style="max-width:850px;max-height:90vh;overflow-y:auto">
+    <div class="modal-card order-edit-card">
       <div class="modal-head">
         <div><span class="eyebrow">CORREÇÃO SEM NOVA COBRANÇA</span><h3 id="editOrderTitle">Editar dados do frete</h3></div>
         <button id="closeEditOrderBtn" class="icon-btn" type="button" aria-label="Fechar">×</button>
@@ -1364,7 +1408,7 @@
   <script src="/point_rules.js"></script>
   <script src="/branding.js"></script>
   <script src="/fiscal_document.js?v=1.17.0"></script>
-  <script src="/app.js?v=1.18.0"></script>
+  <script src="/app.js?v=1.19.0"></script>
   <script src="/client.js?v=1.18.0"></script>
 </body>
 </html>
