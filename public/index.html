@@ -1273,6 +1273,48 @@
     </div>
   </div>
 
+  <div id="editOrderModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="editOrderTitle">
+    <div class="modal-card" style="max-width:850px;max-height:90vh;overflow-y:auto">
+      <div class="modal-head">
+        <div><span class="eyebrow">CORREÇÃO SEM NOVA COBRANÇA</span><h3 id="editOrderTitle">Editar dados do frete</h3></div>
+        <button id="closeEditOrderBtn" class="icon-btn" type="button" aria-label="Fechar">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="payment-method-note">Corrija os dados do remetente e destinatário no pedido existente. Preço, pagamento, CEPs, pacote e etiqueta não são alterados. Se a emissão anterior estiver incerta, será necessária conferência antes de tentar novamente.</div>
+        <form id="editOrderForm">
+          <h4>Remetente</h4>
+          <div class="form-grid">
+          <label>Nome completo ou razão social<input id="editSenderName" type="text" required autocomplete="off" /></label>
+          <label>CPF/CNPJ<input id="editSenderDocument" type="text" required autocomplete="off" /></label>
+          <label>Telefone com DDD<input id="editSenderPhone" type="tel" required autocomplete="off" /></label>
+          <label>E-mail<input id="editSenderEmail" type="email"  autocomplete="off" /></label>
+          <label>Logradouro<input id="editSenderAddress" type="text" required autocomplete="off" /></label>
+          <label>Número<input id="editSenderNumber" type="text" required autocomplete="off" /></label>
+          <label>Bairro<input id="editSenderNeighborhood" type="text" required autocomplete="off" /></label>
+          <label>Complemento<input id="editSenderComplement" type="text"  autocomplete="off" /></label>
+          <label>Cidade<input id="editSenderCity" type="text" required autocomplete="off" /></label>
+          </div>
+          <h4>Destinatário</h4>
+          <div class="form-grid">
+          <label>Nome completo ou razão social<input id="editRecipientName" type="text" required autocomplete="off" /></label>
+          <label>CPF/CNPJ<input id="editRecipientDocument" type="text" required autocomplete="off" /></label>
+          <label>Telefone com DDD<input id="editRecipientPhone" type="tel" required autocomplete="off" /></label>
+          <label>E-mail<input id="editRecipientEmail" type="email"  autocomplete="off" /></label>
+          <label>Logradouro<input id="editRecipientAddress" type="text" required autocomplete="off" /></label>
+          <label>Número<input id="editRecipientNumber" type="text" required autocomplete="off" /></label>
+          <label>Bairro<input id="editRecipientNeighborhood" type="text" required autocomplete="off" /></label>
+          <label>Complemento<input id="editRecipientComplement" type="text"  autocomplete="off" /></label>
+          <label>Cidade<input id="editRecipientCity" type="text" required autocomplete="off" /></label>
+          </div>
+          <div class="modal-actions">
+            <button class="ghost" type="button" id="cancelEditOrderBtn">Cancelar</button>
+            <button class="primary" type="submit" id="saveEditOrderBtn">Salvar correções</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <div id="orderDetailModal" class="receipt-modal hidden" role="dialog" aria-modal="true">
     <div class="receipt-modal-card order-detail-card">
       <div class="receipt-modal-head">
