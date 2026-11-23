@@ -1,6 +1,7 @@
 const test=require("node:test");
 const assert=require("node:assert/strict");
 const fs=require("node:fs");
+const vm=require("node:vm");
 const corrections=require("../shipment_corrections");
 
 const baseOrder={
@@ -41,6 +42,7 @@ test("não reprocessa quando retorno remoto é incerto, mas permite erro 422 com
   assert.equal(corrections.canRetryShipment({...baseOrder,conect_cart_id:"cart-1"}),true);
   assert.equal(corrections.canRetryShipment({...baseOrder,provider_payment_attempts:0}),true);
   assert.equal(corrections.canRetryShipment({...baseOrder,payment_status:"PENDING",provider_payment_attempts:0}),false);
+  assert.equal(corrections.canRetryShipment({...baseOrder,status:"LABEL_AVAILABLE",conect_cart_id:"cart-1"}),false);
 });
 test("resposta pública oculta detalhes sensíveis do erro do prestador",()=>{
   assert.match(corrections.providerErrorSummary("400 O campo cpfCnpj é inválido"),/CPF\/CNPJ/);
@@ -60,4 +62,9 @@ test("rota de correção exige escopo, bloqueia etiqueta existente e não altera
   assert.doesNotMatch(sql,/sale_price=|payment_status=|postal_revenue_total=|partner_commission=/);
   assert.match(html,/id="editOrderModal"/);
   assert.match(client,/editOrderForm/);
+});
+
+test("o JavaScript do servidor e do painel compila sem erro de sintaxe",()=>{
+  new vm.Script(fs.readFileSync(require.resolve("../server"),"utf8"));
+  new vm.Script(fs.readFileSync(require.resolve("../public/app.js"),"utf8"));
 });
