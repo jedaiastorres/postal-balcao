@@ -7,7 +7,7 @@ const EDITABLE_STATUSES = new Set([
 ]);
 const RETRY_STATUSES = new Set([
   "SHIPMENT_ERROR", "PROVIDER_PAYMENT_PENDING", "PAID_WAITING_SHIPMENT",
-  "PAYMENT_CONFIRMED", "LABEL_AVAILABLE"
+  "PAYMENT_CONFIRMED"
 ]);
 const PARTY_FIELDS = ["name","document","phone","email","address","number","neighborhood","complement","city"];
 const digits = value => String(value ?? "").replace(/\D/g, "");
