@@ -895,7 +895,7 @@ async function getPartnerCatalog(partnerEmail) {
        COALESCE(i.quantity,0) AS stock_quantity,
        COALESCE(i.reserved_quantity,0) AS reserved_quantity,
        COALESCE(i.min_quantity,0) AS min_quantity,
-       COALESCE(i.sale_price,c.unit_price) AS effective_unit_price,
+       c.unit_price AS effective_unit_price,
        COALESCE(i.average_cost,0) AS average_cost,
        (COALESCE(i.quantity,0)-COALESCE(i.reserved_quantity,0)) AS available_quantity
      FROM catalog_items c
