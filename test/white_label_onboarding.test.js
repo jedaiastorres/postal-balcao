@@ -24,9 +24,9 @@ test("cadastro White Label normaliza CNPJ, cidade, contato e remuneração",()=>
 });
 test("cadastro rejeita CNPJ inválido, taxa Postal zero e URLs inseguras",()=>{
   assert.throws(()=>whiteLabel.normalizeWhiteLabelCarrier({...input,cnpj:"00000000000000"}),/CNPJ/);
-  assert.throws(()=>whiteLabel.normalizeWhiteLabelCarrier({...input,postalFeePercent:0,postalFeeFixed:0}),/taxa Postal/);
+  assert.throws(()=>whiteLabel.normalizeWhiteLabelCarrier({...input,postalFeePercent:0,postalFeeFixed:0}),/[Tt]axa Postal/);
   assert.throws(()=>whiteLabel.normalizeWhiteLabelCarrier({...input,logoUrl:"javascript:alert(1)"}),/HTTPS/);
-  assert.throws(()=>whiteLabel.normalizeWhiteLabelCarrier({...input,postalFeePercent:75}),/taxa Postal/);
+  assert.throws(()=>whiteLabel.normalizeWhiteLabelCarrier({...input,postalFeePercent:75}),/[Tt]axa Postal/);
   assert.throws(()=>whiteLabel.normalizeWhiteLabelCarrier({...input,code:"../master"}),/Código/);
 });
 test("cadastro retorna operacional desativado e não cria usuários ou pontos",()=>{
