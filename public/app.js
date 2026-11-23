@@ -156,7 +156,7 @@ function showApp(user) {
   $("#commissionBig")?.closest(".accent-panel")?.classList.toggle("hidden", clerkPostingOnly);
 
   window.PostalClient?.onShowApp?.(user);
-  $("#inventorySalePrice")?.toggleAttribute("disabled", user?.role !== "ADMIN");
+
 
   if (user?.storeCommissionPercent != null && user?.role !== "STORE_CLERK") {
     const pct = Number(user.storeCommissionPercent).toFixed(1).replace(".0","");
@@ -327,6 +327,10 @@ function navigate(name) {
   }
   $(".sidebar").classList.remove("open");
   if (name === "dashboard" && ["ADMIN","SUPERVISOR","STORE_OWNER"].includes(state.user?.role)) loadManagementAnalytics();
+  if (name === "quote") {
+    $("#quoteExtrasPanel")?.classList.toggle("hidden",state.user?.role==="CLIENT");
+    if(state.user?.role!=="CLIENT") loadShipmentCatalog();
+  }
   if (name === "orders") loadOrders();
   if (name === "inventory") loadInventory();
   if (name === "financial") loadStoreFinancialSettings();
@@ -768,9 +772,9 @@ $("#shareQuoteBtn")?.addEventListener("click",async()=>{
     "Origem: "+state.currentQuote.cepOrigem+" · Destino: "+state.currentQuote.cepDestino,
     "Volumes: "+(state.currentQuote.volumes?.length||1),
     ...[...result.options].sort((a,b)=>Number(a.precoVenda)-Number(b.precoVenda)).map(o=>
-      String(o.transportadora)+" · "+String(o.produto)+" · "+money(o.precoVenda)+" · Prazo estimado: "+(o.prazoEntrega||"a confirmar")+" dias"
+      String(o.transportadora)+" · "+String(o.produto)+" · "+money(Number(o.precoVenda||0)+selectedAddonsAmount())+" (frete + adicionais) · Prazo estimado: "+(o.prazoEntrega||"a confirmar")+" dias"
     ),
-    "Valores e disponibilidade sujeitos a nova cotação na hora da postagem."
+    "Adicionais selecionados: "+money(selectedAddonsAmount())+" · valores sujeitos à disponibilidade e conferência na postagem."
   ];
   const message=lines.join("\n");
   try{
@@ -784,6 +788,7 @@ $("#shareQuoteBtn")?.addEventListener("click",async()=>{
 $("#shareQuoteLinkBtn")?.addEventListener("click",async event=>{
   const options=state.lastQuoteResult?.options||[];
   if(!options.length||!state.currentQuote)return toast("Calcule o frete antes de gerar o link.","error");
+  if(selectedAddonsAmount()>0)return toast("O link compartilha apenas frete. Para enviar o total com produtos e serviços, use Compartilhar comparação.","error");
   const button=event.currentTarget;
   button.disabled=true;button.textContent="Gerando link...";
   try{
@@ -2746,13 +2751,7 @@ $("#inventoryReceiveForm")?.addEventListener("submit", async event => {
   }
 });
 
-$("#inventoryProduct")?.addEventListener("change", () => {
-  const item = state.inventory.find(x => x.code === $("#inventoryProduct").value);
-  if (item) {
-    $("#inventorySalePrice").value = Number(item.unitPrice || 0).toFixed(2);
-    $("#inventoryUnitCost").value = Number(item.averageCost || 0).toFixed(2);
-  }
-});
+
 
 $("#refreshInventoryBtn")?.addEventListener("click", loadInventory);
 $("#exportInventoryBtn")?.addEventListener("click", () => {
