@@ -1605,6 +1605,7 @@ function openOrderDetails(order) {
 
 async function reprocessOrderShipment(orderId, button) {
   if (!orderId || button.disabled) return;
+  if (!window.confirm("Reprocessar a emissão deste pedido na ConectEnvios? O sistema usará o mesmo frete pago, sem criar outra cobrança Asaas. Se o serviço ou a declaração ainda forem rejeitados, a etiqueta continuará pendente.")) return;
   button.disabled=true;
   const original=button.textContent;
   button.textContent="Consultando postagem...";
@@ -1746,6 +1747,7 @@ function renderOrders() {
       const retryBtn=document.createElement("button");
       retryBtn.className="primary"; retryBtn.type="button";
       retryBtn.textContent="Reprocessar emissão";
+      retryBtn.title="Tentar novamente na ConectEnvios usando o pedido original, sem novo checkout.";
       retryBtn.addEventListener("click",()=>reprocessOrderShipment(order.id,retryBtn));
       actions.appendChild(retryBtn);
     }
