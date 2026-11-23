@@ -38,9 +38,10 @@
 
   <main>
     <section class="hero">
+      <div class="tracking-hero-brand"><img src="/assets/brands/postal.svg" width="130" height="74" alt="Postal Serviços" /><span>RASTREIO OFICIAL POSTAL SERVIÇOS</span></div>
       <div class="eyebrow">ACOMPANHE SUA ENTREGA</div>
       <h1>Cada etapa da sua entrega,<br>mais perto de você.</h1>
-      <p>Consulte aqui o andamento da sua encomenda usando o código informado no comprovante de postagem.</p>
+      <p>Acompanhe a jornada da sua encomenda com a identidade, a segurança e o atendimento da Postal Serviços. Digite seu código de rastreamento abaixo.</p>
     </section>
 
     <form id="trackingForm" class="search" aria-busy="false">
@@ -56,7 +57,7 @@
         <div class="summary">
           <div class="status-wrap">
             <span id="statusLabel" class="status-label"><i class="dot"></i> Em acompanhamento</span>
-            <div id="trackingDisplay" class="tracking">—</div>
+            <div class="tracking-code-row"><div id="trackingDisplay" class="tracking">—</div><button id="copyTrackingBtn" class="copy-tracking" type="button" aria-label="Copiar código de rastreamento">Copiar</button></div>
           </div>
           <div class="meta"><span id="carrierHeading">Operação</span><div class="carrier-identity"><img id="carrierLogo" class="carrier-logo" src="/assets/brands/postal.svg" alt="" width="95" height="44"><span id="carrierFallback" class="carrier-fallback hidden" aria-hidden="true"></span><strong id="carrierName">Postal Serviços</strong></div></div>
           <div class="meta"><span>Serviço</span><strong id="service">—</strong></div>
@@ -84,7 +85,7 @@
 
     <footer class="contact-footer"><strong>Postal Serviços</strong> · Transporte e logística em Parauapebas/PA<br>J K Postal Serviços e Transportes LTDA · CNPJ 31.306.215/0001-69
       <div class="contact-links"><a href="https://wa.me/5594991683301" target="_blank" rel="noopener noreferrer">WhatsApp (94) 99168-3301</a><a href="https://postalservicos.com.br" target="_blank" rel="noopener noreferrer">Site oficial</a><a href="/pontos">Encontre um ponto</a></div>
-      <small>Conectando você ao seu próximo destino.</small></footer>
+      <small>A sua entrega, o nosso compromisso. Acompanhe com a Postal Serviços.</small></footer>
   </main>
   <script src="/branding.js" defer></script>
   <script src="/rastreio.js" defer></script>

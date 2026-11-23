@@ -1282,3 +1282,13 @@ body{background:#faf7f6}
   .order-edit-card .form-grid,.white-label-fields{grid-template-columns:minmax(0,1fr)}
   .white-label-fields .full{grid-column:auto}
 }
+
+/* Cotação unificada: seleção de embalagens/manuseio antes da transportadora */
+.quote-extras-panel{margin:18px 0;padding:24px;background:#fff;border:1px solid #f0d7df;border-left:4px solid #d7083b;border-radius:18px;box-shadow:0 8px 24px #65102b08}
+.quote-extras-heading{display:flex;justify-content:space-between;align-items:start;gap:16px;margin-bottom:20px}
+.quote-extras-heading h2{font-size:20px;margin:4px 0 6px;color:var(--ink,#252331)}
+.quote-extras-heading p{font-size:13px;line-height:1.6;margin:0;color:var(--muted,#667085)}
+.quote-extras-total{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 18px;background:#fff2f6;border-radius:12px;margin-top:16px;color:#72112e;font-weight:700}
+.quote-extras-total strong{font-size:22px;color:#bc0737;white-space:nowrap}
+.inventory-price-note{grid-column:1 / -1;padding:12px 16px;background:#fff2f6;border:1px solid #f0d7df;border-radius:12px;color:#6f2440;font-size:13px;line-height:1.5}
+@media(max-width:650px){.quote-extras-panel{padding:16px}.quote-extras-heading{flex-direction:column}.quote-extras-total{flex-direction:column;align-items:flex-start}}

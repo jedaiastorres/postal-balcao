@@ -89,9 +89,9 @@ function providerErrorSummary(input) {
   const invalidService=/postal_service_name|servi[cç]o postal.*inv[aá]lid|nome do servi[cç]o postal|servi[cç]o selecionado|mapeamento do servi[cç]o/i.test(raw);
   const invalidDeclaration=/declaration|declara[cç][aã]o|valor em r\$|valor declarado/i.test(raw);
   if (invalidService && invalidDeclaration)
-    return "A integração recusou o serviço selecionado e o valor da declaração. O cadastro do cliente não resolve isso; é necessária correção da integração ConectEnvios.";
+    return "A integração recusou o serviço selecionado e o valor da declaração. O cadastro do cliente não resolve isso; é necessária correção da integração transportadora.";
   if (invalidService)
-    return "O serviço postal selecionado foi rejeitado pela ConectEnvios. Revise o mapeamento do serviço antes da emissão.";
+    return "O serviço postal selecionado foi rejeitado pela transportadora. Revise o mapeamento do serviço antes da emissão.";
   if (invalidDeclaration)
     return "O valor da declaração de conteúdo foi rejeitado. Não altere o valor real sem confirmar a regra da transportadora.";
   if (/cpfcnpj|cpf\/cnpj|cpf|cnpj|documento|document/.test(raw))
@@ -103,11 +103,11 @@ function providerErrorSummary(input) {
   if (/telefone|phone|celular/.test(raw))
     return "Telefone rejeitado. Confira o DDD e os números informados.";
   if (/saldo|balance|carteira|wallet|insuficient|pagamento|payment/.test(raw))
-    return "Saldo ou liberação financeira pendente na ConectEnvios.";
+    return "Saldo ou liberação financeira pendente na transportadora.";
   if (/declara|nota fiscal|nfe|nf-e|receipt|invoice/.test(raw))
     return "Documento fiscal ou declaração de conteúdo rejeitado pela transportadora.";
   if (!raw.trim())return "";
-  return "A ConectEnvios não concluiu a emissão. Confira os dados e o histórico; se já houve tentativa, solicite conferência antes de repetir.";
+  return "A transportadora não concluiu a emissão. Confira os dados e o histórico; se já houve tentativa, solicite conferência antes de repetir.";
 }
 
 module.exports={validDocument,canEditOrder,canRetryShipment,correctedParty,providerErrorSummary};

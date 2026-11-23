@@ -397,6 +397,21 @@ async function initDb() {
   // Migração idempotente, preservando pedidos históricos.
   await pool.query(pricingLockSql);
 
+  // Modelos de itens controlados pelo MASTER: inativos e sem preços
+  // até configuração expressa; jamais criar receita/preço sem aprovação.
+  await pool.query(`
+    INSERT INTO catalog_items
+      (id,code,item_type,category,name,description,unit_price,cost_price,track_stock,active)
+    VALUES
+      (gen_random_uuid(),'CAIXA_PEQUENA','PRODUCT','EMBALAGENS','Caixa pequena','Embalagem para postagem',0,0,TRUE,FALSE),
+      (gen_random_uuid(),'CAIXA_MEDIA','PRODUCT','EMBALAGENS','Caixa média','Embalagem para postagem',0,0,TRUE,FALSE),
+      (gen_random_uuid(),'CAIXA_GRANDE','PRODUCT','EMBALAGENS','Caixa grande','Embalagem para postagem',0,0,TRUE,FALSE),
+      (gen_random_uuid(),'ENVELOPE_PLASTICO','PRODUCT','EMBALAGENS','Envelope plástico','Envelope para postagem',0,0,TRUE,FALSE),
+      (gen_random_uuid(),'ENVELOPE_BOLHA','PRODUCT','EMBALAGENS','Envelope com bolha','Embalagem protetora',0,0,TRUE,FALSE),
+      (gen_random_uuid(),'SERVICO_MANUSEIO','SERVICE','MANUSEIO','Serviço de manuseio','Preparação e manuseio da encomenda',0,0,FALSE,FALSE)
+    ON CONFLICT (code) DO NOTHING
+  `);
+
   return true;
 }
 
@@ -895,7 +910,7 @@ async function getPartnerCatalog(partnerEmail) {
        COALESCE(i.quantity,0) AS stock_quantity,
        COALESCE(i.reserved_quantity,0) AS reserved_quantity,
        COALESCE(i.min_quantity,0) AS min_quantity,
-       COALESCE(i.sale_price,c.unit_price) AS effective_unit_price,
+       c.unit_price AS effective_unit_price,
        COALESCE(i.average_cost,0) AS average_cost,
        (COALESCE(i.quantity,0)-COALESCE(i.reserved_quantity,0)) AS available_quantity
      FROM catalog_items c

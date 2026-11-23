@@ -264,7 +264,7 @@
           <div>
             <div class="eyebrow">COTAÇÃO DE FRETE</div>
             <h1>Simular Frete</h1>
-            <p>Informe os dados do pacote. O custo da ConectEnvios fica protegido no servidor; o balcão vê apenas o preço de venda e sua comissão.</p>
+            <p>Informe os dados da encomenda, escolha embalagens e serviços e compare o valor final ao cliente. Custos internos ficam protegidos.</p>
           </div>
         </div>
 
@@ -371,6 +371,16 @@
               <small>CEP de destino da encomenda</small>
             </label>
           </div>
+
+          <section id="quoteExtrasPanel" class="quote-extras-panel" aria-labelledby="quoteExtrasTitle">
+            <div class="quote-extras-heading">
+              <div><span class="eyebrow">VENDA COMPLEMENTAR</span><h2 id="quoteExtrasTitle">Embalagens e manuseio</h2>
+                <p>Adicione caixas, envelopes e serviços do catálogo antes de cotar. Custos e preços de venda são definidos pelo MASTER.</p></div>
+              <button id="refreshQuoteCatalogBtn" class="ghost compact" type="button">Atualizar catálogo</button>
+            </div>
+            <div id="quoteAddonsCatalog" class="addons-catalog"><div class="empty-state">Carregando produtos e serviços...</div></div>
+            <div class="quote-extras-total"><span>Produtos e serviços selecionados</span><strong id="quoteAddonsTotal">R$ 0,00</strong></div>
+          </section>
 
           <div class="quote-submit-row">
             <span id="quoteModeLabel">Pronto para cotar</span>
@@ -998,7 +1008,7 @@
 
         <div class="master-grid">
           <article class="form-panel">
-            <div class="form-panel-head"><span class="step-number">3</span><div><h3>Catálogo central</h3><p>Cadastre produtos e serviços com divisão financeira configurável.</p></div></div>
+            <div class="form-panel-head"><span class="step-number">3</span><div><h3>Catálogo central MASTER</h3><p>Defina custo, preço, disponibilidade e divisão financeira dos itens da rede.</p></div></div>
             <form id="adminCatalogForm" class="inventory-form">
               <label>Código*<input id="adminCatalogCode" required /></label>
               <label>Nome*<input id="adminCatalogName" required /></label>
@@ -1006,8 +1016,10 @@
                 <select id="adminCatalogType"><option value="PRODUCT">Produto</option><option value="SERVICE">Serviço</option></select>
               </label>
               <label>Categoria<input id="adminCatalogCategory" value="OUTROS" /></label>
-              <label>Preço padrão<div class="money-field"><span>R$</span><input id="adminCatalogPrice" type="number" min="0" step="0.01" value="0" /></div></label>
+              <label>Preço de venda MASTER<div class="money-field"><span>R$</span><input id="adminCatalogPrice" type="number" min="0" step="0.01" value="0" required /></div></label>
+              <label>Custo unitário MASTER<div class="money-field"><span>R$</span><input id="adminCatalogCost" type="number" min="0" step="0.01" value="0" required /></div></label>
               <label><input id="adminCatalogStock" type="checkbox" /> Controla estoque físico</label>
+              <label><input id="adminCatalogActive" type="checkbox" checked /> Disponível para venda</label>
               <div class="shares-grid">
                 <label>Ponto %<input id="adminCatalogPointShare" type="number" min="0" max="100" step="0.1" value="100" /></label>
                 <label>Postal %<input id="adminCatalogPostalShare" type="number" min="0" max="100" step="0.1" value="0" /></label>
@@ -1047,7 +1059,7 @@
           <article class="form-panel inventory-receive-panel">
             <div class="form-panel-head">
               <span class="step-number">+</span>
-              <div><h3>Receber produto</h3><p>Registre a entrada física. O preço de venda é definido exclusivamente pelo Master.</p></div>
+              <div><h3>Receber produto</h3><p>Registre apenas a entrada física; custo e preço são administrados pelo MASTER.</p></div>
             </div>
             <form id="inventoryReceiveForm" class="inventory-form">
               <label>Produto*
@@ -1056,13 +1068,7 @@
               <label>Quantidade recebida*
                 <input id="inventoryQuantity" type="number" min="0.001" step="0.001" required />
               </label>
-              <label>Custo unitário
-                <div class="money-field"><span>R$</span><input id="inventoryUnitCost" type="number" min="0" step="0.01" value="0" /></div>
-              </label>
-              <label>Preço de venda
-                <div class="money-field"><span>R$</span><input id="inventorySalePrice" type="number" min="0" step="0.01" disabled /></div>
-                <small>Definido pelo Master</small>
-              </label>
+              <p class="inventory-price-note">Preço de venda e custo unitário são definidos pelo MASTER no catálogo. Nesta tela o ponto registra somente a quantidade física, lote e observação.</p>
               <label>Lote<input id="inventoryLotCode" placeholder="Ex.: LOTE-0926" /></label>
               <label>Observação
                 <input id="inventoryNote" placeholder="Ex.: Recebimento lote 01" />
