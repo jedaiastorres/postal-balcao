@@ -20,6 +20,7 @@ const publicQuote = require("./public_quote");
 const custody = require("./custody");
 const quotePricing = require("./quote_pricing");
 const shipmentCorrections = require("./shipment_corrections");
+const whiteLabel = require("./white_label");
 const operationalMetrics = require("./operational_metrics");
 const postalOperations = require("./postal_operations");
 const postalRegional = require("./postal_regional");
@@ -4122,6 +4123,53 @@ app.get("/api/admin/overview", requireAuth, requireRole("ADMIN"), async (_req, r
     });
   } catch (error) {
     res.status(500).json({ error: "Não foi possível carregar o painel master." });
+  }
+});
+
+// White Label: exclusivamente cadastro comercial MASTER. Nenhuma rota operacional é
+// liberada nesta fase; empresas não recebem login, frete, cotação ou split ativo.
+app.get("/api/admin/white-label-carriers",requireAuth,requireRole("ADMIN"),async(req,res)=>{
+  try{
+    res.setHeader("Cache-Control","private,no-store");
+    const rows=await db.listWhiteLabelCarriers();
+    res.json({carriers:rows.map(whiteLabel.whiteLabelCarrierDTO),operationalEnabled:false});
+  }catch(error){
+    console.error("white label list error:",error.code||error.name);
+    res.status(503).json({error:"Não foi possível carregar as transportadoras White Label."});
+  }
+});
+app.post("/api/admin/white-label-carriers",requireAuth,requireRole("ADMIN"),async(req,res)=>{
+  try{
+    const carrier=whiteLabel.normalizeWhiteLabelCarrier(req.body);
+    const saved=await db.createWhiteLabelCarrier(carrier,req.user.userId);
+    await audit(req,"CREATE_WHITE_LABEL_CARRIER","WHITE_LABEL_CARRIER",saved.id,{code:saved.code});
+    res.status(201).json({ok:true,carrier:whiteLabel.whiteLabelCarrierDTO(saved),
+      message:"Transportadora cadastrada para homologação. Operação e pagamentos não estão habilitados."});
+  }catch(error){
+    if(error.code==="23505")return res.status(409).json({error:"Já existe uma transportadora com esse CNPJ ou código."});
+    if(error.status===400)return res.status(400).json({error:error.message});
+    console.error("white label create error:",error.code||error.name);
+    res.status(503).json({error:"Não foi possível cadastrar a transportadora."});
+  }
+});
+app.patch("/api/admin/white-label-carriers/:id",requireAuth,requireRole("ADMIN"),async(req,res)=>{
+  try{
+    if(!/^[\da-f]{8}-[\da-f-]{27,36}$/i.test(String(req.params.id||"")))return res.status(400).json({error:"Identificador inválido."});
+    const existing=await db.getWhiteLabelCarrier(req.params.id);
+    if(!existing)return res.status(404).json({error:"Transportadora não encontrada."});
+    if(existing.status!=="DRAFT")return res.status(409).json({error:"Cadastro fora da fase de edição."});
+    const patch=req.body&&typeof req.body==="object"&&!Array.isArray(req.body)?req.body:{};
+    const carrier=whiteLabel.normalizeWhiteLabelCarrier({...whiteLabel.whiteLabelCarrierDTO(existing),...patch});
+    const updated=await db.updateWhiteLabelCarrier(req.params.id,carrier);
+    if(!updated)return res.status(409).json({error:"O cadastro mudou de situação. Atualize a página."});
+    await audit(req,"UPDATE_WHITE_LABEL_CARRIER","WHITE_LABEL_CARRIER",updated.id,{code:updated.code});
+    res.json({ok:true,carrier:whiteLabel.whiteLabelCarrierDTO(updated),
+      message:"Cadastro White Label atualizado. A operação permanece em homologação."});
+  }catch(error){
+    if(error.code==="23505")return res.status(409).json({error:"CNPJ ou código já cadastrado."});
+    if(error.status===400)return res.status(400).json({error:error.message});
+    console.error("white label update error:",error.code||error.name);
+    res.status(503).json({error:"Não foi possível atualizar o cadastro White Label."});
   }
 });
 
