@@ -82,6 +82,14 @@ function correctedParty(previous, submitted, label) {
 
 function providerErrorSummary(input) {
   const raw=String(input||"").toLowerCase();
+  const invalidService=/postal_service_name|servi[cç]o postal.*inv[aá]lid|nome do servi[cç]o postal/i.test(raw);
+  const invalidDeclaration=/declaration|declara[cç][aã]o|valor em r\$|valor declarado/i.test(raw);
+  if (invalidService && invalidDeclaration)
+    return "A integração recusou o serviço selecionado e o valor da declaração. O cadastro do cliente não resolve isso; é necessária correção da integração ConectEnvios.";
+  if (invalidService)
+    return "O serviço postal selecionado foi rejeitado pela ConectEnvios. Revise o mapeamento do serviço antes da emissão.";
+  if (invalidDeclaration)
+    return "O valor da declaração de conteúdo foi rejeitado. Não altere o valor real sem confirmar a regra da transportadora.";
   if (/cpfcnpj|cpf\/cnpj|cpf|cnpj|documento|document/.test(raw))
     return "Documento rejeitado. Confira o CPF/CNPJ do remetente e destinatário.";
   if (/logradouro|endereço|endereco|bairro|neighborhood|street|address/.test(raw))
