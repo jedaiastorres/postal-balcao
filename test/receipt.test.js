@@ -51,7 +51,7 @@ test('comprovante discrimina todos os custos extras e valores efetivamente cobra
 });
 test('segunda via usa os valores e as descrições persistidos no pedido',()=>{
   const context=vm.createContext({state:{user:{storeName:'Ponto Postal'}},paymentMethodLabel:method=>method});
-  vm.runInContext(source.slice(source.indexOf('function receiptPayloadFromOrder'),source.indexOf('async function payCashRemittance')),context);
+  vm.runInContext(source.slice(source.indexOf('function postalTrackingPath'),source.indexOf('async function payCashRemittance')),context);
   const receipt=context.receiptPayloadFromOrder({
     id:'123',salePrice:39.50,hubTransferTotal:5,addonsTotal:7.50,
     totalToCustomer:48.90,paymentSurcharge:1.90,
