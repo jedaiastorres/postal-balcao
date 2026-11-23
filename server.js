@@ -613,7 +613,7 @@ function providerHeaders(extra = {}) {
 }
 
 async function providerFetch(pathname, options = {}) {
-  if (!TOKEN) throw new Error("CONECTENVIOS_TOKEN não configurado.");
+  if (!TOKEN) throw new Error("Integração logística indisponível.");
   const url = `${API_URL}${pathname.startsWith("/") ? pathname : `/${pathname}`}`;
   const response = await fetch(url, {
     ...options,
@@ -634,7 +634,7 @@ async function providerFetch(pathname, options = {}) {
   }
 
   if (!response.ok) {
-    const err = new Error("A ConectEnvios não conseguiu concluir a solicitação.");
+    const err = new Error("A integração logística não conseguiu concluir a solicitação.");
     err.status = response.status;
     err.providerData = data;
     throw err;
@@ -1075,19 +1075,19 @@ async function refreshShipmentFromProvider(order) {
   if (shipment.ready) {
     await db.saveShipment(order.id, shipment);
     await db.addOrderEvent(order.id, "LABEL_AVAILABLE", "Etiquetas liberadas",
-      expected > 1 ? `${expected} volumes liberados pela ConectEnvios.` : "Etiqueta liberada pela ConectEnvios.");
+      expected > 1 ? `${expected} volumes liberados pela ConectEnvios.` : "Etiqueta liberada pela transportadora.");
   } else {
     await db.saveProviderPendingShipment(order.id, shipment);
     await db.updateProviderPayment(order.id,{
       status:awaitingFunds ? "AWAITING_FUNDS" : "AWAITING_PROVIDER_CONFIRMATION",
       ref:shipment.cartId || shipment.packageId || null,
       error:awaitingFunds
-        ? "Envio criado na ConectEnvios e aguardando pagamento/saldo da carteira."
+        ? "Envio criado na transportadora e aguardando liberação financeira."
         : `Aguardando etiquetas/rastreios dos volumes (${shipment.volumes.length}/${expected}).`
     });
     if (awaitingFunds) {
-      await db.addOrderEvent(order.id, "PROVIDER_AWAITING_FUNDS", "Aguardando saldo ConectEnvios",
-        "O cliente já pagou a Postal; a etiqueta aguarda saldo/pagamento na carteira ConectEnvios.");
+      await db.addOrderEvent(order.id, "PROVIDER_AWAITING_FUNDS", "Aguardando liberação financeira",
+        "O pagamento do cliente está confirmado; a etiqueta aguarda liberação da transportadora.");
     }
   }
   return shipment;
@@ -1245,7 +1245,7 @@ async function createShipmentFromOrderUnlocked(order) {
     await db.updateStatus(order.id, "PAID_WAITING_SHIPMENT", "PAID");
     return null;
   }
-  if (!TOKEN) throw new Error("CONECTENVIOS_TOKEN não configurado.");
+  if (!TOKEN) throw new Error("Integração logística indisponível.");
 
   // Carrinho já criado: consulta o mesmo carrinho em vez de gerar cobrança/postagem duplicada.
   if (order.conect_cart_id) {
@@ -1258,7 +1258,7 @@ async function createShipmentFromOrderUnlocked(order) {
       error: "Postagem já criada no provedor e aguardando retorno completo."
     });
     await db.updateStatus(order.id,"PROVIDER_PAYMENT_PENDING","PAID");
-    throw new Error("A postagem já foi criada na ConectEnvios e ainda aguarda liberação. Não será gerada em duplicidade.");
+    throw new Error("A postagem já foi criada na transportadora e aguarda liberação. Não será gerada em duplicidade.");
   }
 
   const packageData = order.package_data || {};
@@ -1377,7 +1377,7 @@ async function createShipmentFromOrderUnlocked(order) {
     await db.addOrderEvent(
       order.id,
       "PROVIDER_PAYMENT_PENDING",
-      failureStatus==="AWAITING_FUNDS" ? "Saldo do provedor precisa de reposição" : "ConectEnvios não liberou a postagem",
+      failureStatus==="AWAITING_FUNDS" ? "Saldo do provedor precisa de reposição" : "A transportadora não liberou a postagem",
       detail || "Falha ao gerar as etiquetas no provedor."
     );
     throw error;
@@ -1385,7 +1385,7 @@ async function createShipmentFromOrderUnlocked(order) {
 
   const providerPayload = result.data || {};
   if (providerPayload.error === true) {
-    const err = new Error(providerFailureText({providerData:providerPayload}) || "A ConectEnvios recusou a postagem.");
+    const err = new Error(providerFailureText({providerData:providerPayload}) || "A transportadora recusou a postagem.");
     err.providerData = providerPayload;
     const failureStatus=providerPaymentFailureStatus(err);
     await db.updateProviderPayment(order.id,{status:failureStatus,error:shipmentCorrections.providerErrorSummary(providerFailureText(err)).slice(0,1000)});
@@ -1396,7 +1396,7 @@ async function createShipmentFromOrderUnlocked(order) {
   const cart = providerPayload.data || providerPayload;
   const shipment = shipmentFromProviderCart(cart, storedVolumes.length);
   if (!shipment.cartId && !shipment.packageId) {
-    const err=new Error("A ConectEnvios não retornou os dados da postagem.");
+    const err=new Error("A transportadora não retornou os dados da postagem.");
     await db.updateProviderPayment(order.id,{status:"ERROR",error:err.message});
     await db.updateStatus(order.id,"PROVIDER_PAYMENT_PENDING","PAID");
     throw err;
@@ -1409,15 +1409,15 @@ async function createShipmentFromOrderUnlocked(order) {
       status:awaitingFunds ? "AWAITING_FUNDS" : "AWAITING_PROVIDER_CONFIRMATION",
       ref:shipment.cartId || shipment.packageId || null,
       error:awaitingFunds
-        ? "Envio criado na ConectEnvios e aguardando pagamento/saldo da carteira."
-        : `ConectEnvios criou o carrinho; aguardando etiquetas/rastreios dos volumes (${shipment.volumes.length}/${storedVolumes.length}).`
+        ? "Envio criado na transportadora e aguardando liberação financeira."
+        : `Postagem criada na transportadora; aguardando etiquetas/rastreios dos volumes (${shipment.volumes.length}/${storedVolumes.length}).`
     });
     await db.addOrderEvent(
       order.id,
       awaitingFunds ? "PROVIDER_AWAITING_FUNDS" : "PROVIDER_PAYMENT_PENDING",
-      awaitingFunds ? "Aguardando saldo ConectEnvios" : "Aguardando liberação da ConectEnvios",
+      awaitingFunds ? "Aguardando liberação financeira" : "Aguardando liberação da transportadora",
       awaitingFunds
-        ? "O cliente já pagou a Postal; a etiqueta aguarda saldo/pagamento na carteira ConectEnvios."
+        ? "O pagamento do cliente está confirmado; a etiqueta aguarda liberação da transportadora."
         : (storedVolumes.length > 1
             ? `Envio com ${storedVolumes.length} volumes criado no provedor e aguardando todas as etiquetas.`
             : "O pedido foi criado no provedor, mas a etiqueta/rastreio ainda não foram liberados.")
@@ -1434,7 +1434,7 @@ async function createShipmentFromOrderUnlocked(order) {
   await db.addOrderEvent(order.id, "LABEL_AVAILABLE", storedVolumes.length > 1 ? "Etiquetas dos volumes liberadas" : "Etiqueta liberada",
     storedVolumes.length > 1
       ? `${storedVolumes.length} volumes prontos para impressão e postagem.`
-      : "Postagem paga/criada na ConectEnvios e etiqueta disponível.");
+      : "Postagem registrada na transportadora e etiqueta disponível.");
   return shipment;
 }
 
@@ -4017,9 +4017,9 @@ app.get("/api/admin/go-live-readiness", requireAuth, requireRole("ADMIN"), async
 
   try{
     const ce=TOKEN?await providerFetch("/postal_company",{method:"GET",timeout:15000}):null;
-    add("conectenvios","ConectEnvios",Boolean(ce?.data),"API logística autenticada.");
+    add("conectenvios","Integração logística",Boolean(ce?.data),"API logística autenticada.");
   }catch(error){
-    add("conectenvios","ConectEnvios",false,providerFailureText(error)||error.message);
+    add("conectenvios","Integração logística",false,providerFailureText(error)||error.message);
   }
 
   const env=asaas.environmentInfo();
@@ -4505,7 +4505,7 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
 
     res.json({
       demo,
-      provider: req.user.role === "CLIENT" ? "Postal Serviços" : "ConectEnvios",
+      provider: req.user.role === "CLIENT" ? "Postal Serviços" : "Integração logística",
       commissionPercent: round2(partnerCommissionRate * 100),
       volumeCount:volumes.length,
       totalWeightKg:round2(totalWeightGrams / 1000),
@@ -4522,7 +4522,7 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
     console.error("quote error:", error.status, error.message);
     res.status(error.status === 401 ? 502 : (error.status && error.status < 500 ? error.status : 502)).json({
       error: error.status === 401
-        ? "Token da ConectEnvios nao autorizado."
+        ? "Consulta não autorizada pela integração logística."
         : (error.message || "Falha ao consultar os servicos de frete.")
     });
   }
@@ -4530,7 +4530,7 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
 
 // Consulta endereco por CEP.
 app.get("/api/cep/:cep", requireAuth, async (req, res) => {
-  if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
+  if (!TOKEN) return res.status(503).json({ error: "Integração logística indisponível." });
   try {
     const cep = String(req.params.cep || "").replace(/\D/g, "");
     const result = await providerFetch(`/cep/address/?cep=${encodeURIComponent(cep)}`, { method: "GET" });
@@ -4543,7 +4543,7 @@ app.get("/api/cep/:cep", requireAuth, async (req, res) => {
 
 // Lista transportadoras habilitadas para a conta.
 app.get("/api/transportadoras", requireAuth, async (_req, res) => {
-  if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
+  if (!TOKEN) return res.status(503).json({ error: "Integração logística indisponível." });
   try {
     const result = await providerFetch("/postal_company", { method: "GET" });
     res.json(result.data);
@@ -4555,7 +4555,7 @@ app.get("/api/transportadoras", requireAuth, async (_req, res) => {
 
 // Simulacao isolada de prazo.
 app.post("/api/prazo", requireAuth, async (req, res) => {
-  if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
+  if (!TOKEN) return res.status(503).json({ error: "Integração logística indisponível." });
   try {
     const cepFrom = String(req.body.cepOrigem || "").replace(/\D/g, "");
     const cepTo = String(req.body.cepDestino || "").replace(/\D/g, "");
@@ -5060,7 +5060,7 @@ app.post("/api/orders/:id/reprocess-shipment", requireAuth, requireRole("ADMIN",
     // Se há carrinho remoto, createShipmentFromOrder faz GET no mesmo carrinho.
     const hasProviderRef=Boolean(order.conect_cart_id || order.conect_package_id);
     if (!shipmentCorrections.canRetryShipment(order)) {
-      return res.status(409).json({error:"A ConectEnvios não confirmou se a tentativa anterior criou o envio. Confira o pedido na transportadora antes de repetir, para evitar duas postagens."});
+      return res.status(409).json({error:"A transportadora não confirmou se a tentativa anterior criou o envio. Confira a postagem antes de repetir, para evitar duplicidade."});
     }
     const retryStatus=String(order.provider_payment_status||"").toUpperCase();
     if (retryStatus==="REJECTED_INPUT" && !hasProviderRef) {
@@ -5086,7 +5086,7 @@ app.post("/api/orders/:id/reprocess-shipment", requireAuth, requireRole("ADMIN",
     const updated=await db.getOrder(req.params.id,scopeForUser(req.user)).catch(()=>null);
     return res.status(error.status && error.status>=400 && error.status<500 ? error.status : 502).json({
       error:providerPaymentFailureStatus(error)==="AWAITING_FUNDS"
-        ?"Saldo da ConectEnvios ainda insuficiente ou postagem aguardando pagamento. O pedido já pago foi preservado."
+        ?"Liberação financeira da transportadora pendente. O pedido já pago foi preservado."
         :errorSummary
           ?errorSummary+" O pedido pago foi preservado; não efetue outro pagamento."
           :"Não foi possível liberar a etiqueta. O pedido pago foi preservado; consulte os detalhes antes de tentar novamente.",
@@ -5416,7 +5416,7 @@ async function canReadProviderReference(req,kind,reference) {
 
 // Consulta carrinho: o token do master só pode consultar um carrinho do próprio ponto.
 app.get("/api/carrinhos/:id", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req, res) => {
-  if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
+  if (!TOKEN) return res.status(503).json({ error: "Integração logística indisponível." });
   try {
     if(!(await canReadProviderReference(req,"cart",req.params.id)))return res.status(404).json({error:"Carrinho não encontrado."});
     const result = await providerFetch(`/cart/${encodeURIComponent(req.params.id)}`, { method: "GET" });
@@ -5429,7 +5429,7 @@ app.get("/api/carrinhos/:id", requireAuth, requireRole("ADMIN","SUPERVISOR","STO
 
 // Consulta pacote individual.
 app.get("/api/envios/:id", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req, res) => {
-  if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
+  if (!TOKEN) return res.status(503).json({ error: "Integração logística indisponível." });
   try {
     if(!(await canReadProviderReference(req,"package",req.params.id)))return res.status(404).json({error:"Envio não encontrado."});
     const result = await providerFetch(`/package/${encodeURIComponent(req.params.id)}`, { method: "GET" });
@@ -5733,7 +5733,7 @@ app.get("/api/public/rastreio/:stamp", async (req,res)=>{
 
 // Rastreamento pelo ID interno do pacote.
 app.get("/api/rastreio/id/:id", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req, res) => {
-  if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
+  if (!TOKEN) return res.status(503).json({ error: "Integração logística indisponível." });
   try {
     if(!(await canReadProviderReference(req,"package",req.params.id)))return res.status(404).json({error:"Envio não encontrado."});
     const result = await providerFetch(`/package/track/${encodeURIComponent(req.params.id)}`, { method: "GET" });
@@ -5746,7 +5746,7 @@ app.get("/api/rastreio/id/:id", requireAuth, requireRole("ADMIN","SUPERVISOR","S
 
 // Rastreamento pelo codigo da etiqueta.
 app.get("/api/rastreio/codigo/:stamp", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req, res) => {
-  if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
+  if (!TOKEN) return res.status(503).json({ error: "Integração logística indisponível." });
   try {
     if(!(await canReadProviderReference(req,"tracking",req.params.stamp)))return res.status(404).json({error:"Rastreio não encontrado."});
     const result = await providerFetch(`/package/track/stamp/${encodeURIComponent(req.params.stamp)}`, { method: "GET" });
@@ -5796,7 +5796,7 @@ app.post("/api/webhooks/asaas", async (req, res) => {
  * Em vez de expor o Bearer Token no navegador, o servidor busca o arquivo.
  */
 app.post("/api/documento-proxy", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req, res) => {
-  if (!TOKEN) return res.status(503).json({ error: "CONECTENVIOS_TOKEN nao configurado." });
+  if (!TOKEN) return res.status(503).json({ error: "Integração logística indisponível." });
 
   try {
     const rawUrl = String(req.body.url || "");
