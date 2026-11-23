@@ -1850,7 +1850,11 @@ async function processPendingProviderPayments() {
       } catch (error) {
         const status = providerPaymentFailureStatus(error);
         if (status !== "AWAITING_FUNDS") {
-          console.error("ConectEnvios retry stopped:", order.id, providerFailureText(error));
+          console.error("ConectEnvios retry stopped:",{
+            orderId:order.id,
+            httpStatus:Number(error.status)||null,
+            reason:shipmentCorrections.providerErrorSummary(providerFailureText(error))
+          });
         }
       }
     }
