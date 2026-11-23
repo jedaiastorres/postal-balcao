@@ -68,3 +68,25 @@ test("o JavaScript do servidor e do painel compila sem erro de sintaxe",()=>{
   new vm.Script(fs.readFileSync(require.resolve("../server"),"utf8"));
   new vm.Script(fs.readFileSync(require.resolve("../public/app.js"),"utf8"));
 });
+
+test("erro 422 mostra serviço e declaração sem vazar conteúdo remoto",()=>{
+  const payload=JSON.stringify({
+    "package.0.postal_service_name":["O campo Nome do serviço postal selecionado é inválido."],
+    "package.0.declaration.0.value":["O campo Valor em R$ não pode ser superior a 0."]
+  });
+  const visible=corrections.providerErrorSummary(payload);
+  assert.match(visible,/serviço selecionado/);
+  assert.match(visible,/valor da declaração/);
+  assert.ok(!visible.includes("package.0."));
+});
+test("worker não reenvia rejeições 422 nem erros de resultado incerto",()=>{
+  const db=fs.readFileSync(require.resolve("../db"),"utf8");
+  const server=fs.readFileSync(require.resolve("../server"),"utf8");
+  const sql=db.slice(db.indexOf("async function listProviderPaymentRetryCandidates"),db.indexOf("async function providerPaymentSummary"));
+  assert.match(sql,/provider_payment_status='AWAITING_FUNDS'/);
+  assert.match(sql,/provider_payment_status='PENDING' AND f.provider_payment_attempts=0/);
+  assert.doesNotMatch(sql,/IN \('PENDING','AWAITING_FUNDS','ERROR'\)/);
+  const worker=server.slice(server.indexOf("async function processPendingProviderPayments"),server.indexOf("async function processPendingAsaasEvents"));
+  assert.doesNotMatch(worker,/console\.error\("ConectEnvios retry stopped:", order\.id, providerFailureText\(error\)\)/);
+  assert.match(worker,/providerErrorSummary\(providerFailureText\(error\)\)/);
+});
