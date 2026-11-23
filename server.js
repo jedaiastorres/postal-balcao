@@ -20,6 +20,7 @@ const publicQuote = require("./public_quote");
 const custody = require("./custody");
 const quotePricing = require("./quote_pricing");
 const shipmentCorrections = require("./shipment_corrections");
+const providerServiceMapping = require("./provider_service_mapping");
 const whiteLabel = require("./white_label");
 const operationalMetrics = require("./operational_metrics");
 const postalOperations = require("./postal_operations");
@@ -723,6 +724,7 @@ function normalizeQuote(payload, partnerCommissionRate = PARTNER_COMMISSION) {
       transportadora: item.company_name ?? item.postal_company_name ?? item.company ?? "Transportadora",
       produto: item.name ?? item.service_name ?? item.postal_service_name ?? item.service ?? "Serviço",
       codigoServico: item.code ?? "",
+      providerServiceName: providerServiceMapping.canonicalServiceName(item),
       prazoEntrega: Number(item.deadline ?? item.postal_service_deadline ?? 0),
       precoVenda: pricing.salePrice,
       comissaoParceiro: pricing.partnerCommission,
@@ -1129,8 +1131,10 @@ async function probeConectEnviosMultiVolumeQuote() {
 }
 
 async function resolveCartServiceCode(order, packageData, storedVolumes) {
-  const storedCode = String(packageData?.serviceCode || "").trim();
-  if (storedCode) return storedCode;
+  // Nome canônico da cotação: código técnico (ex.: FREIGHT_TYPE_ECONOMIC)
+  // não é aceito em postal_service_name na criação do carrinho.
+  const storedName = String(packageData?.postalServiceName || "").trim();
+  if (storedName) return storedName;
 
   const first = storedVolumes?.[0];
   if (!first) return String(order?.service_name || "").trim();
@@ -1138,8 +1142,9 @@ async function resolveCartServiceCode(order, packageData, storedVolumes) {
   try {
     const providerCepFrom = cleanDigits(packageData?.providerCepFrom || order?.sender?.cep);
     const cepTo = cleanDigits(order?.recipient?.cep);
-    if (providerCepFrom.length !== 8 || cepTo.length !== 8) return String(order?.service_name || "").trim();
-
+    if (providerCepFrom.length !== 8 || cepTo.length !== 8) {
+      return String(order?.service_name || "").trim();
+    }
     const result = await providerFetch("/package/shipping", {
       method:"POST",
       body:JSON.stringify({
@@ -1157,48 +1162,21 @@ async function resolveCartServiceCode(order, packageData, storedVolumes) {
     });
 
     const rawOptions = extractShippingItems(result.data);
-    const options = normalizeQuote(result.data, 0);
-    const normalizeName = value => String(value || "")
-      .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
-      .toUpperCase().replace(/[^A-Z0-9]+/g," ").trim();
-
-    const targetName = normalizeName(order?.service_name);
-    const targetCarrier = normalizeName(order?.carrier);
-    const sameCompany = options.filter(option =>
-      Number(option.postalCompanyId || 0) === Number(order?.postal_company_id || 0)
-    );
-    const pool = sameCompany.length ? sameCompany : options;
-    const matched = pool.find(option => {
-      const product = normalizeName(option.produto);
-      const carrier = normalizeName(option.transportadora);
-      const nameMatches = product === targetName || product.includes(targetName) || targetName.includes(product);
-      const carrierMatches = !targetCarrier || carrier.includes(targetCarrier) || targetCarrier.includes(carrier);
-      return nameMatches && carrierMatches;
-    }) || (pool.length === 1 ? pool[0] : null);
-
-    if (matched) {
-      const rawMatched = rawOptions.find(item =>
-        String(item.code || "") === String(matched.codigoServico || "") ||
-        normalizeName(item.name || item.service_name || item.postal_service_name || item.service) === normalizeName(matched.produto)
-      );
-      if (rawMatched) {
-        console.log("CONECTENVIOS_SERVICE_RAW", order.id, JSON.stringify(rawMatched));
-      }
-      const serviceIdentifier = String(
-        rawMatched?.postal_service_name ||
-        rawMatched?.service_name ||
-        rawMatched?.service ||
-        matched.codigoServico ||
-        matched.produto ||
-        ""
-      ).trim();
-      console.log("CONECTENVIOS_SERVICE_RESOLVED", order.id, serviceIdentifier, matched.produto);
-      if (serviceIdentifier) return serviceIdentifier;
+    const serviceName = providerServiceMapping.resolveServiceNameFromQuote(rawOptions,{
+      postalCompanyId:order?.postal_company_id,
+      carrierName:order?.carrier,
+      serviceName:order?.service_name,
+      serviceCode:packageData?.serviceCode
+    });
+    if (serviceName) {
+      console.log("CONECTENVIOS_SERVICE_RESOLVED", order.id, serviceName);
+      return serviceName;
     }
+    console.warn("CONECTENVIOS_SERVICE_NO_MATCH", order?.id || "", "No matching service name from quote");
   } catch (error) {
-    console.warn("CONECTENVIOS_SERVICE_RESOLVE_FAIL", order?.id || "", providerFailureText(error));
+    console.warn("CONECTENVIOS_SERVICE_RESOLVE_FAIL", order?.id || "", error.status || "network");
   }
-
+  // Último recurso: o nome comercial legível do pedido, nunca o código técnico.
   return String(order?.service_name || "").trim();
 }
 
@@ -1388,7 +1366,12 @@ async function createShipmentFromOrderUnlocked(order) {
   } catch (error) {
     const failureStatus=providerPaymentFailureStatus(error)==="AWAITING_FUNDS"?"AWAITING_FUNDS":([400,422].includes(Number(error.status))?"REJECTED_INPUT":"ERROR");
     const detail=(shipmentCorrections.providerErrorSummary(providerFailureText(error))+(error.status?" (HTTP "+Number(error.status)+")":"")).slice(0,1000);
-    console.error("provider cart failure:",{orderId:order.id,httpStatus:Number(error.status)||null,reason:detail});
+    // Apenas nomes de campos de validação: não registrar CPF, endereços ou payload.
+    const validationErrors = error?.providerData?.errors;
+    const validationFields = validationErrors && typeof validationErrors === "object"
+      ? Object.keys(validationErrors).filter(field => /^[a-zA-Z0-9_.-]{1,100}$/.test(field)).slice(0,12)
+      : [];
+    console.error("provider cart failure:",{orderId:order.id,httpStatus:Number(error.status)||null,validationFields,reason:detail});
     await db.updateProviderPayment(order.id,{status:failureStatus,error:detail});
     await db.updateStatus(order.id,"PROVIDER_PAYMENT_PENDING","PAID");
     await db.addOrderEvent(
@@ -4483,6 +4466,7 @@ app.post("/api/cotacao", requireAuth, requireRole("ADMIN","STORE_OWNER","STORE_C
           carrierMode:own?"POSTAL_OWN":null,
           declaredValue:totalDeclaredValue,
           serviceCode: String(option.codigoServico || ""),
+          postalServiceName: String(option.providerServiceName || option.produto || ""),
           volumeCount:volumes.length,
           volumes
         }
