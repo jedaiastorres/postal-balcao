@@ -103,13 +103,19 @@
       </section>
       <section class="tab-panel hidden" data-panel="quotes">
         <article class="card">
-          <h2>Simular frete</h2><p>Simulação exclusiva da sua tabela. Nenhuma postagem ou cobrança será efetuada.</p>
+          <h2>Cotação combinada</h2><p>Compare suas rotas próprias com as transportadoras integradas à rede. Os preços são calculados no servidor, com comissão definida pelo MASTER Postal. A consulta é apenas informativa: nenhuma etiqueta ou cobrança será gerada.</p>
           <form id="quoteForm" class="fields grid-form">
             <label>CEP de origem<input id="quoteOrigin" required inputmode="numeric" maxlength="9" placeholder="68500-000"></label>
             <label>CEP de destino<input id="quoteDestination" required inputmode="numeric" maxlength="9" placeholder="68515-000"></label>
             <label>Peso do volume (g)<input id="quoteWeight" required type="number" min="1" max="30000" step="1" value="1000"></label>
-            <div class="wide"><button class="primary" type="submit">Calcular</button></div>
+            <label>Comprimento (cm)<input id="quoteLength" required type="number" min="1" max="100" step="1" value="20"></label>
+            <label>Largura (cm)<input id="quoteWidth" required type="number" min="1" max="100" step="1" value="15"></label>
+            <label>Altura (cm)<input id="quoteHeight" required type="number" min="1" max="100" step="1" value="10"></label>
+            <label>Valor declarado (R$, opcional)<input id="quoteDeclaredValue" type="number" min="0" max="50000" step="0.01" placeholder="0,00"></label>
+            <p class="wide note">A soma das dimensões não pode ultrapassar 200 cm. O preço é estimativo; seguro, cobertura e disponibilidade serão reconfirmados antes de qualquer emissão futura.</p>
+            <div class="wide"><button class="primary" type="submit">Comparar preços</button></div>
           </form>
+          <div id="quoteComparisonStatus" class="note" role="status" aria-live="polite"></div>
           <div id="quoteResults" class="list"></div>
         </article>
       </section>
