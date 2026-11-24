@@ -228,9 +228,8 @@ function register({app,db,requireAuth,requireRole,signSession,verifySession,
         return res.status(403).json({error:"Comissões especiais só podem ser definidas pelo MASTER."});
       const data=wlClients.normalizeClient(master?req.body:{...req.body,
         pointId:req.wl.account.point_id,pointCommissionOverride:null,active:true});
-      const count=await wlClientsDb.listClients(pool,req.wl.carrier.id,
-        master?null:req.wl.account.point_id);
-      if(count.length>=300)return res.status(409).json({error:"Limite de 300 clientes cadastrados por visualização."});
+      const count=await wlClientsDb.countClients(pool,req.wl.carrier.id);
+      if(count>=300)return res.status(409).json({error:"Limite inicial de 300 clientes por transportadora."});
       const created=await wlClientsDb.createClient(pool,req.wl.carrier.id,req.wl.account.id,
         data,master?data.pointId:req.wl.account.point_id,master);
       res.setHeader("Cache-Control","no-store");
