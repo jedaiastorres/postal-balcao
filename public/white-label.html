@@ -5,35 +5,65 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>Portal de Transportadora · White Label</title>
-  <link rel="stylesheet" href="/white-label.css">
+  <meta name="theme-color" content="#d7083b">
+  <link rel="stylesheet" href="/styles.css?v=1.19.0">
+  <link rel="stylesheet" href="/white-label.css?v=1.2">
   <script defer src="/white-label.js"></script>
 </head>
 <body>
-  <header class="top">
-    <div class="brand">
-      <img id="brandLogo" alt="" class="hidden" referrerpolicy="no-referrer">
-      <div class="brand-icon" id="brandIcon">WL</div>
-      <div><span class="brand-caption">PORTAL DE TRANSPORTADORA</span><strong id="brandTitle">White Label</strong></div>
+  <div id="errorPanel" role="alert" aria-live="assertive" class="alert hidden"></div>
+  <section id="loginShell" class="login-shell">
+    <div class="login-brand official-brand wl-login-brand">
+      <img id="loginBrandLogo" alt="Logomarca da transportadora" class="hidden" referrerpolicy="no-referrer">
+      <div id="loginBrandIcon" class="brand-icon">WL</div>
+      <div class="login-brand-words">
+        <span class="page-kicker">PORTAL DE TRANSPORTADORA</span>
+        <strong id="loginBrandTitle">White Label</strong>
+      </div>
     </div>
-    <div class="top-right"><span class="status">AMBIENTE DE HOMOLOGAÇÃO</span><button id="logoutBtn" class="ghost hidden" type="button">Sair</button></div>
-  </header>
-  <main class="layout">
-    <section id="errorPanel" role="alert" class="alert hidden"></section>
-    <section id="loginPanel" class="login card">
-      <span class="eyebrow">ACESSO EXCLUSIVO</span>
+    <section id="loginPanel" class="login-card wl-login-card">
+      <span class="eyebrow">REDE DE TRANSPORTADORAS · WHITE LABEL</span>
       <h1>Bem-vindo ao painel da transportadora</h1>
       <p>Gerencie suas rotas, tarifas e equipe, com dados separados de outras empresas. Por segurança, seu primeiro acesso exige troca de senha.</p>
-      <form id="loginForm" class="fields">
+      <form id="loginForm" class="fields wl-login-form">
         <label>E-mail<input id="loginEmail" type="email" autocomplete="username" required></label>
         <label>Senha<input id="loginPassword" type="password" autocomplete="current-password" required></label>
         <button class="primary" type="submit">Entrar no painel</button>
       </form>
     </section>
-    <section id="dashboard" class="hidden">
-      <div class="intro">
-        <div><span class="eyebrow">SISTEMA PERSONALIZADO</span><h1 id="welcomeName">Painel da transportadora</h1><p id="welcomeSubtitle">Rotas, tarifas e usuários com identidade própria.</p></div>
-        <span id="roleTag" class="role"></span>
+  </section>
+  <div id="dashboard" class="app-shell hidden">
+    <aside id="wlNavigation" class="sidebar" aria-label="Menu da transportadora">
+      <div class="side-brand wl-side-brand">
+        <img id="brandLogo" alt="Logomarca da transportadora" class="hidden" referrerpolicy="no-referrer">
+        <div id="brandIcon" class="brand-icon">WL</div>
+        <div class="brand-label"><span class="page-kicker">TRANSPORTADORA</span><strong id="brandTitle">White Label</strong></div>
       </div>
+      <div class="nav-section">LOGÍSTICA</div>
+      <nav class="sidebar-group" aria-label="Operação"><button class="tab nav-item active" data-tab="overview" type="button"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span>Dashboard</button><button class="tab nav-item" data-tab="quotes" type="button"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="m13 2-9 12h7l-1 8 10-13h-7z"/></svg></span>Simular Frete</button><button class="tab nav-item" data-tab="tariffs" type="button"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="m3 12 8-8 10 10-8 8-10-10z"/><circle cx="8" cy="9" r="1"/></svg></span>Rotas e Preços</button><button class="tab nav-item master-only" data-tab="points" type="button"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M3 6h11v12H3zM14 10h4l3 4v4h-7M3 10h6"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg></span>Unidades e Pontos</button></nav>
+      <div class="nav-section">FINANCEIRO</div>
+      <nav class="sidebar-group" aria-label="Finanças"><button class="tab nav-item master-only" data-tab="finance" type="button"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="3"/></svg></span>Carteira e Repasses</button></nav>
+      <div class="nav-section">ADMINISTRAÇÃO</div>
+      <nav class="sidebar-group" aria-label="Administração"><button class="tab nav-item master-only" data-tab="users" type="button"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><circle cx="9" cy="7" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 4a3 3 0 0 1 0 6M21 21v-3a6 6 0 0 0-4-5"/></svg></span>Equipe</button><button class="tab nav-item" data-tab="brand" type="button"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M12 3 3 9v12h18V9L12 3Z"/><path d="M9 21v-9h6v9"/><path d="M3 9h18"/></svg></span>Minha Marca</button></nav>
+      <div class="sidebar-foot">
+        <div class="partner-mini">
+          <strong id="sidebarRole">Transportadora parceira</strong>
+          <span id="sidebarEmail">Acesso individual</span>
+        </div>
+        <button id="logoutBtn" class="ghost full" type="button">Sair da conta</button>
+      </div>
+    </aside>
+    <div id="wlBackdrop" class="wl-backdrop hidden" aria-hidden="true"></div>
+    <div class="main wl-main">
+      <header class="topbar">
+        <button id="wlMobileMenu" class="mobile-menu" type="button" aria-controls="wlNavigation" aria-expanded="false" aria-label="Abrir menu">☰</button>
+        <div class="topbar-copy"><div class="page-kicker" id="headerBrandTitle">WHITE LABEL</div><h2 id="wlPageTitle">Dashboard</h2></div>
+        <div class="status-wrap"><span class="status-badge wl-status"><span class="dot"></span>Ambiente de homologação</span><span id="roleTag" class="avatar" title="Perfil de acesso">WL</span></div>
+      </header>
+      <main class="view wl-content">
+        <div class="intro">
+          <div><span class="eyebrow">SISTEMA PERSONALIZADO</span><h1 id="welcomeName">Painel da transportadora</h1><p id="welcomeSubtitle">Rotas, tarifas e usuários com identidade própria.</p></div>
+        </div>
       <section id="passwordPanel" class="card password-panel hidden">
         <h2>Proteja seu primeiro acesso</h2>
         <p>Troque a senha temporária antes de cadastrar rotas ou colaboradores.</p>
@@ -43,15 +73,6 @@
           <button class="primary" type="submit">Salvar senha e entrar novamente</button>
         </form>
       </section>
-      <nav class="tabs" aria-label="Áreas da transportadora">
-        <button class="tab active" type="button" data-tab="overview">Visão geral</button>
-        <button class="tab master-only" type="button" data-tab="points">Unidades</button>
-        <button class="tab" type="button" data-tab="tariffs">Rotas e preços</button>
-        <button class="tab" type="button" data-tab="quotes">Simular frete</button>
-        <button class="tab master-only" type="button" data-tab="users">Equipe</button>
-        <button class="tab" type="button" data-tab="brand">Minha marca</button>
-        <button class="tab master-only" type="button" data-tab="finance">Financeiro</button>
-      </nav>
       <section class="tab-panel" data-panel="overview">
         <div class="cards">
           <article class="card stat"><small>Unidades cadastradas</small><strong id="statPoints">0</strong><span>Rede desta transportadora</span></article>
@@ -151,9 +172,10 @@
           <div class="finance-note"><strong>Transações financeiras desativadas.</strong><p>A remuneração da Postal será calculada conforme o contrato, mas nenhum PIX, split ou cobrança será realizado até a homologação dos pagamentos e conciliação de fretes.</p></div>
         </article>
       </section>
-    </section>
-  </main>
-  <footer>Plataforma White Label · Operação e pagamentos sujeitos à homologação</footer>
+      </main>
+    </div>
+  </div>
+  <footer class="wl-footer">Plataforma White Label · Operação e pagamentos sujeitos à homologação</footer>
   <dialog id="credentialsDialog"><h2>Acesso criado</h2><p>Copie as credenciais e envie por canal seguro. A senha não poderá ser consultada novamente.</p><pre id="credentialText"></pre><div class="action-row"><button class="primary" id="copyCredentials" type="button">Copiar credenciais</button><button class="ghost" id="closeCredentials" type="button">Fechar</button></div></dialog>
 </body>
 </html>
