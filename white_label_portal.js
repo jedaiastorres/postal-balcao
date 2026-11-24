@@ -7,12 +7,14 @@ const logic=require("./white_label_tenant");
 const hybrid=require("./white_label_hybrid_quote");
 const wlClients=require("./white_label_clients");
 const wlClientsDb=require("./white_label_clients_db");
+const wlCustomerDb=require("./white_label_customer_db");
+const wlCustomer=require("./white_label_customer");
 const wlCollectionDb=require("./white_label_collection_db");
 const wlCollection=require("./white_label_collection");
 
 function register({app,db,requireAuth,requireRole,signSession,verifySession,
                    parseCookies,hashPassword,verifyPassword,checkLoginRate,
-                   recordLoginFailure,clearLoginFailures,audit,quoteIntegrated}){
+                   recordLoginFailure,clearLoginFailures,audit,quoteIntegrated,lookupFiscalDocument}){
   const pool=db.pool;
   const text=value=>String(value??"").trim();
   const carrierCode=value=>text(value).toUpperCase();
@@ -79,6 +81,186 @@ function register({app,db,requireAuth,requireRole,signSession,verifySession,
     if(req.wl.account.must_change_password)return res.status(403).json({error:"Troque a senha temporária antes de configurar sua transportadora."});
     next();
   }
+
+
+  // Clientes cadastrados entram no portal com marca própria e sessão separada
+  // dos operadores e do MASTER. A conta não usa cookie nem API da Postal.
+  const customerCookie=(value,age)=>"wl_customer_session="+encodeURIComponent(value)+
+    "; HttpOnly; SameSite=Lax; Path=/api/wl/customer; Max-Age="+age+
+    (process.env.NODE_ENV==="production"?"; Secure":"");
+  const maskedCustomer=account=>({id:account.id,clientId:account.client_id,
+    name:account.name,email:account.email,
+    mustChangePassword:account.must_change_password});
+  const customerQuoteRate=new Map();
+  async function authenticateCustomer(req,res,next){
+    const token=verifySession(parseCookies(req).wl_customer_session);
+    if(!token||token.aud!=="white-label-customer"||!safeId(token.carrierId)||!safeId(token.accountId))
+      return res.status(401).json({error:"Sessão do cliente expirada. Entre novamente."});
+    try{
+      const [account,carrier]=await Promise.all([
+        wlCustomerDb.byId(pool,token.carrierId,token.accountId),
+        wlDb.carrierById(pool,token.carrierId)
+      ]);
+      if(!account||!account.active||!account.client_active||account.point_id&&account.point_active!==true||
+        !carrier||carrier.status!=="DRAFT"||
+        Number(account.session_version)!==Number(token.version))
+        return res.status(403).json({error:"Conta ou vínculo do cliente desativado."});
+      if(["POST","PUT","PATCH","DELETE"].includes(req.method)){
+        const v=Buffer.from(text(req.get("x-csrf-token")));
+        const expected=Buffer.from(text(token.csrf));
+        if(!v.length||v.length!==expected.length||!crypto.timingSafeEqual(v,expected))
+          return res.status(403).json({error:"Sessão inválida. Recarregue o portal."});
+      }
+      req.wlCustomer={carrier,account,token};
+      next();
+    }catch(error){safeError(res,error,"Não foi possível validar o cliente.");}
+  }
+  app.get("/wl/:code/cliente",async(req,res)=>{
+    if(!validCode(req.params.code))return res.status(404).send("Transportadora não encontrada.");
+    try{
+      const carrier=await wlDb.carrierByCode(pool,carrierCode(req.params.code));
+      if(!carrier||carrier.status!=="DRAFT")return res.status(404).send("Transportadora não encontrada.");
+      res.setHeader("Cache-Control","private,no-store");
+      res.sendFile(path.join(__dirname,"public","white-label-customer.html"));
+    }catch(error){res.status(503).send("Portal do cliente indisponível.");}
+  });
+  app.post("/api/wl/customer/login",async(req,res)=>{
+    const email=text(req.body?.email).toLowerCase();
+    const code=carrierCode(req.body?.code);
+    const password=String(req.body?.password||"");
+    if(!validCode(code)||!/^\S+@\S+\.\S+$/.test(email))
+      return res.status(401).json({error:"Credenciais inválidas."});
+    const rate=checkLoginRate(req,"wlc:"+code+":"+email);
+    if(!rate.ok)return res.status(429).json({error:"Muitas tentativas. Tente novamente."});
+    try{
+      const carrier=await wlDb.carrierByCode(pool,code);
+      const account=carrier?await wlCustomerDb.byEmail(pool,carrier.id,email):null;
+      if(!account||!account.active||!account.client_active||
+        account.point_id&&account.point_active!==true||
+        !carrier||carrier.status!=="DRAFT"||
+        !verifyPassword(password,account.password_hash)){
+        recordLoginFailure(rate.key);
+        return res.status(401).json({error:"Credenciais inválidas."});
+      }
+      clearLoginFailures(rate.key);
+      const csrf=crypto.randomBytes(24).toString("base64url");
+      const session=signSession({aud:"white-label-customer",accountId:account.id,
+        carrierId:carrier.id,version:Number(account.session_version),csrf,
+        exp:Date.now()+6*60*60*1000});
+      res.setHeader("Cache-Control","no-store");
+      res.setHeader("Set-Cookie",customerCookie(session,21600));
+      res.json({ok:true,csrf,account:maskedCustomer(account),brand:logic.publicBrand(carrier)});
+    }catch(error){safeError(res,error,"Não foi possível entrar na conta.");}
+  });
+  app.post("/api/wl/customer/logout",(_req,res)=>{
+    res.setHeader("Set-Cookie",customerCookie("",0));
+    res.json({ok:true});
+  });
+  app.get("/api/wl/customer/session",authenticateCustomer,(req,res)=>{
+    res.setHeader("Cache-Control","private,no-store");
+    res.json({ok:true,csrf:req.wlCustomer.token.csrf,
+      account:maskedCustomer(req.wlCustomer.account),
+      brand:logic.publicBrand(req.wlCustomer.carrier),
+      capabilities:{manual:true,xmlNfe:true,xmlDce:true,fiscalKey:true,
+        integratedQuote:true,ownRoutes:true,multiVolume:true,savedAddresses:true,
+        issuance:false,payment:false,shippingLabels:false,wallet:false,
+        bulkIssue:false,webhooks:false}});
+  });
+  app.post("/api/wl/customer/password",authenticateCustomer,async(req,res)=>{
+    const old=String(req.body?.currentPassword||""),next=String(req.body?.nextPassword||"");
+    if(next.length<12||next.length>128||!/[^a-zA-Z0-9]/.test(next)||!/[A-Z]/.test(next)||!/[0-9]/.test(next))
+      return res.status(400).json({error:"Senha nova requer 12 caracteres, maiúscula, número e símbolo."});
+    if(old===next||!verifyPassword(old,req.wlCustomer.account.password_hash))
+      return res.status(400).json({error:"Senha atual incorreta ou senha repetida."});
+    try{
+      await wlCustomerDb.updatePassword(pool,req.wlCustomer.carrier.id,
+        req.wlCustomer.account.id,hashPassword(next));
+      res.setHeader("Set-Cookie",customerCookie("",0));
+      res.json({ok:true,reloginRequired:true});
+    }catch(error){safeError(res,error,"Não foi possível trocar a senha.");}
+  });
+  app.get("/api/wl/customer/profile",authenticateCustomer,(req,res)=>{
+    const a=req.wlCustomer.account;
+    res.setHeader("Cache-Control","private,no-store");
+    res.json({name:a.name,email:a.email,document:a.document||"",phone:a.phone||"",
+      sender:{name:a.name,document:a.document||"",phone:a.phone||"",email:a.email,
+        cep:a.cep||"",address:a.street||"",number:a.number||"",
+        neighborhood:a.neighborhood||"",city:[a.city,a.state].filter(Boolean).join("/")},
+      brand:logic.publicBrand(req.wlCustomer.carrier)});
+  });
+  app.get("/api/wl/customer/addresses",authenticateCustomer,async(req,res)=>{
+    try{
+      const a=req.wlCustomer.account;
+      const rows=await wlCustomerDb.listAddresses(pool,req.wlCustomer.carrier.id,a.client_id);
+      res.setHeader("Cache-Control","private,no-store");
+      res.json({addresses:rows});
+    }catch(error){safeError(res,error,"Não foi possível listar os endereços.");}
+  });
+  app.post("/api/wl/customer/addresses",authenticateCustomer,async(req,res)=>{
+    if(req.wlCustomer.account.must_change_password)
+      return res.status(403).json({error:"Troque sua senha inicial para salvar endereços."});
+    try{
+      const value=wlCustomer.normalizeSavedAddress(req.body);
+      const row=await wlCustomerDb.createAddress(pool,req.wlCustomer.carrier.id,
+        req.wlCustomer.account.client_id,value);
+      if(!row)return res.status(409).json({error:"Limite de 30 endereços por conta."});
+      res.status(201).json({ok:true,address:row});
+    }catch(error){safeError(res,error,"Não foi possível salvar o endereço.");}
+  });
+  app.delete("/api/wl/customer/addresses/:id",authenticateCustomer,async(req,res)=>{
+    if(!safeId(req.params.id))return res.status(400).json({error:"Endereço inválido."});
+    if(req.wlCustomer.account.must_change_password)
+      return res.status(403).json({error:"Troque sua senha inicial."});
+    try{
+      const removed=await wlCustomerDb.deleteAddress(pool,req.wlCustomer.carrier.id,
+        req.wlCustomer.account.client_id,req.params.id);
+      res.json({ok:removed});
+    }catch(error){safeError(res,error,"Não foi possível excluir o endereço.");}
+  });
+  app.post("/api/wl/customer/quote",authenticateCustomer,async(req,res)=>{
+    const account=req.wlCustomer.account;
+    if(account.must_change_password)return res.status(403).json({error:"Troque a senha inicial antes de cotar."});
+    const key=String(account.id),now=Date.now(),prior=customerQuoteRate.get(key);
+    const bucket=prior&&now-prior.start<60000?prior:{start:now,count:0};
+    bucket.count++;customerQuoteRate.set(key,bucket);
+    if(customerQuoteRate.size>2500)customerQuoteRate.clear();
+    if(bucket.count>5)return res.status(429).json({error:"Limite de 5 consultas por minuto."});
+    try{
+      const input=wlCustomer.normalizeVolumes(req.body);
+      const point=account.point_id
+        ?await wlClientsDb.getPoint(pool,req.wlCustomer.carrier.id,account.point_id):null;
+      if(account.point_id&&(!point||!point.active))
+        return res.status(403).json({error:"Ponto da conta inativo."});
+      const client=await wlClientsDb.getClient(pool,req.wlCustomer.carrier.id,account.client_id);
+      const percent=client?.point_commission_override!=null
+        ?Number(client.point_commission_override):Number(point?.commission_percent||0);
+      const parts=[];
+      let networkStatus="AVAILABLE";
+      for(const volume of input.volumes){
+        const rates=await wlDb.quoteTariffs(pool,req.wlCustomer.carrier.id,volume);
+        const own=rates.map(r=>logic.pricedTariff(r,req.wlCustomer.carrier,volume.weight)).filter(Boolean);
+        let net={status:"UNAVAILABLE",options:[]};
+        try{if(typeof quoteIntegrated==="function")
+          net=await quoteIntegrated(volume,req.wlCustomer.carrier);}catch(error){
+          console.warn("WL_CUSTOMER_PROVIDER_QUOTE",error.status||error.code||"failure");
+        }
+        if(net.status!=="AVAILABLE")
+          networkStatus=net.status==="UNAVAILABLE"?"UNAVAILABLE":networkStatus==="UNAVAILABLE"?networkStatus:"NONE";
+        parts.push({own,integrated:net.status==="AVAILABLE"?net.options:[]});
+      }
+      const options=wlCustomer.foldQuotes(parts,logic.publicBrand(req.wlCustomer.carrier),false,percent);
+      res.setHeader("Cache-Control","private,no-store");
+      res.json({simulation:true,shippingEnabled:false,paymentsEnabled:false,
+        networkStatus,volumeCount:input.volumes.length,
+        options,brand:logic.publicBrand(req.wlCustomer.carrier)});
+    }catch(error){safeError(res,error,"Não foi possível cotar volumes.");}
+  });
+  app.post("/api/wl/customer/fiscal-lookup",authenticateCustomer,async(req,res)=>{
+    if(req.wlCustomer.account.must_change_password)return res.status(403).json({error:"Troque sua senha inicial."});
+    if(typeof lookupFiscalDocument!=="function")return res.status(503).json({error:"Consulta fiscal não configurada."});
+    // Validação de CPF/CNPJ do titular também é aplicada dentro do serviço fiscal compartilhado.
+    return lookupFiscalDocument(req,res,req.wlCustomer.account.document||"");
+  });
 
   // Apenas MASTER Postal pode emitir/resetar o primeiro acesso. Nunca criar
   // credenciais automaticamente no cadastro comercial.
@@ -210,6 +392,26 @@ function register({app,db,requireAuth,requireRole,signSession,verifySession,
       if(!updated)return res.status(404).json({error:"Unidade não encontrada nesta transportadora."});
       res.json({ok:true,id:updated.id});
     }catch(error){safeError(res,error,"Não foi possível atualizar a unidade.");}
+  });
+
+
+  app.post("/api/wl/clients/:id/access",
+    authenticate,wlMaster,blockNewUsersUntilPasswordChanged,async(req,res)=>{
+    if(!safeId(req.params.id))return res.status(400).json({error:"Cliente inválido."});
+    try{
+      const fixed=await wlClientsDb.getClient(pool,req.wl.carrier.id,req.params.id);
+      if(!fixed||!fixed.active)return res.status(404).json({error:"Cliente inativo ou inexistente."});
+      if(!fixed.email)return res.status(400).json({error:"Cadastre o e-mail do cliente antes de gerar acesso."});
+      const password="Wlc@"+crypto.randomBytes(12).toString("base64url");
+      const account=await wlCustomerDb.provision(pool,req.wl.carrier.id,fixed.id,
+        fixed.email,hashPassword(password));
+      if(!account)return res.status(409).json({error:"Cliente ou ponto vinculado está inativo."});
+      res.setHeader("Cache-Control","no-store");
+      res.json({ok:true,email:account.email,temporaryPassword:password,
+        loginUrl:"/wl/"+encodeURIComponent(req.wl.carrier.code)+"/cliente",
+        mustChangePassword:true,
+        note:"Copie agora. Gerar novo acesso revoga todas as sessões anteriores do cliente."});
+    }catch(error){safeError(res,error,"Não foi possível gerar acesso do cliente.");}
   });
 
   // Cliente fixo sempre pertence a uma transportadora; operadores só acessam seu ponto.
