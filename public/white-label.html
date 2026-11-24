@@ -45,6 +45,7 @@
       </section>
       <nav class="tabs" aria-label="Áreas da transportadora">
         <button class="tab active" type="button" data-tab="overview">Visão geral</button>
+        <button class="tab master-only" type="button" data-tab="points">Unidades</button>
         <button class="tab" type="button" data-tab="tariffs">Rotas e preços</button>
         <button class="tab" type="button" data-tab="quotes">Simular frete</button>
         <button class="tab master-only" type="button" data-tab="users">Equipe</button>
@@ -53,12 +54,31 @@
       </nav>
       <section class="tab-panel" data-panel="overview">
         <div class="cards">
+          <article class="card stat"><small>Unidades cadastradas</small><strong id="statPoints">0</strong><span>Rede desta transportadora</span></article>
           <article class="card stat"><small>Rotas cadastradas</small><strong id="statRoutes">0</strong><span>Faixas de CEP personalizadas</span></article>
           <article class="card stat"><small>Rotas disponíveis para simular</small><strong id="statActiveRoutes">0</strong><span>Consulta sem emissão real</span></article>
           <article class="card stat"><small>Ambiente</small><strong>Homologação</strong><span>Fretes e pagamentos desativados</span></article>
         </div>
         <div class="card"><h2>Operação independente em preparação</h2>
           <p>As tarifas e a equipe cadastradas neste portal pertencem somente à sua transportadora. Esta fase permite configurar, simular e revisar; a emissão de etiquetas e a movimentação financeira só serão liberadas após a homologação.</p></div>
+      </section>
+      <section class="tab-panel hidden" data-panel="points">
+        <article class="card"><h2>Unidades e pontos de postagem</h2>
+          <p>Cadastre os endereços da rede. Cada colaborador será vinculado a uma unidade da sua empresa. O cadastro ainda não habilita emissão ou cobranças.</p>
+          <form id="pointForm" class="fields grid-form">
+            <input type="hidden" id="pointId">
+            <label>Código da unidade<input id="pointCode" maxlength="30" required placeholder="MARABA-01"></label>
+            <label>Nome da unidade<input id="pointName" maxlength="100" required></label>
+            <label>CEP<input id="pointCep" maxlength="9" required inputmode="numeric"></label>
+            <label>Cidade<input id="pointCity" maxlength="100" required></label>
+            <label>UF<input id="pointState" maxlength="2" required value="PA"></label>
+            <label>Endereço<input id="pointAddress" maxlength="160" required></label>
+            <label>Número<input id="pointNumber" maxlength="20" required></label>
+            <label class="check"><input id="pointActive" type="checkbox" checked> Unidade ativa</label>
+            <div class="wide action-row"><button class="primary" type="submit">Salvar unidade</button><button class="ghost" id="resetPoint" type="button">Limpar</button></div>
+          </form>
+        </article>
+        <article class="card"><div class="section-head"><h2>Pontos cadastrados</h2><button id="reloadPoints" class="ghost" type="button">Atualizar</button></div><div id="pointsList" class="list">Nenhum ponto cadastrado.</div></article>
       </section>
       <section class="tab-panel hidden" data-panel="tariffs">
         <article class="card">
@@ -99,6 +119,7 @@
           <form id="userForm" class="fields grid-form">
             <label>Nome do colaborador<input id="employeeName" required maxlength="100"></label>
             <label>E-mail<input id="employeeEmail" type="email" required maxlength="160"></label>
+            <label class="wide">Unidade do colaborador<select id="employeePoint" required></select></label>
             <div class="wide"><button class="primary" type="submit">Criar acesso do colaborador</button></div>
           </form>
           <div id="userList" class="list"></div>
