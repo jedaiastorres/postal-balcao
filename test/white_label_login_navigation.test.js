@@ -7,7 +7,7 @@ const src=fs.readFileSync(require.resolve("../public/white-label.js"),"utf8");
 
 function mockDom(){
   const elements=new Map();
-  const buttons=["overview","points","tariffs","quotes","users","brand","finance"];
+  const buttons=["overview","points","tariffs","quotes","collections","users","brand","finance"];
   function element(id){
     if(!elements.has(id)){
       const set=new Set(id==="dashboard"?["hidden"]:id==="loginShell"?[]:["hidden"]);
@@ -66,7 +66,8 @@ test("login aceito abre dashboard e habilita navegação sem erro de JavaScript"
       account:{id:"test",email:"teste@example.com",role:"WL_MASTER",mustChangePassword:false}},
     "/api/wl/routes":{routes:[]},
     "/api/wl/points":{points:[]},
-    "/api/wl/users":{users:[]}
+    "/api/wl/users":{users:[]},
+    "/api/wl/collections":{collections:[]}
   };
   const win={scrollTo(){},addEventListener(){},innerWidth:1300};
   const context={
@@ -98,4 +99,6 @@ test("login aceito abre dashboard e habilita navegação sem erro de JavaScript"
   assert.ok(calls.includes("/api/wl/login"));
   tabs.find(v=>v.dataset.tab==="quotes").trigger("click");
   assert.equal(element("#wlPageTitle").textContent,"Simular Frete");
+  tabs.find(v=>v.dataset.tab==="collections").trigger("click");
+  assert.equal(element("#wlPageTitle").textContent,"Coletas");
 });

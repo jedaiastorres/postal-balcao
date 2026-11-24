@@ -1,5 +1,6 @@
 "use strict";
 const {randomUUID}=require("node:crypto");
+const wlCollectionDb=require("./white_label_collection_db");
 const uuid = "00000000-0000-0000-0000-000000000000";
 
 async function init(pool) {
@@ -65,6 +66,7 @@ async function init(pool) {
     );
     CREATE INDEX IF NOT EXISTS wl_tariffs_tenant_idx ON wl_tariffs(carrier_id,active);
   `);
+  await wlCollectionDb.init(pool);
 }
 const carrierByCode=async(pool,code)=>{
   const {rows}=await pool.query("SELECT * FROM white_label_carriers WHERE code=$1 LIMIT 1",[code]);

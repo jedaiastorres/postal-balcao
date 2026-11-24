@@ -26,7 +26,7 @@ function logosContext(logoUrl=""){
 }
 test("White Label carrega branding.js antes do script do portal",()=>{
   const first=html.indexOf('<script defer src="/branding.js"></script>');
-  const second=html.indexOf('<script defer src="/white-label.js?v=1.3.2"></script>');
+  const second=html.search(/<script defer src="\/white-label\.js\?v=[0-9.]+"><\/script>/);
   assert.ok(first>=0 && second>first);
   new vm.Script(js);
   new vm.Script(brandScript);
