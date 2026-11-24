@@ -27,6 +27,28 @@ test("tarifas validam CEP, pesos, preço e prazo sem liberar postagem",()=>{
  assert.deepEqual(q,{origin:"68500000",destination:"68515000",weight:1250});
  assert.throws(()=>logic.validateQuote({origin:"",destination:"68515000",weight:1000}),/CEPs/);
 });
+test("unidades válidas exigem CEP e endereço e operador só entra em ponto do próprio tenant",async()=>{
+  const point=logic.normalizePoint({code:"MAB-01",name:"Ponto Marabá",
+    cep:"68500-000",city:"Marabá",state:"PA",address:"Rua Central",number:"22"});
+  assert.equal(point.cep,"68500000");
+  assert.throws(()=>logic.normalizePoint({...point,cep:"123"}),/CEP/);
+  assert.throws(()=>logic.normalizePoint({...point,state:"PAA"}),/cidade e UF/);
+  const dbCode=read("white_label_tenant_db.js");
+  assert.match(dbCode,/FOREIGN KEY\(carrier_id,point_id\) REFERENCES wl_points\(carrier_id,id\)/);
+  assert.match(dbCode,/WHERE p.carrier_id=\$2 AND p.id=\$6 AND p.active=TRUE/);
+  assert.match(portal,/if\(account.role==="WL_OPERATOR"\)/);
+  assert.match(portal,/if\(!linkedPoint\[0\]\?\.active\)/);
+  assert.match(portal,/wlDb\.listPoints\(pool,req\.wl\.carrier\.id/);
+  const tenant="12345678-1234-1234-1234-123456789012";
+  let actualSql="";
+  const dbMock={query:async(sql,params)=>{actualSql=sql;return {rows:[]}}};
+  await assert.rejects(()=>wlDb.createOperator(dbMock,tenant,{
+    name:"Operador",email:"teste@example.com",passwordHash:"x",pointId:"12345678-1234-1234-1234-123456789012"
+  }),/Selecione uma unidade ativa/);
+  assert.match(actualSql,/INSERT INTO wl_accounts/);
+  assert.match(actualSql,/p.carrier_id=\$2/);
+  assert.match(read("public/white-label.js"),/pointId:\$\("#employeePoint"\)\.value/);
+});
 test("parceiro edita só nome e cores sem acessar carteira ou condições comerciais",async()=>{
  const brand=logic.normalizeBrand({name:"Empresa Regional",logoUrl:"https://example.com/logo.png",
   primary:"#ff0055",secondary:"#132442",postalFeePercent:0,asaasWalletId:"fake"});
