@@ -1,6 +1,7 @@
 "use strict";
 const {randomUUID}=require("node:crypto");
 const wlCollectionDb=require("./white_label_collection_db");
+const wlClientsDb=require("./white_label_clients_db");
 const uuid = "00000000-0000-0000-0000-000000000000";
 
 async function init(pool) {
@@ -67,6 +68,7 @@ async function init(pool) {
     CREATE INDEX IF NOT EXISTS wl_tariffs_tenant_idx ON wl_tariffs(carrier_id,active);
   `);
   await wlCollectionDb.init(pool);
+  await wlClientsDb.init(pool);
 }
 const carrierByCode=async(pool,code)=>{
   const {rows}=await pool.query("SELECT * FROM white_label_carriers WHERE code=$1 LIMIT 1",[code]);
@@ -142,7 +144,7 @@ async function updateBrand(pool,carrierId,brand) {
 }
 async function listPoints(pool,carrierId,pointId=null) {
   const {rows}=await pool.query(
-    `SELECT id,code,name,cep,city,state,address,number,active,created_at
+    `SELECT id,code,name,cep,city,state,address,number,commission_percent,active,created_at
       FROM wl_points WHERE carrier_id=$1 AND ($2::uuid IS NULL OR id=$2)
       ORDER BY name`,[carrierId,pointId]);
   return rows;

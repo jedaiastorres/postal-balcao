@@ -222,3 +222,14 @@ dialog .action-row{display:flex;gap:10px;flex-wrap:wrap}
   .wl-content .wl-collection-assignment{align-items:stretch}
   .wl-content .wl-collection-assignment label{flex:1 1 100%}
 }
+
+/* Clientes fixos e políticas comerciais por ponto, em estilo Postal Balcão. */
+.wl-content .wl-fixed-client-item .list-price{display:flex;align-items:center;gap:9px;flex-direction:row;flex-wrap:wrap}
+.wl-content .wl-fixed-client-item>div:first-child{min-width:0;overflow-wrap:anywhere}
+.wl-content .wl-fixed-client-item strong{font-size:15px}
+.wl-content #wlPointCommissionForm small,.wl-content #wlClientForm small{font-weight:500;line-height:1.5;color:var(--muted)}
+.wl-content #wlQuoteClient,.wl-content #wlQuotePoint,
+.wl-content #wlCollectionClient{background:#fff}
+@media(max-width:580px){
+  .wl-content .wl-fixed-client-item .list-price{align-items:flex-start;width:100%}
+}
