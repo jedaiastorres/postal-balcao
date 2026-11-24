@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="theme-color" content="#d7083b">
+  <title>Minha Conta · Transportadora</title>
+  <link rel="stylesheet" href="/styles.css?v=1.19.0">
+  <link rel="stylesheet" href="/white-label.css?v=1.6.0">
+  <link rel="stylesheet" href="/white-label-customer.css?v=1.0.0">
+  <script defer src="/branding.js"></script>
+  <script defer src="/fiscal_document.js?v=1.17.0"></script>
+  <script defer src="/white-label-customer.js?v=1.0.0"></script>
+</head>
+<body>
+  <div id="wlcNotice" class="alert hidden" role="alert" aria-live="polite"></div>
+  <section id="wlcLoginShell" class="login-shell">
+    <div class="login-brand official-brand wl-login-brand">
+      <img id="wlcLoginLogo" class="hidden" alt="Marca da transportadora">
+      <div id="wlcLoginIcon" class="brand-icon">WL</div>
+      <div class="login-brand-words"><span class="page-kicker">MINHA CONTA DE CLIENTE</span>
+        <strong id="wlcLoginName">Transportadora</strong></div>
+    </div>
+    <div class="login-card wl-login-card">
+      <span class="eyebrow">PORTAL DO CLIENTE</span>
+      <h1>Seus envios, sua transportadora.</h1>
+      <p>Cote com transportadoras integradas e rotas regionais, importe documentos fiscais e acompanhe as opções disponíveis.</p>
+      <form id="wlcLoginForm" class="fields wl-login-form">
+        <label>E-mail<input id="wlcEmail" type="email" autocomplete="username" required></label>
+        <label>Senha<input id="wlcPassword" type="password" autocomplete="current-password" required></label>
+        <button class="primary" type="submit">Entrar na minha conta</button>
+      </form>
+      <p class="note">Seu acesso é disponibilizado pela transportadora em que você foi cadastrado.</p>
+      <a id="wlcOperatorLink" href="#" class="public-quote-link">Acesso da equipe da transportadora</a>
+    </div>
+  </section>
+  <div id="wlcApp" class="app-shell hidden">
+    <aside class="sidebar" id="wlcSidebar" aria-label="Menu do cliente">
+      <div class="side-brand">
+        <img id="wlcSideLogo" class="hidden" alt="Marca da transportadora">
+        <div id="wlcSideIcon" class="brand-icon">WL</div>
+        <div class="brand-label"><span class="page-kicker">CLIENTE</span><strong id="wlcSideName">Minha Transportadora</strong></div>
+      </div>
+      <div class="nav-section">LOGÍSTICA</div>
+      <nav>
+        <button type="button" class="nav-item active" data-client-view="home">Início</button>
+        <button type="button" class="nav-item" data-client-view="quote">Simular Frete</button>
+        <button type="button" class="nav-item" data-client-view="bulk">Postagens por Planilha</button>
+        <button type="button" class="nav-item" data-client-view="orders">Meus Pedidos</button>
+        <button type="button" class="nav-item" data-client-view="collections">Coletas</button>
+      </nav>
+      <div class="nav-section">MINHA CONTA</div>
+      <nav>
+        <button type="button" class="nav-item" data-client-view="profile">Meu Cadastro</button>
+        <button type="button" class="nav-item" data-client-view="addresses">Endereços Salvos</button>
+        <button type="button" class="nav-item" data-client-view="wallet">Carteira e Saldo</button>
+        <button type="button" class="nav-item" data-client-view="connections">Integrações E-commerce</button>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="partner-mini"><strong id="wlcSideUser">Cliente</strong><span id="wlcSideEmail">—</span></div>
+        <button id="wlcLogout" class="ghost full" type="button">Sair da conta</button>
+      </div>
+    </aside>
+    <div id="wlcBackdrop" class="wl-backdrop hidden"></div>
+    <main class="main">
+      <header class="topbar">
+        <button id="wlcMenu" class="mobile-menu" type="button" aria-controls="wlcSidebar" aria-expanded="false">☰</button>
+        <div><span class="page-kicker" id="wlcHeaderBrand">TRANSPORTADORA</span><h2 id="wlcTitle">Início</h2></div>
+        <div class="status-wrap"><span class="status-badge"><span class="dot"></span> Cotação disponível</span><div class="avatar" id="wlcAvatar">C</div></div>
+      </header>
+      <div class="view wlc-view">
+        <section id="wlcPasswordPanel" class="panel hidden">
+          <h2>Proteja sua conta</h2><p>Antes de usar o sistema, altere a senha temporária.</p>
+          <form id="wlcPasswordForm" class="fields grid-form">
+            <label>Senha temporária atual<input id="wlcOldPassword" type="password" required></label>
+            <label>Nova senha (12+ caracteres, maiúscula, número e símbolo)<input id="wlcNewPassword" type="password" minlength="12" required></label>
+            <div class="wide"><button class="primary" type="submit">Trocar senha</button></div>
+          </form>
+        </section>
+        <section class="wlc-panel" data-client-panel="home">
+          <div class="hero"><div><span class="eyebrow">MINHA CONTA</span><h1>Bem-vindo ao seu portal de envios</h1><p id="wlcWelcome">Sua transportadora, suas cotações e seus documentos.</p></div>
+            <button id="wlcStartQuote" class="primary" type="button">+ Nova cotação</button></div>
+          <div class="wlc-grid">
+            <article class="panel"><span class="eyebrow">COTAÇÕES</span><h2>Compare as opções da rede</h2><p>Tarifas próprias e transportadoras integradas, numa única comparação.</p><button class="ghost" type="button" data-client-go="quote">Cotar agora</button></article>
+            <article class="panel"><span class="eyebrow">DOCUMENTOS</span><h2>XML, NF-e e DC-e</h2><p>Importe o XML localmente ou consulte uma chave fiscal quando autorizada.</p><button class="ghost" type="button" data-client-go="quote">Importar documento</button></article>
+            <article class="panel"><span class="eyebrow">EM MASSA</span><h2>Planilha de postagens</h2><p>Utilize o mesmo modelo e validador da plataforma principal para revisar pedidos.</p><button class="ghost" type="button" data-client-go="bulk">Preparar planilha</button></article>
+          </div>
+          <div class="finance-note"><strong>Operação em homologação.</strong><p>Pagamento, criação definitiva de pedidos, etiquetas, coletas automáticas e repasses permanecem bloqueados até a homologação.</p></div>
+        </section>
+        <section class="wlc-panel hidden" data-client-panel="quote">
+          <div class="orders-head"><div><span class="eyebrow">LOGÍSTICA</span><h1>Cotação de fretes</h1><p>Mesmo leitor fiscal do Postal Balcão e preços calculados conforme o contrato da sua transportadora.</p></div></div>
+          <article class="panel">
+            <div class="wlc-mode-group" role="radiogroup" aria-label="Entrada dos dados de cotação">
+              <label><input type="radio" name="wlcInputMode" value="MANUAL" checked> Manual</label>
+              <label><input type="radio" name="wlcInputMode" value="XML"> XML NF-e / DC-e</label>
+              <label><input type="radio" name="wlcInputMode" value="KEY"> Chave NF-e / DC-e</label>
+            </div>
+            <div id="wlcXmlPanel" class="wlc-fiscal hidden">
+              <label>Arquivo XML (processado localmente)<input id="wlcXmlFile" type="file" accept=".xml,text/xml,application/xml"></label>
+              <p class="note">O arquivo não é enviado ao servidor. Confirme as medidas e o número de volumes antes da cotação.</p>
+            </div>
+            <div id="wlcKeyPanel" class="wlc-fiscal hidden">
+              <div class="fields grid-form">
+                <label>Tipo de documento<select id="wlcFiscalType"><option value="NFE">NF-e</option><option value="DCE">DC-e</option></select></label>
+                <label>Chave de 44 dígitos<input id="wlcFiscalKey" maxlength="54" inputmode="numeric"></label>
+                <label class="wide wlc-check"><input id="wlcFiscalConsent" type="checkbox"> Autorizo a consulta deste documento para fins de cotação.</label>
+                <div class="wide"><button type="button" id="wlcLookupFiscal" class="ghost">Consultar documento autorizado</button></div>
+              </div>
+              <p class="note">A consulta por chave depende de provedor fiscal autorizado. Se estiver indisponível, utilize XML ou preenchimento manual.</p>
+            </div>
+            <div id="wlcFiscalResult" class="wlc-info hidden" aria-live="polite"></div>
+          </article>
+          <form id="wlcQuoteForm">
+            <article class="panel">
+              <h2>Remetente e destinatário</h2>
+              <div class="fields grid-form">
+                <label>Remetente<input id="wlcSenderName" maxlength="160" required></label>
+                <label>CEP de origem<input id="wlcOrigin" maxlength="9" inputmode="numeric" required></label>
+                <label>Destinatário<input id="wlcRecipientName" maxlength="160" required></label>
+                <label>CEP de destino<input id="wlcDestination" maxlength="9" inputmode="numeric" required></label>
+              </div>
+              <p class="note">Dados fiscais importados são exibidos para conferência. Nesta fase, não há emissão definitiva de etiqueta ou comprovante.</p>
+            </article>
+            <article class="panel">
+              <div class="section-head"><h2>Volumes e medidas</h2><button id="wlcAddVolume" class="ghost" type="button">+ Adicionar volume</button></div>
+              <p class="note">Até 5 volumes nesta simulação. Dimensões em centímetros e peso em gramas.</p>
+              <div id="wlcVolumes"></div>
+              <div class="action-row"><button class="primary" type="submit">Comparar preços</button></div>
+            </article>
+          </form>
+          <article class="panel">
+            <div class="section-head"><h2>Transportadoras disponíveis</h2><span class="eyebrow">SIMULAÇÃO</span></div>
+            <p id="wlcQuoteStatus" aria-live="polite">Preencha os dados para consultar.</p>
+            <div id="wlcQuoteResults" class="list"></div>
+          </article>
+        </section>
+        <section class="wlc-panel hidden" data-client-panel="bulk">
+          <div class="orders-head"><div><span class="eyebrow">E-COMMERCE</span><h1>Postagens por planilha</h1><p>O mesmo modelo de importação e validação usado no Postal Balcão.</p></div></div>
+          <article class="panel">
+            <div class="action-row"><a id="wlcBulkTemplate" class="ghost" href="/api/wl/customer/bulk/template">Baixar planilha modelo (.xlsx)</a></div>
+            <label>Importar arquivo XLSX ou CSV<input id="wlcBulkFile" type="file" accept=".xlsx,.csv"></label>
+            <p class="note">A validação funciona, mas a emissão de postagens em lote permanece bloqueada até a homologação do White Label.</p>
+            <div id="wlcBulkResults" aria-live="polite"></div>
+          </article>
+        </section>
+        <section class="wlc-panel hidden" data-client-panel="profile">
+          <div class="orders-head"><div><span class="eyebrow">MINHA CONTA</span><h1>Meu cadastro</h1></div></div>
+          <article class="panel"><div id="wlcProfile" class="wlc-profile"></div></article>
+        </section>
+        <section class="wlc-panel hidden" data-client-panel="addresses">
+          <div class="orders-head"><div><span class="eyebrow">MEUS DADOS</span><h1>Endereços salvos</h1></div></div>
+          <article class="panel">
+            <h2>Novo endereço</h2>
+            <form id="wlcAddressForm" class="fields grid-form">
+              <label>Identificação<input id="wlcAddressLabel" maxlength="100" required placeholder="Ex.: Meu depósito"></label>
+              <label>Tipo<select id="wlcAddressKind"><option value="SENDER">Remetente</option><option value="RECIPIENT">Destinatário</option></select></label>
+              <label>Nome<input id="wlcAddressName" required maxlength="160"></label>
+              <label>CPF/CNPJ<input id="wlcAddressDocument" maxlength="20"></label>
+              <label>Telefone<input id="wlcAddressPhone" maxlength="18"></label>
+              <label>E-mail<input id="wlcAddressEmail" type="email" maxlength="160"></label>
+              <label>CEP<input id="wlcAddressCep" maxlength="9" required></label>
+              <label>Logradouro<input id="wlcAddressStreet" maxlength="160" required></label>
+              <label>Número<input id="wlcAddressNumber" maxlength="20" required></label>
+              <label>Bairro<input id="wlcAddressNeighborhood" maxlength="100"></label>
+              <label>Complemento<input id="wlcAddressComplement" maxlength="100"></label>
+              <label>Cidade / UF<input id="wlcAddressCity" maxlength="100"></label>
+              <div class="wide"><button class="primary" type="submit">Salvar endereço</button></div>
+            </form>
+          </article>
+          <article class="panel"><div class="section-head"><h2>Meus endereços</h2><button id="wlcReloadAddresses" class="ghost" type="button">Atualizar</button></div>
+            <div id="wlcAddressesList" class="list"></div></article>
+        </section>
+        <section class="wlc-panel hidden" data-client-panel="orders"><article class="panel"><h1>Meus Pedidos</h1><div class="finance-note"><strong>Em homologação.</strong><p>Os pedidos e as etiquetas de clientes White Label ainda precisam ser vinculados ao mecanismo de emissão, rastreamento e conciliação por empresa. Nenhum pedido será criado nesta etapa.</p></div></article></section>
+        <section class="wlc-panel hidden" data-client-panel="collections"><article class="panel"><h1>Minhas Coletas</h1><div class="finance-note"><strong>Em homologação.</strong><p>O painel da transportadora já administra ordens de coleta. A solicitação diretamente pela conta do cliente será liberada após o vínculo entre ordens e contas.</p></div></article></section>
+        <section class="wlc-panel hidden" data-client-panel="wallet"><article class="panel"><h1>Carteira e Saldo</h1><div class="finance-note"><strong>Em homologação financeira.</strong><p>O Asaas, o split ponto/MASTER/Postal, o estorno e a conciliação ainda serão homologados antes de habilitar valores reais.</p></div></article></section>
+        <section class="wlc-panel hidden" data-client-panel="connections"><article class="panel"><h1>Integrações E-commerce</h1><div class="finance-note"><strong>Em homologação.</strong><p>A integração das lojas WooCommerce, Nuvemshop e Shopify à carteira desta transportadora depende de credenciais e isolamento dos pedidos por empresa.</p></div></article></section>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
