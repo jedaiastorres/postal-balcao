@@ -56,6 +56,11 @@ function register({app,db,requireAuth,requireRole,signSession,verifySession,
         if(!value||a.length!==b.length||!crypto.timingSafeEqual(a,b))
           return res.status(403).json({error:"Proteção da sessão inválida. Atualize o painel."});
       }
+      if(account.role==="WL_OPERATOR"){
+        const linkedPoint=await wlDb.listPoints(pool,carrier.id,account.point_id);
+        if(!linkedPoint[0]?.active)
+          return res.status(403).json({error:"A unidade deste colaborador está inativa."});
+      }
       req.wl={carrier,account};
       return next();
     } catch(error){return safeError(res,error,"Não foi possível validar o acesso White Label.");}
