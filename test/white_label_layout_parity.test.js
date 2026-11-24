@@ -22,13 +22,13 @@ test("White Label compartilha layout, estilos e navegação do Postal Balcão",(
 test("todas as telas e formulários existentes permanecem navegáveis e os IDs são únicos",()=>{
   const tabs=[...html.matchAll(/data-tab="([a-z]+)"/g)].map(match=>match[1]);
   const panels=[...html.matchAll(/data-panel="([a-z]+)"/g)].map(match=>match[1]);
-  assert.equal(tabs.length,7);
-  assert.deepEqual(new Set(tabs),new Set(["overview","points","tariffs","quotes","users","brand","finance"]));
+  assert.equal(tabs.length,8);
+  assert.deepEqual(new Set(tabs),new Set(["overview","points","tariffs","quotes","collections","users","brand","finance"]));
   assert.deepEqual(new Set(tabs),new Set(panels));
   const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(match=>match[1]);
   assert.equal(ids.length,new Set(ids).size,"há ids HTML duplicados");
   for(const id of ["loginForm","passwordForm","quoteForm","pointForm","tariffForm",
-    "userForm","brandForm","quoteResults","brandPreview","walletStatus"])
+    "userForm","brandForm","quoteResults","brandPreview","walletStatus","wlCollectionForm","wlCollectionsList"])
     assert.ok(ids.includes(id),"faltou "+id);
 });
 test("marca é aplicada ao login, sidebar e topbar, sem confundir transportadoras",()=>{
