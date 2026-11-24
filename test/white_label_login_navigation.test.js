@@ -7,7 +7,7 @@ const src=fs.readFileSync(require.resolve("../public/white-label.js"),"utf8");
 
 function mockDom(){
   const elements=new Map();
-  const buttons=["overview","points","tariffs","quotes","collections","users","brand","finance"];
+  const buttons=["overview","points","tariffs","quotes","collections","clients","users","brand","finance"];
   function element(id){
     if(!elements.has(id)){
       const set=new Set(id==="dashboard"?["hidden"]:id==="loginShell"?[]:["hidden"]);
@@ -67,7 +67,8 @@ test("login aceito abre dashboard e habilita navegação sem erro de JavaScript"
     "/api/wl/routes":{routes:[]},
     "/api/wl/points":{points:[]},
     "/api/wl/users":{users:[]},
-    "/api/wl/collections":{collections:[]}
+    "/api/wl/collections":{collections:[]},
+    "/api/wl/clients":{clients:[]}
   };
   const win={scrollTo(){},addEventListener(){},innerWidth:1300};
   const context={
