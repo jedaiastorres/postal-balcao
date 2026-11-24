@@ -20,7 +20,7 @@ function register({app,db,requireAuth,requireRole,signSession,verifySession,
     return res.status(503).json({error:message});
   };
   const maskAccount=account=>({id:account.id,name:account.name,email:account.email,
-    role:account.role,active:account.active,mustChangePassword:account.must_change_password});
+    role:account.role,pointId:account.point_id||null,active:account.active,mustChangePassword:account.must_change_password});
   const cookie=(token,maxAge)=>"wl_session="+encodeURIComponent(token)+
     "; HttpOnly; SameSite=Lax; Path=/api/wl; Max-Age="+maxAge+
     (process.env.NODE_ENV==="production"?"; Secure":"");
@@ -47,7 +47,8 @@ function register({app,db,requireAuth,requireRole,signSession,verifySession,
       ]);
       if(!account||!account.active||!carrier||carrier.status!=="DRAFT"||
          account.carrier_id!==carrier.id||session.role!==account.role||
-         Number(session.version)!==Number(account.session_version))
+         Number(session.version)!==Number(account.session_version)||
+         (account.role==="WL_OPERATOR"&&!account.point_id))
         return res.status(403).json({error:"Este acesso foi alterado ou desativado."});
       if(["POST","PUT","PATCH","DELETE"].includes(req.method)){
         const value=text(req.get("x-csrf-token")),expected=text(session.csrf);
@@ -169,6 +170,36 @@ function register({app,db,requireAuth,requireRole,signSession,verifySession,
     }catch(error){safeError(res,error,"Não foi possível atualizar a identidade comercial.");}
   });
 
+  app.get("/api/wl/points",authenticate,async(req,res)=>{
+    try{
+      const points=await wlDb.listPoints(pool,req.wl.carrier.id,
+        req.wl.account.role==="WL_OPERATOR"?req.wl.account.point_id:null);
+      res.setHeader("Cache-Control","no-store");
+      res.json({points:points.map(p=>({
+        id:p.id,code:p.code,name:p.name,cep:p.cep,city:p.city,state:p.state,
+        address:p.address,number:p.number,active:p.active
+      }))});
+    }catch(error){safeError(res,error,"Não foi possível consultar as unidades.");}
+  });
+  app.post("/api/wl/points",authenticate,wlMaster,blockNewUsersUntilPasswordChanged,async(req,res)=>{
+    try{
+      const current=await wlDb.listPoints(pool,req.wl.carrier.id);
+      if(current.length>=100)return res.status(409).json({error:"Limite de 100 pontos por transportadora."});
+      const point=logic.normalizePoint(req.body);
+      const created=await wlDb.savePoint(pool,req.wl.carrier.id,point);
+      res.status(201).json({ok:true,id:created.id});
+    }catch(error){safeError(res,error,"Não foi possível cadastrar a unidade.");}
+  });
+  app.put("/api/wl/points/:id",authenticate,wlMaster,blockNewUsersUntilPasswordChanged,async(req,res)=>{
+    if(!safeId(req.params.id))return res.status(400).json({error:"Identificador inválido."});
+    try{
+      const point=logic.normalizePoint(req.body);
+      const updated=await wlDb.savePoint(pool,req.wl.carrier.id,point,req.params.id);
+      if(!updated)return res.status(404).json({error:"Unidade não encontrada nesta transportadora."});
+      res.json({ok:true,id:updated.id});
+    }catch(error){safeError(res,error,"Não foi possível atualizar a unidade.");}
+  });
+
   app.get("/api/wl/routes",authenticate,async(req,res)=>{
     try{
       const rows=await wlDb.listTariffs(pool,req.wl.carrier.id);
@@ -219,14 +250,15 @@ function register({app,db,requireAuth,requireRole,signSession,verifySession,
   });
   app.post("/api/wl/users",authenticate,wlMaster,blockNewUsersUntilPasswordChanged,async(req,res)=>{
     try{
-      const name=text(req.body?.name),email=text(req.body?.email).toLowerCase();
+      const name=text(req.body?.name),email=text(req.body?.email).toLowerCase(),pointId=text(req.body?.pointId);
       if(name.length<2||name.length>100||!/^\S+@\S+\.\S+$/.test(email)||email.length>160)
         return res.status(400).json({error:"Informe nome e e-mail válidos."});
+      if(!safeId(pointId))return res.status(400).json({error:"Selecione um ponto da sua transportadora."});
       const existing=await wlDb.listAccounts(pool,req.wl.carrier.id);
       if(existing.length>=30)return res.status(409).json({error:"Limite de 30 usuários por transportadora."});
       const temporaryPassword="Wl@"+crypto.randomBytes(12).toString("base64url");
       const account=await wlDb.createOperator(pool,req.wl.carrier.id,
-        {name,email,passwordHash:hashPassword(temporaryPassword)});
+        {name,email,passwordHash:hashPassword(temporaryPassword),pointId});
       res.setHeader("Cache-Control","no-store");
       res.status(201).json({ok:true,user:maskAccount(account),temporaryPassword,
         note:"Copie a senha agora e entregue ao colaborador por canal seguro."});
