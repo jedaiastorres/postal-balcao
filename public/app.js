@@ -2564,6 +2564,7 @@ function resetWhiteLabelForm(){
   $("#whiteLabelForm")?.reset();
   if($("#wlPostalFeePercent"))$("#wlPostalFeePercent").value="0";
   if($("#wlPostalFeeFixed"))$("#wlPostalFeeFixed").value="0";
+  if($("#wlIntegratedCommissionPercent"))$("#wlIntegratedCommissionPercent").value="0";
   if($("#wlColorPrimary"))$("#wlColorPrimary").value="#d7083b";
   if($("#wlColorSecondary"))$("#wlColorSecondary").value="#222638";
   if($("#whiteLabelFormTitle"))$("#whiteLabelFormTitle").textContent="Nova transportadora";
@@ -2588,6 +2589,7 @@ function renderWhiteLabels(){
       <div class="white-label-status">Cadastro em homologação · sem acesso operacional</div>
       <small>CNPJ: ${escapeHtml(carrier.cnpj)} · Contato: ${escapeHtml(carrier.adminName)}</small>
       <small>Remuneração Postal: <strong>${escapeHtml(fees)}</strong></small>
+      <small>Comissão do White Label em fretes integrados: ${Number(carrier.integratedCommissionPercent||0).toLocaleString("pt-BR",{maximumFractionDigits:2})}%</small>
       <small>Asaas: ${carrier.asaasWalletId?"Wallet informada (não ativa)":"Carteira pendente"}</small>
       <div class="white-label-actions">
         <button class="ghost" type="button" data-edit-white-label="${escapeHtml(carrier.id)}">Editar cadastro</button>
@@ -2621,6 +2623,7 @@ function renderWhiteLabels(){
       AdminName:"adminName",AdminEmail:"adminEmail",AdminPhone:"adminPhone",
       BaseCity:"baseCity",BaseState:"baseState",AsaasWallet:"asaasWalletId",
       PostalFeePercent:"postalFeePercent",PostalFeeFixed:"postalFeeFixed",
+      IntegratedCommissionPercent:"integratedCommissionPercent",
       LogoUrl:"logoUrl",ColorPrimary:"brandPrimary",ColorSecondary:"brandSecondary",Notes:"notes"
     };
     for(const [suffix,key] of Object.entries(fields)){
@@ -2655,7 +2658,7 @@ $("#whiteLabelForm")?.addEventListener("submit",async event=>{
     cnpj:value("Cnpj"),adminName:value("AdminName"),adminEmail:value("AdminEmail"),
     adminPhone:value("AdminPhone"),baseCity:value("BaseCity"),baseState:value("BaseState"),
     asaasWalletId:value("AsaasWallet"),postalFeePercent:Number(value("PostalFeePercent")||0),
-    postalFeeFixed:Number(value("PostalFeeFixed")||0),logoUrl:value("LogoUrl"),
+    postalFeeFixed:Number(value("PostalFeeFixed")||0),integratedCommissionPercent:Number(value("IntegratedCommissionPercent")||0),logoUrl:value("LogoUrl"),
     brandPrimary:value("ColorPrimary"),brandSecondary:value("ColorSecondary"),notes:value("Notes")
   };
   if(payload.postalFeePercent<=0 && payload.postalFeeFixed<=0){
