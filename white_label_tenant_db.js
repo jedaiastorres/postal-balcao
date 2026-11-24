@@ -42,7 +42,7 @@ async function init(pool) {
         ALTER TABLE wl_accounts ADD CONSTRAINT wl_accounts_point_tenant_fk
           FOREIGN KEY(carrier_id,point_id) REFERENCES wl_points(carrier_id,id) ON DELETE RESTRICT;
       END IF;
-    END $body$;
+    END; $body$;
     CREATE TABLE IF NOT EXISTS wl_tariffs (
       id UUID PRIMARY KEY,
       carrier_id UUID NOT NULL REFERENCES white_label_carriers(id) ON DELETE CASCADE,
