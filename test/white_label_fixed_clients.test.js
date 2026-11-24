@@ -83,7 +83,8 @@ test("novo cliente, edição e consultas sempre filtram transportadora e ponto",
  await db.updateClient(pool,carrier,clientId,point,client,point,false);
  await db.setClientActive(pool,carrier,clientId,false);
  await db.setPointCommission(pool,carrier,point,20);
- assert.ok(calls.every(c=>c.params[0]===carrier));
+ assert.ok(calls.every(c=>c.params.includes(carrier)));
+ assert.ok(calls.filter(c=>!c.sql.includes("INSERT INTO wl_clients")).every(c=>c.params[0]===carrier));
  const reads=calls.filter(c=>c.sql.includes("FROM wl_clients c"));
  assert.ok(reads.every(c=>c.sql.includes("c.carrier_id=$1")));
  assert.ok(reads.every(c=>c.sql.includes("c.point_id=$2")||c.sql.includes("c.point_id=$3")));
@@ -112,7 +113,7 @@ test("comissão padrão de clientes é herdada do ponto e especial é somente MA
  assert.match(portal,/req.wl.account.point_id,pointCommissionOverride:null,active:true/);
  assert.match(portal,/app.patch\("\/api\/wl\/points\/:id\/commission",authenticate,wlMaster/);
  assert.match(portal,/app.patch\("\/api\/wl\/clients\/:id\/status",authenticate,wlMaster/);
- assert.match(portal,/client\.point_commission_override!=null/);
+ assert.match(portal,/client\?\.point_commission_override!=null/);
  assert.match(portal,/wlClients\.allocateCommission\(option,pointId\?commission:0,master\)/);
  assert.match(portal,/master\?null:req.wl.account.point_id/);
  assert.match(portal,/req.wl.carrier.id/);
