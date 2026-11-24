@@ -85,6 +85,7 @@
         <div class="nav-section">ADMINISTRAÇÃO POSTAL</div>
         <nav>
           <button class="nav-item master-only hidden" data-view="master"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="m3 6 4 4 5-7 5 7 4-4-2 12H5zM5 22h14"/></svg></span> Painel Master</button>
+          <button class="nav-item master-only hidden" data-view="whiteLabel" title="Cadastro de transportadoras White Label"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><path d="M13 17h8M17 13v8"/></svg></span> White Label</button>
           <button class="nav-item supervisor-only hidden" data-view="supervisor"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="m12 2 9 4v6c0 5-9 10-9 10S3 17 3 12V6zM8 12l3 3 5-6"/></svg></span> Supervisão da Rede</button>
         </nav>
       </div>
@@ -677,48 +678,7 @@
           <strong id="walletBalanceHero" class="wallet-hero-value">R$ 0,00</strong>
         </div>
 
-        <article class="panel master-section white-label-section" id="whiteLabelSection">
-          <div class="panel-head">
-            <div><span class="eyebrow">NOVA MODALIDADE · MASTER</span><h3>Transportadoras White Label</h3>
-              <p>Cadastre a transportadora regional com sua marca e o contrato de remuneração da Postal.</p></div>
-            <button id="refreshWhiteLabelsBtn" class="ghost" type="button">Atualizar lista</button>
-          </div>
-          <div class="white-label-intro"><strong>Cadastro em homologação.</strong> Nesta etapa, você registra o primeiro parceiro e configura sua identidade comercial. Usuários, rotas, tarifas, cobranças e acesso ao painel White Label somente serão liberados após o isolamento entre empresas, testes e ativação pelo MASTER.</div>
-          <div class="white-label-layout">
-            <div class="form-panel">
-              <div class="form-panel-head"><span class="step-number">WL</span><div><h3 id="whiteLabelFormTitle">Nova transportadora</h3><p>O cadastro é independente dos pontos da rede Postal.</p></div></div>
-              <form id="whiteLabelForm">
-                <div class="white-label-fields">
-                  <label>Código interno*<input id="wlCode" maxlength="30" placeholder="EX.: TRANSPORTADORA-SUL" required /></label>
-                  <label>Marca comercial*<input id="wlBrandName" maxlength="90" required placeholder="Nome exibido ao cliente" /></label>
-                  <label>Razão social<input id="wlLegalName" maxlength="130" /></label>
-                  <label>CNPJ*<input id="wlCnpj" maxlength="18" inputmode="numeric" required placeholder="00.000.000/0000-00" /></label>
-                  <label>Responsável*<input id="wlAdminName" maxlength="100" required /></label>
-                  <label>E-mail do responsável*<input id="wlAdminEmail" type="email" maxlength="160" required /></label>
-                  <label>Telefone com DDD*<input id="wlAdminPhone" inputmode="tel" maxlength="20" required /></label>
-                  <label>Cidade base*<input id="wlBaseCity" maxlength="100" required /></label>
-                  <label>UF*<input id="wlBaseState" maxlength="2" required placeholder="PA" /></label>
-                  <label>Carteira Asaas (walletId)<input id="wlAsaasWallet" maxlength="128" placeholder="Opcional nesta etapa" /></label>
-                  <label>Taxa Postal (%)<input id="wlPostalFeePercent" type="number" min="0" max="50" step="0.01" value="0" required /></label>
-                  <label>Taxa Postal fixa por frete (R$)<input id="wlPostalFeeFixed" type="number" min="0" max="10000" step="0.01" value="0" required /></label>
-                  <label class="full">URL da logomarca (HTTPS)<input id="wlLogoUrl" type="url" maxlength="500" placeholder="https://..." /></label>
-                  <label>Cor principal<input id="wlColorPrimary" type="color" value="#d7083b" /></label>
-                  <label>Cor complementar<input id="wlColorSecondary" type="color" value="#222638" /></label>
-                  <label class="full">Observações comerciais<textarea id="wlNotes" maxlength="1000" placeholder="Região atendida, negociação, próximos passos..."></textarea></label>
-                </div>
-                <div class="white-label-actions">
-                  <button id="saveWhiteLabelBtn" class="primary" type="submit">Cadastrar White Label</button>
-                  <button id="cancelWhiteLabelEditBtn" class="ghost hidden" type="button">Cancelar edição</button>
-                </div>
-                <small>Informe ao menos uma taxa Postal maior que zero. A cobrança ainda não será ativada.</small>
-              </form>
-            </div>
-            <div class="panel">
-              <div class="panel-head"><div><span class="eyebrow">CONTRATOS CADASTRADOS</span><h3>Empresas White Label</h3></div></div>
-              <div id="whiteLabelsList" class="white-label-list"><div class="empty-state">Carregando transportadoras...</div></div>
-            </div>
-          </div>
-        </article>
+
 
         <div class="master-grid">
           <article class="form-panel">
@@ -936,6 +896,49 @@
           <div><span>Venda bruta</span><strong id="masterGross">R$ 0,00</strong></div>
           <div><span>Receita Postal</span><strong id="masterPostalRevenue">R$ 0,00</strong></div>
         </div>
+
+        <article class="panel master-section white-label-section" id="whiteLabelSection">
+          <div class="panel-head">
+            <div><span class="eyebrow">NOVA MODALIDADE · MASTER</span><h3>Transportadoras White Label</h3>
+              <p>Cadastre a transportadora regional com sua marca e o contrato de remuneração da Postal.</p></div>
+            <button id="refreshWhiteLabelsBtn" class="ghost" type="button">Atualizar lista</button>
+          </div>
+          <div class="white-label-intro"><strong>Cadastro em homologação.</strong> Nesta etapa, você registra o primeiro parceiro e configura sua identidade comercial. Usuários, rotas, tarifas, cobranças e acesso ao painel White Label somente serão liberados após o isolamento entre empresas, testes e ativação pelo MASTER.</div>
+          <div class="white-label-layout">
+            <div class="form-panel">
+              <div class="form-panel-head"><span class="step-number">WL</span><div><h3 id="whiteLabelFormTitle">Nova transportadora</h3><p>O cadastro é independente dos pontos da rede Postal.</p></div></div>
+              <form id="whiteLabelForm">
+                <div class="white-label-fields">
+                  <label>Código interno*<input id="wlCode" maxlength="30" placeholder="EX.: TRANSPORTADORA-SUL" required /></label>
+                  <label>Marca comercial*<input id="wlBrandName" maxlength="90" required placeholder="Nome exibido ao cliente" /></label>
+                  <label>Razão social<input id="wlLegalName" maxlength="130" /></label>
+                  <label>CNPJ*<input id="wlCnpj" maxlength="18" inputmode="numeric" required placeholder="00.000.000/0000-00" /></label>
+                  <label>Responsável*<input id="wlAdminName" maxlength="100" required /></label>
+                  <label>E-mail do responsável*<input id="wlAdminEmail" type="email" maxlength="160" required /></label>
+                  <label>Telefone com DDD*<input id="wlAdminPhone" inputmode="tel" maxlength="20" required /></label>
+                  <label>Cidade base*<input id="wlBaseCity" maxlength="100" required /></label>
+                  <label>UF*<input id="wlBaseState" maxlength="2" required placeholder="PA" /></label>
+                  <label>Carteira Asaas (walletId)<input id="wlAsaasWallet" maxlength="128" placeholder="Opcional nesta etapa" /></label>
+                  <label>Taxa Postal (%)<input id="wlPostalFeePercent" type="number" min="0" max="50" step="0.01" value="0" required /></label>
+                  <label>Taxa Postal fixa por frete (R$)<input id="wlPostalFeeFixed" type="number" min="0" max="10000" step="0.01" value="0" required /></label>
+                  <label class="full">URL da logomarca (HTTPS)<input id="wlLogoUrl" type="url" maxlength="500" placeholder="https://..." /></label>
+                  <label>Cor principal<input id="wlColorPrimary" type="color" value="#d7083b" /></label>
+                  <label>Cor complementar<input id="wlColorSecondary" type="color" value="#222638" /></label>
+                  <label class="full">Observações comerciais<textarea id="wlNotes" maxlength="1000" placeholder="Região atendida, negociação, próximos passos..."></textarea></label>
+                </div>
+                <div class="white-label-actions">
+                  <button id="saveWhiteLabelBtn" class="primary" type="submit">Cadastrar White Label</button>
+                  <button id="cancelWhiteLabelEditBtn" class="ghost hidden" type="button">Cancelar edição</button>
+                </div>
+                <small>Informe ao menos uma taxa Postal maior que zero. A cobrança ainda não será ativada.</small>
+              </form>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><div><span class="eyebrow">CONTRATOS CADASTRADOS</span><h3>Empresas White Label</h3></div></div>
+              <div id="whiteLabelsList" class="white-label-list"><div class="empty-state">Carregando transportadoras...</div></div>
+            </div>
+          </div>
+        </article>
 
         <article class="panel master-section">
           <div class="panel-head">
