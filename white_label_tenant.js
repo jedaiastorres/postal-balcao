@@ -55,7 +55,7 @@ function normalizePoint(value={}) {
   if(name.length<3||name.length>100)throw fail("Nome da unidade deve conter 3 a 100 caracteres.");
   if(cep.length!==8)throw fail("CEP da unidade deve conter 8 dígitos.");
   if(city.length<2||city.length>100||!/^[A-Z]{2}$/.test(state))throw fail("Informe cidade e UF da unidade.");
-  if(address.length<3||address.length>160||number.length>20)throw fail("Informe endereço e número válidos.");
+  if(address.length<3||address.length>160||!number||number.length>20)throw fail("Informe endereço e número válidos.");
   return {code,name,cep,city,state,address,number,active:value.active!==false};
 }
 function normalizeBrand(value={}) {
