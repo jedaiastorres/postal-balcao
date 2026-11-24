@@ -27,6 +27,19 @@ test("tarifas validam CEP, pesos, preço e prazo sem liberar postagem",()=>{
  assert.deepEqual(q,{origin:"68500000",destination:"68515000",weight:1250});
  assert.throws(()=>logic.validateQuote({origin:"",destination:"68515000",weight:1000}),/CEPs/);
 });
+test("parceiro edita só nome e cores sem acessar carteira ou condições comerciais",async()=>{
+ const brand=logic.normalizeBrand({name:"Empresa Regional",logoUrl:"https://example.com/logo.png",
+  primary:"#ff0055",secondary:"#132442",postalFeePercent:0,asaasWalletId:"fake"});
+ assert.equal(brand.name,"Empresa Regional");
+ assert.equal("asaasWalletId" in brand,false);
+ assert.throws(()=>logic.normalizeBrand({...brand,primary:"red"}),/Cores/);
+ assert.throws(()=>logic.normalizeBrand({...brand,logoUrl:"http://example.com/x"}),/HTTPS/);
+ let query="";
+ await wlDb.updateBrand({query:async(sql)=>{query=sql;return {rows:[{id:"ok"}]}}},"id",brand);
+ assert.match(query,/WHERE id=\$1/);
+ assert.doesNotMatch(query,/asaas_wallet_id|postal_fee_percent|postal_fee_fixed/);
+ assert.match(portal,/app.patch\("\/api\/wl\/brand",authenticate,wlMaster,blockNewUsersUntilPasswordChanged/);
+});
 test("cálculo do repasse é feito no servidor, nunca abaixo de zero",()=>{
  const carrier={postal_fee_percent:20,postal_fee_fixed:1};
  const tariff={id:"x",name:"Rota",price:30,per_kg:2,days:3};
