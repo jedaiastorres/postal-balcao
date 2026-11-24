@@ -37,6 +37,10 @@ async function init(pool){
 const select=`SELECT c.*,p.name AS point_name,p.commission_percent AS point_commission_percent
   FROM wl_clients c LEFT JOIN wl_points p
     ON p.id=c.point_id AND p.carrier_id=c.carrier_id`;
+async function countClients(pool,carrierId){
+  const {rows}=await pool.query("SELECT COUNT(*)::int AS total FROM wl_clients WHERE carrier_id=$1",[carrierId]);
+  return Number(rows[0]?.total||0);
+}
 async function listClients(pool,carrierId,pointScope=null){
   const {rows}=await pool.query(
     select+` WHERE c.carrier_id=$1 AND ($2::uuid IS NULL OR c.point_id=$2)
@@ -104,5 +108,5 @@ async function setPointCommission(pool,carrierId,id,pct){
     [carrierId,id,pct]);
   return rows[0]||null;
 }
-module.exports={init,listClients,getClient,createClient,updateClient,setClientActive,
+module.exports={init,countClients,listClients,getClient,createClient,updateClient,setClientActive,
   getPoint,setPointCommission};
