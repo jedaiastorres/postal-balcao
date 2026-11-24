@@ -9,6 +9,7 @@ const wlClients=require("./white_label_clients");
 const wlClientsDb=require("./white_label_clients_db");
 const wlCustomerDb=require("./white_label_customer_db");
 const wlCustomer=require("./white_label_customer");
+const bulkShipping=require("./bulk_shipping");
 const wlCollectionDb=require("./white_label_collection_db");
 const wlCollection=require("./white_label_collection");
 
@@ -254,6 +255,27 @@ function register({app,db,requireAuth,requireRole,signSession,verifySession,
         networkStatus,volumeCount:input.volumes.length,
         options,brand:logic.publicBrand(req.wlCustomer.carrier)});
     }catch(error){safeError(res,error,"Não foi possível cotar volumes.");}
+  });
+
+  // Reutiliza o parser/template do Postal Balcão sem criar envios nem debitar saldo.
+  app.get("/api/wl/customer/bulk/template",authenticateCustomer,async(req,res)=>{
+    try{
+      const output=await bulkShipping.template();
+      res.setHeader("Content-Type","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition",'attachment; filename="modelo-envios-white-label.xlsx"');
+      res.setHeader("Cache-Control","private,no-store");
+      res.send(Buffer.from(output));
+    }catch(error){safeError(res,error,"Não foi possível gerar o modelo da planilha.");}
+  });
+  app.post("/api/wl/customer/bulk/parse",authenticateCustomer,async(req,res)=>{
+    if(req.wlCustomer.account.must_change_password)
+      return res.status(403).json({error:"Troque sua senha inicial."});
+    try{
+      const parsed=await bulkShipping.parseUpload(req.body||{});
+      res.setHeader("Cache-Control","private,no-store");
+      res.json({rows:parsed.rows,valid:parsed.valid,invalid:parsed.invalid,
+        previewOnly:true,issueEnabled:false});
+    }catch(error){res.status(400).json({error:error.message||"Planilha inválida."});}
   });
   app.post("/api/wl/customer/fiscal-lookup",authenticateCustomer,async(req,res)=>{
     if(req.wlCustomer.account.must_change_password)return res.status(403).json({error:"Troque sua senha inicial."});
