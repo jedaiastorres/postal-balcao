@@ -99,13 +99,13 @@ function activate(name){
   }
   const titles={overview:"Dashboard",points:"Unidades e Pontos",tariffs:"Rotas e Preços",
     quotes:"Simular Frete",users:"Equipe",brand:"Minha Marca",finance:"Carteira e Repasses"};
-  $(".tab").forEach(btn=>{
+  $$(".tab").forEach(btn=>{
     const active=btn.dataset.tab===name;
     btn.classList.toggle("active",active);
     if(active)btn.setAttribute("aria-current","page");
     else btn.removeAttribute("aria-current");
   });
-  $(".tab-panel").forEach(panel=>panel.classList.toggle("hidden",panel.dataset.panel!==name));
+  $$(".tab-panel").forEach(panel=>panel.classList.toggle("hidden",panel.dataset.panel!==name));
   $("#wlPageTitle").textContent=titles[name]||"Dashboard";
   closeMobileMenu();
   window.scrollTo({top:0,behavior:"smooth"});
@@ -125,7 +125,7 @@ $("#wlMobileMenu").addEventListener("click",()=>{
 $("#wlBackdrop").addEventListener("click",closeMobileMenu);
 document.addEventListener("keydown",event=>{if(event.key==="Escape")closeMobileMenu();});
 window.addEventListener("resize",()=>{if(window.innerWidth>820)closeMobileMenu();});
-$(".tab").forEach(btn=>btn.addEventListener("click",()=>activate(btn.dataset.tab)));
+$$(".tab").forEach(btn=>btn.addEventListener("click",()=>activate(btn.dataset.tab)));
 $("#loginForm").addEventListener("submit",async event=>{
   event.preventDefault();errorText("");
   const btn=event.currentTarget.querySelector("button");
@@ -171,7 +171,7 @@ function renderPoints(){
     '</span><small>'+esc(point.address)+', '+esc(point.number)+' · '+(point.active?"Ativo":"Inativo")+
     '</small></div><div class="list-price"><button class="ghost" type="button" data-edit-point="'+esc(point.id)+'">Editar</button></div></div>'
   ).join(""):'<div class="empty">Nenhum ponto cadastrado.</div>';
-  $("#pointsList [data-edit-point]").forEach(button=>button.addEventListener("click",()=>{
+  $$("#pointsList [data-edit-point]").forEach(button=>button.addEventListener("click",()=>{
     const point=state.points.find(item=>item.id===button.dataset.editPoint);
     if(!point)return;
     for(const [id,key] of [["pointId","id"],["pointCode","code"],["pointName","name"],
