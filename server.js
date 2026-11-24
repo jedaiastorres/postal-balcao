@@ -22,6 +22,8 @@ const quotePricing = require("./quote_pricing");
 const shipmentCorrections = require("./shipment_corrections");
 const providerServiceMapping = require("./provider_service_mapping");
 const whiteLabel = require("./white_label");
+const whiteLabelTenantDb = require("./white_label_tenant_db");
+const whiteLabelPortal = require("./white_label_portal");
 const operationalMetrics = require("./operational_metrics");
 const postalOperations = require("./postal_operations");
 const postalRegional = require("./postal_regional");
@@ -117,7 +119,7 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      imgSrc: ["'self'", "data:"],
+      imgSrc: ["'self'", "data:", "https:"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       scriptSrc: ["'self'"],
       connectSrc: ["'self'"]
@@ -2100,7 +2102,7 @@ app.post("/api/public/cotacao", async (req,res)=>{
 // CSRF para mutações autenticadas do painel. Webhooks e API externa usam autenticação própria.
 app.use("/api", (req, res, next) => {
   if (!["POST","PUT","PATCH","DELETE"].includes(req.method)) return next();
-  if (req.path.startsWith("/webhooks/") || req.path.startsWith("/integrations/")) return next();
+  if (req.path.startsWith("/webhooks/") || req.path.startsWith("/integrations/") || req.path.startsWith("/wl/")) return next();
 
   const session = verifySession(parseCookies(req).postal_session);
   if (!session) return res.status(401).json({ error: "Sessão expirada. Entre novamente." });
@@ -4157,6 +4159,12 @@ app.patch("/api/admin/white-label-carriers/:id",requireAuth,requireRole("ADMIN")
   }
 });
 
+// Portal independente com cookies, contas e isolamento próprios de White Label.
+whiteLabelPortal.register({
+  app,db,requireAuth,requireRole,signSession,verifySession,parseCookies,
+  hashPassword,verifyPassword,checkLoginRate,recordLoginFailure,clearLoginFailures,audit
+});
+
 app.get("/api/admin/stores", requireAuth, requireRole("ADMIN"), async (_req, res) => {
   try {
     const stores = await db.listStores();
@@ -5948,6 +5956,7 @@ async function ensureAsaasCheckoutWebhook() {
 
 async function start() {
   await db.initDb();
+  if(db.pool) await whiteLabelTenantDb.init(db.pool);
   await clientDb.initClientDb();
   await ensureBootstrapAdmin();
   await seedDefaultCatalog();
