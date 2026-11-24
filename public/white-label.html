@@ -106,8 +106,15 @@
       </section>
       <section class="tab-panel hidden" data-panel="brand">
         <article class="card"><h2>Identidade da sua empresa</h2>
-          <p>Nome, logomarca e cores são configurados no cadastro da transportadora pelo MASTER Postal. A identidade já é aplicada a este portal.</p>
+          <p>A identidade da sua transportadora é aplicada a este portal. O MASTER da empresa pode mudar nome comercial, logomarca e cores. Contrato e taxas da Postal continuam protegidos.</p>
           <div id="brandPreview" class="brand-preview"></div>
+          <form id="brandForm" class="fields grid-form master-only">
+            <label class="wide">Nome comercial<input id="brandNameInput" maxlength="90" required></label>
+            <label class="wide">Link HTTPS da logomarca<input id="brandLogoInput" type="url" maxlength="500" placeholder="https://empresa.com/logo.png"></label>
+            <label>Cor principal<input id="brandPrimaryInput" type="color"></label>
+            <label>Cor secundária<input id="brandSecondaryInput" type="color"></label>
+            <div class="wide"><button class="primary" type="submit">Salvar identidade visual</button></div>
+          </form>
           <p class="note">O rastreamento, as etiquetas e os comprovantes com esta marca entrarão na próxima fase, após testes de emissão e isolamento.</p>
         </article>
       </section>
