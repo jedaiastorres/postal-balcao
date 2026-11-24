@@ -2,6 +2,7 @@
 const {randomUUID}=require("node:crypto");
 const wlCollectionDb=require("./white_label_collection_db");
 const wlClientsDb=require("./white_label_clients_db");
+const wlCustomerDb=require("./white_label_customer_db");
 const uuid = "00000000-0000-0000-0000-000000000000";
 
 async function init(pool) {
@@ -69,6 +70,7 @@ async function init(pool) {
   `);
   await wlCollectionDb.init(pool);
   await wlClientsDb.init(pool);
+  await wlCustomerDb.init(pool);
 }
 const carrierByCode=async(pool,code)=>{
   const {rows}=await pool.query("SELECT * FROM white_label_carriers WHERE code=$1 LIMIT 1",[code]);

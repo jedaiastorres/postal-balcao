@@ -81,6 +81,7 @@ function showAuth(account,csrf,finance){
   $("#logoutBtn").classList.remove("hidden");
   $("#sidebarEmail").textContent=account.email||"—";
   $("#sidebarRole").textContent=account.role==="WL_MASTER"?"MASTER da transportadora":"Operador do ponto";
+  $("#wlCustomerPortalLink").href="/wl/"+encodeURIComponent(code)+"/cliente";
   $("#welcomeName").textContent="Painel "+(state.brand?.name||"White Label");
   $("#roleTag").textContent=account.role==="WL_MASTER"?"M":"O";
   $("#roleTag").title=account.role==="WL_MASTER"?"MASTER da transportadora":"Operador";
@@ -207,6 +208,7 @@ function renderClients(){
       '<span>'+esc(point)+' · '+esc(c.city||"Sem endereço")+' · '+esc(c.phone||"Sem telefone")+'</span>'+
       '<small>'+esc(c.document||"Sem CPF/CNPJ")+' · '+(c.active?"Ativo":"Inativo")+'</small>'+
       commission+'</div><div class="list-price"><button class="ghost" type="button" data-client-edit="'+esc(c.id)+'">Editar</button>'+
+      (master&&c.active?'<button class="primary" type="button" data-client-access="'+esc(c.id)+'">Gerar acesso do cliente</button>':"")+
       (master?'<button class="ghost" type="button" data-client-status="'+esc(c.id)+'" data-active="'+(c.active?"false":"true")+'">'+(c.active?"Desativar":"Reativar")+'</button>':"")+
       '</div></div>';
   }).join(""):'<div class="empty">Nenhum cliente fixo cadastrado nesta unidade.</div>';
@@ -222,6 +224,21 @@ async function loadClients(){
 $("#wlRefreshClients").addEventListener("click",loadClients);
 $("#wlClearClient").addEventListener("click",resetFixedClientForm);
 $("#wlClientsList").addEventListener("click",async event=>{
+  const access=event.target.closest("[data-client-access]");
+  if(access){
+    const selected=state.clients.find(x=>x.id===access.dataset.clientAccess);
+    if(!selected)return;
+    if(!selected.email){errorText("Cadastre primeiro o e-mail do cliente.");return;}
+    if(!confirm("Gerar um novo acesso para "+selected.name+"? Caso já exista, a senha anterior e as sessões abertas serão invalidadas."))return;
+    access.disabled=true;errorText("");
+    try{
+      const result=await api("/api/wl/clients/"+encodeURIComponent(selected.id)+"/access",{method:"POST",body:"{}"});
+      credentials("Portal do cliente: "+location.origin+result.loginUrl+
+        "\nE-mail: "+result.email+"\nSenha temporária: "+result.temporaryPassword+
+        "\nTroca de senha obrigatória no primeiro acesso.");
+    }catch(error){errorText(error.message);}finally{access.disabled=false;}
+    return;
+  }
   const edit=event.target.closest("[data-client-edit]");
   if(edit){
     const c=state.clients.find(item=>item.id===edit.dataset.clientEdit);
