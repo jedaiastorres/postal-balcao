@@ -20,6 +20,29 @@ async function init(pool) {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS wl_accounts_tenant_idx ON wl_accounts(carrier_id,active);
+    CREATE TABLE IF NOT EXISTS wl_points (
+      id UUID PRIMARY KEY,
+      carrier_id UUID NOT NULL REFERENCES white_label_carriers(id) ON DELETE CASCADE,
+      code TEXT NOT NULL,
+      name TEXT NOT NULL,
+      cep CHAR(8) NOT NULL,
+      city TEXT NOT NULL,
+      state CHAR(2) NOT NULL,
+      address TEXT NOT NULL,
+      number TEXT NOT NULL DEFAULT '',
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(carrier_id,code), UNIQUE(carrier_id,id)
+    );
+    CREATE INDEX IF NOT EXISTS wl_points_tenant_idx ON wl_points(carrier_id,active);
+    ALTER TABLE wl_accounts ADD COLUMN IF NOT EXISTS point_id UUID;
+    DO $body$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='wl_accounts_point_tenant_fk') THEN
+        ALTER TABLE wl_accounts ADD CONSTRAINT wl_accounts_point_tenant_fk
+          FOREIGN KEY(carrier_id,point_id) REFERENCES wl_points(carrier_id,id) ON DELETE RESTRICT;
+      END IF;
+    END $body$;
     CREATE TABLE IF NOT EXISTS wl_tariffs (
       id UUID PRIMARY KEY,
       carrier_id UUID NOT NULL REFERENCES white_label_carriers(id) ON DELETE CASCADE,
@@ -79,15 +102,18 @@ async function provisionMaster(pool,carrier,passwordHash){
 }
 async function listAccounts(pool,carrierId) {
   const {rows}=await pool.query(
-    "SELECT id,name,email,role,active,must_change_password,created_at FROM wl_accounts WHERE carrier_id=$1 ORDER BY created_at",
+    "SELECT id,name,email,role,point_id,active,must_change_password,created_at FROM wl_accounts WHERE carrier_id=$1 ORDER BY created_at",
     [carrierId]);return rows;
 }
-async function createOperator(pool,carrierId,{name,email,passwordHash}) {
+async function createOperator(pool,carrierId,{name,email,passwordHash,pointId}) {
+  // INSERT ... SELECT garante que o ponto informado é ativo e do mesmo tenant.
   const {rows}=await pool.query(
-    `INSERT INTO wl_accounts(id,carrier_id,email,name,password_hash,role)
-      VALUES($1,$2,$3,$4,$5,'WL_OPERATOR')
-      RETURNING id,name,email,role,active,must_change_password`,
-    [randomUUID(),carrierId,email,name,passwordHash]);
+    `INSERT INTO wl_accounts(id,carrier_id,email,name,password_hash,role,point_id)
+      SELECT $1,$2,$3,$4,$5,'WL_OPERATOR',p.id FROM wl_points p
+       WHERE p.carrier_id=$2 AND p.id=$6 AND p.active=TRUE
+      RETURNING id,name,email,role,point_id,active,must_change_password`,
+    [randomUUID(),carrierId,email,name,passwordHash,pointId]);
+  if(!rows[0])throw Object.assign(new Error("Selecione uma unidade ativa desta transportadora."),{status:400});
   return rows[0];
 }
 async function setOperatorStatus(pool,carrierId,userId,active) {
@@ -111,6 +137,29 @@ async function updateBrand(pool,carrierId,brand) {
     [carrierId,brand.name,brand.logoUrl,brand.primary,brand.secondary]
   );
   return rows[0]||null;
+}
+async function listPoints(pool,carrierId,pointId=null) {
+  const {rows}=await pool.query(
+    `SELECT id,code,name,cep,city,state,address,number,active,created_at
+      FROM wl_points WHERE carrier_id=$1 AND ($2::uuid IS NULL OR id=$2)
+      ORDER BY name`,[carrierId,pointId]);
+  return rows;
+}
+async function savePoint(pool,carrierId,point,id=null){
+  if(id) {
+    const {rows}=await pool.query(
+      `UPDATE wl_points SET code=$3,name=$4,cep=$5,city=$6,state=$7,address=$8,
+        number=$9,active=$10,updated_at=NOW() WHERE carrier_id=$1 AND id=$2 RETURNING *`,
+      [carrierId,id,point.code,point.name,point.cep,point.city,
+       point.state,point.address,point.number,point.active]);
+    return rows[0]||null;
+  }
+  const {rows}=await pool.query(
+    `INSERT INTO wl_points(id,carrier_id,code,name,cep,city,state,address,number,active)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+    [randomUUID(),carrierId,point.code,point.name,point.cep,point.city,
+     point.state,point.address,point.number,point.active]);
+  return rows[0];
 }
 async function listTariffs(pool,carrierId) {
   const {rows}=await pool.query(
@@ -149,4 +198,4 @@ async function quoteTariffs(pool,carrierId,{origin,destination,weight}) {
 }
 module.exports={init,carrierByCode,carrierById,accountByEmail,accountById,
   provisionMaster,listAccounts,createOperator,setOperatorStatus,updatePassword,
-  listTariffs,saveTariff,quoteTariffs,updateBrand};
+  listTariffs,saveTariff,quoteTariffs,updateBrand,listPoints,savePoint};
