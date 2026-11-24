@@ -160,6 +160,15 @@ function register({app,db,requireAuth,requireRole,signSession,verifySession,
     }catch(error){safeError(res,error,"Não foi possível alterar a senha.");}
   });
 
+  app.patch("/api/wl/brand",authenticate,wlMaster,blockNewUsersUntilPasswordChanged,async(req,res)=>{
+    try{
+      const brand=logic.normalizeBrand(req.body);
+      const updated=await wlDb.updateBrand(pool,req.wl.carrier.id,brand);
+      if(!updated)return res.status(409).json({error:"Cadastro indisponível."});
+      res.json({ok:true,brand:logic.publicBrand(updated)});
+    }catch(error){safeError(res,error,"Não foi possível atualizar a identidade comercial.");}
+  });
+
   app.get("/api/wl/routes",authenticate,async(req,res)=>{
     try{
       const rows=await wlDb.listTariffs(pool,req.wl.carrier.id);
