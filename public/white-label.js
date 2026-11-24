@@ -2,7 +2,7 @@
 const $=selector=>document.querySelector(selector);
 const $$=selector=>[...document.querySelectorAll(selector)];
 const code=decodeURIComponent(location.pathname.split("/").filter(Boolean).at(-1)||"").toUpperCase();
-const state={csrf:"",account:null,brand:null,routes:[],points:[],finance:null};
+const state={csrf:"",account:null,brand:null,routes:[],points:[],collections:[],collectionRequestKey:null,finance:null};
 const money=value=>new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(Number(value||0));
 const esc=value=>String(value??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");
 const digit=value=>String(value||"").replace(/\D/g,"");
@@ -86,18 +86,19 @@ function showAuth(account,csrf,finance){
   $("#roleTag").title=account.role==="WL_MASTER"?"MASTER da transportadora":"Operador";
   $$(".master-only").forEach(element=>element.classList.toggle("hidden",account.role!=="WL_MASTER"));
   $("#passwordPanel").classList.toggle("hidden",!account.mustChangePassword);
+  $("#wlOperatorCollectionPoint").classList.toggle("hidden",account.role==="WL_MASTER");
   $("#walletStatus").textContent=finance?.walletConfigured
     ?"Carteira cadastrada pelo MASTER Postal. Homologação financeira pendente."
     :"Carteira Asaas pendente. O MASTER Postal deve configurar e verificar a conta.";
   activate("overview");
   loadRoutes();
-  loadPoints().then(()=>{if(account.role==="WL_MASTER")loadUsers();});
+  loadPoints().then(()=>{if(account.role==="WL_MASTER")loadUsers();loadCollections();});
 }
 function activate(name){
   if(["users","finance","points"].includes(name)){
     if(state.account?.role!=="WL_MASTER")return;
   }
-  const titles={overview:"Dashboard",points:"Unidades e Pontos",tariffs:"Rotas e Preços",
+  const titles={overview:"Dashboard",points:"Unidades e Pontos",collections:"Coletas",tariffs:"Rotas e Preços",
     quotes:"Simular Frete",users:"Equipe",brand:"Minha Marca",finance:"Carteira e Repasses"};
   $$(".tab").forEach(btn=>{
     const active=btn.dataset.tab===name;
@@ -107,6 +108,7 @@ function activate(name){
   });
   $$(".tab-panel").forEach(panel=>panel.classList.toggle("hidden",panel.dataset.panel!==name));
   $("#wlPageTitle").textContent=titles[name]||"Dashboard";
+  if(name==="collections"&&state.account)void loadCollections();
   closeMobileMenu();
   window.scrollTo({top:0,behavior:"smooth"});
   errorText("");
@@ -158,8 +160,136 @@ $("#passwordForm").addEventListener("submit",async event=>{
     location.href="/wl/"+encodeURIComponent(code);
   }catch(error){errorText(error.message);button.disabled=false;}
 });
+const collectionLabels={REQUESTED:"Solicitada",ASSIGNED:"Atribuída",IN_ROUTE:"Em rota",COLLECTED:"Coletada",CANCELED:"Cancelada"};
+const collectionDate=value=>{
+  if(!value)return "A combinar";
+  const date=new Date(value);
+  return Number.isFinite(date.getTime())?date.toLocaleString("pt-BR",{dateStyle:"short",timeStyle:"short"}):"A combinar";
+};
+function refreshCollectionPointSelect(){
+  const host=$("#wlCollectionPoint");
+  const selected=host.value;
+  host.innerHTML='<option value="">Aguardar distribuição pelo MASTER</option>'+
+    state.points.filter(p=>p.active).map(p=>
+      '<option value="'+esc(p.id)+'">'+esc(p.name)+' · '+esc(p.city)+'/'+esc(p.state)+'</option>'
+    ).join("");
+  if(state.points.some(p=>p.active&&p.id===selected))host.value=selected;
+}
+function renderCollections(){
+  const all=state.collections;
+  $("#wlOpenCollections").textContent=all.filter(c=>!["COLLECTED","CANCELED"].includes(c.status)).length;
+  const filter=$("#wlCollectionStatusFilter").value;
+  const list=filter?all.filter(c=>c.status===filter):all;
+  $("#wlCollectionsList").innerHTML=list.length?list.map(collection=>{
+    const master=state.account?.role==="WL_MASTER";
+    const point=state.points.find(p=>p.id===collection.pointId);
+    const address=collection.address||{};
+    const location=[address.street,address.number,address.neighborhood,address.city+"/"+address.state,address.cep]
+      .filter(Boolean).join(", ");
+    const status=collectionLabels[collection.status]||collection.status;
+    const terminal=["COLLECTED","CANCELED"].includes(collection.status);
+    const canAssign=master&&["REQUESTED","ASSIGNED"].includes(collection.status);
+    const canRoute=collection.status==="ASSIGNED";
+    const canComplete=["ASSIGNED","IN_ROUTE"].includes(collection.status);
+    const canCancel=master&&!terminal;
+    const assign=canAssign?
+      '<div class="wl-collection-assignment"><label>Unidade responsável<select data-collection-point>'+
+      '<option value="">Escolha a unidade</option>'+state.points.filter(p=>p.active).map(p=>
+        '<option value="'+esc(p.id)+'"'+(p.id===collection.pointId?' selected':'')+'>'+
+        esc(p.name)+' · '+esc(p.city)+'</option>').join("")+
+      '</select></label><label>Motorista / responsável<input data-collection-driver maxlength="100" value="'+esc(collection.driverName||"")+'" placeholder="Nome do responsável"></label>'+
+      '<button class="ghost" type="button" data-collection-action="assign">Atribuir</button></div>':"";
+    const buttons=(canRoute?'<button class="ghost" type="button" data-collection-action="IN_ROUTE">Iniciar rota</button>':"")+
+      (canComplete?'<button class="primary" type="button" data-collection-action="COLLECTED">Confirmar coleta</button>':"")+
+      (canCancel?'<button class="ghost" type="button" data-collection-action="CANCELED">Cancelar</button>':"");
+    return '<article class="wl-collection-item" data-collection-id="'+esc(collection.id)+'">'+
+      '<div class="wl-collection-header"><div><small class="quote-source">COLETA · '+esc(status)+'</small>'+
+      '<strong>'+esc(collection.requesterName)+'</strong><span>'+esc(collection.requesterPhone)+'</span></div>'+
+      '<span class="wl-collection-status wl-status-'+esc(collection.status)+'">'+esc(status)+'</span></div>'+
+      '<div class="wl-collection-details"><span>'+esc(collection.packageCount)+' pacote(s)</span>'+
+      '<span>'+esc(location)+'</span><span>Agendamento: '+esc(collectionDate(collection.scheduledFor))+'</span>'+
+      '<span>Unidade: '+esc(point?.name||"Aguardando distribuição")+'</span>'+
+      (collection.driverName?'<span>Responsável: '+esc(collection.driverName)+'</span>':"")+
+      (collection.notes?'<span>Observações: '+esc(collection.notes)+'</span>':"")+
+      '</div>'+assign+(buttons?'<div class="action-row wl-collection-status-actions">'+buttons+'</div>':"")+
+      '</article>';
+  }).join(""):'<div class="empty">Nenhuma ordem de coleta encontrada para este filtro.</div>';
+}
+async function loadCollections(){
+  try{
+    const result=await api("/api/wl/collections");
+    state.collections=Array.isArray(result.collections)?result.collections:[];
+    renderCollections();
+  }catch(error){errorText(error.message);}
+}
+$("#wlCollectionStatusFilter").addEventListener("change",renderCollections);
+$("#wlRefreshCollections").addEventListener("click",loadCollections);
+$("#wlQuoteCollectionShortcut").addEventListener("click",()=>{
+  activate("collections");
+  $("#wlCollectionForm").scrollIntoView({behavior:"smooth",block:"start"});
+});
+$("#wlCollectionForm").addEventListener("submit",async event=>{
+  event.preventDefault();errorText("");
+  const btn=event.currentTarget.querySelector('button[type="submit"]');
+  btn.disabled=true;
+  try{
+    if(!globalThis.crypto?.randomUUID)throw new Error("Seu navegador precisa oferecer conexão segura para cadastrar coletas.");
+    if(!state.collectionRequestKey)state.collectionRequestKey=globalThis.crypto.randomUUID();
+    const scheduled=$("#wlCollectionSchedule").value;
+    const data={
+      requestKey:state.collectionRequestKey,
+      pointId:state.account.role==="WL_MASTER"?$("#wlCollectionPoint").value:null,
+      requesterName:$("#wlCollectionName").value,
+      requesterPhone:digit($("#wlCollectionPhone").value),
+      requesterDocument:digit($("#wlCollectionDocument").value),
+      packageCount:Number($("#wlCollectionPackages").value),
+      address:{
+        street:$("#wlCollectionStreet").value,number:$("#wlCollectionNumber").value,
+        complement:$("#wlCollectionComplement").value,
+        neighborhood:$("#wlCollectionNeighborhood").value,
+        cep:digit($("#wlCollectionCep").value),city:$("#wlCollectionCity").value,
+        state:$("#wlCollectionState").value
+      },
+      scheduledFor:scheduled?new Date(scheduled).toISOString():null,
+      notes:$("#wlCollectionNotes").value
+    };
+    const result=await api("/api/wl/collections",{method:"POST",body:JSON.stringify(data)});
+    state.collectionRequestKey=null;
+    event.currentTarget.reset();
+    $("#wlCollectionPoint").value="";
+    await loadCollections();
+    $("#wlCollectionsList").scrollIntoView({behavior:"smooth",block:"start"});
+    alert(result.created?"Ordem de coleta registrada.":"Ordem de coleta já registrada anteriormente.");
+  }catch(error){errorText(error.message);}finally{btn.disabled=false;}
+});
+$("#wlCollectionsList").addEventListener("click",async event=>{
+  const button=event.target.closest("[data-collection-action]");
+  if(!button)return;
+  const item=button.closest("[data-collection-id]");
+  const id=item?.dataset.collectionId,action=button.dataset.collectionAction;
+  if(!id||!action)return;
+  let url,body;
+  if(action==="assign"){
+    const pointId=item.querySelector("[data-collection-point]")?.value;
+    const driverName=item.querySelector("[data-collection-driver]")?.value||"";
+    if(!pointId){errorText("Selecione uma unidade ativa para atribuir a coleta.");return;}
+    url="/api/wl/collections/"+encodeURIComponent(id)+"/assign";
+    body={pointId,driverName};
+  }else{
+    if(action==="CANCELED"&&!confirm("Cancelar esta ordem de coleta?"))return;
+    url="/api/wl/collections/"+encodeURIComponent(id)+"/status";
+    body={status:action};
+  }
+  errorText("");button.disabled=true;
+  try{
+    await api(url,{method:"PATCH",body:JSON.stringify(body)});
+    await loadCollections();
+  }catch(error){errorText(error.message);button.disabled=false;}
+});
+
 function renderPoints(){
   $("#statPoints").textContent=state.points.length;
+  refreshCollectionPointSelect();
   const select=$("#employeePoint");
   select.innerHTML='<option value="">Selecione uma unidade ativa</option>'+
     state.points.filter(point=>point.active).map(point=>
