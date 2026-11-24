@@ -187,3 +187,38 @@ dialog .action-row{display:flex;gap:10px;flex-wrap:wrap}
   .wl-content .wl-quote-carrier-logo{width:76px;height:34px}
   .wl-content .wl-quote-carrier-fallback{width:76px;height:34px}
 }
+
+/* Ordens de coleta White Label — mesmo padrão de cartões da operação Postal. */
+.wl-content .wl-collections-head{align-items:flex-start;flex-wrap:wrap}
+.wl-content .wl-collection-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.wl-content .wl-collection-actions select,
+.wl-content .wl-collection-assignment select,
+.wl-content .wl-collection-assignment input{
+  min-height:42px;background:#fbfbfd;border:1px solid var(--line);
+  border-radius:10px;padding:10px 12px;color:var(--ink);max-width:100%;
+}
+.wl-content .wl-collection-item{
+  border:1px solid var(--line);border-radius:14px;padding:19px 21px;
+  background:#fff;box-shadow:0 5px 16px #22222208;margin-bottom:13px;
+}
+.wl-content .wl-collection-header{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.wl-content .wl-collection-header>div{display:flex;flex-direction:column;gap:5px;min-width:0}
+.wl-content .wl-collection-header strong{font-size:16px;color:var(--ink);overflow-wrap:anywhere}
+.wl-content .wl-collection-header span{font-size:13px;color:var(--muted)}
+.wl-content .wl-collection-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 18px;margin:15px 0;font-size:12px;color:var(--muted)}
+.wl-content .wl-collection-details span{line-height:1.5;overflow-wrap:anywhere}
+.wl-content .wl-collection-status{flex-shrink:0;padding:7px 12px;border-radius:100px;background:#f0f1f6;color:#5d6577;font-size:11px;font-weight:800;white-space:nowrap}
+.wl-content .wl-status-ASSIGNED{background:#edf4ff;color:#2455a5}
+.wl-content .wl-status-IN_ROUTE{background:#fff4dd;color:#946312}
+.wl-content .wl-status-COLLECTED{background:#e7f7ee;color:#187844}
+.wl-content .wl-status-CANCELED{background:#faeaea;color:#ab3b48}
+.wl-content .wl-collection-assignment{display:flex;align-items:end;gap:12px;flex-wrap:wrap;padding:13px;background:#f8f9fb;border-radius:12px}
+.wl-content .wl-collection-assignment label{display:flex;flex-direction:column;gap:6px;flex:1 1 190px;color:var(--muted);font-size:12px;font-weight:750}
+.wl-content .wl-collection-status-actions{margin-top:13px}
+.wl-content .wl-quote-pickup-link{padding-top:16px;border-top:1px solid var(--line);margin-top:14px}
+@media(max-width:580px){
+  .wl-content .wl-collection-details{grid-template-columns:1fr}
+  .wl-content .wl-collection-header{flex-wrap:wrap}
+  .wl-content .wl-collection-assignment{align-items:stretch}
+  .wl-content .wl-collection-assignment label{flex:1 1 100%}
+}
