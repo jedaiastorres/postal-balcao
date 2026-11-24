@@ -103,6 +103,15 @@ async function updatePassword(pool,carrierId,userId,passwordHash) {
       RETURNING id,email,role`,[carrierId,userId,passwordHash]);
   return rows[0]||null;
 }
+async function updateBrand(pool,carrierId,brand) {
+  const {rows}=await pool.query(
+    `UPDATE white_label_carriers SET brand_name=$2,logo_url=$3,
+      brand_primary=$4,brand_secondary=$5,updated_at=NOW()
+      WHERE id=$1 AND status='DRAFT' RETURNING *`,
+    [carrierId,brand.name,brand.logoUrl,brand.primary,brand.secondary]
+  );
+  return rows[0]||null;
+}
 async function listTariffs(pool,carrierId) {
   const {rows}=await pool.query(
     "SELECT id,name,origin_start,origin_end,destination_start,destination_end,min_weight,max_weight,price,per_kg,days,active,updated_at FROM wl_tariffs WHERE carrier_id=$1 ORDER BY created_at DESC",
@@ -140,4 +149,4 @@ async function quoteTariffs(pool,carrierId,{origin,destination,weight}) {
 }
 module.exports={init,carrierByCode,carrierById,accountByEmail,accountById,
   provisionMaster,listAccounts,createOperator,setOperatorStatus,updatePassword,
-  listTariffs,saveTariff,quoteTariffs};
+  listTariffs,saveTariff,quoteTariffs,updateBrand};
