@@ -226,7 +226,7 @@ $("#wlCollectionStatusFilter").addEventListener("change",renderCollections);
 $("#wlRefreshCollections").addEventListener("click",loadCollections);
 $("#wlQuoteCollectionShortcut").addEventListener("click",()=>{
   const origin=digit($("#quoteOrigin").value);
-  if(origin.length===8&&!$("#wlCollectionCep").value)$("#wlCollectionCep").value=origin.replace(/^(\\d{5})(\\d{3})$/,"$1-$2");
+  if(origin.length===8&&!$("#wlCollectionCep").value)$("#wlCollectionCep").value=origin.replace(/^(\d{5})(\d{3})$/,"$1-$2");
   activate("collections");
   $("#wlCollectionForm").scrollIntoView({behavior:"smooth",block:"start"});
 });
