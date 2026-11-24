@@ -5,6 +5,8 @@ const crypto=require("node:crypto");
 const wlDb=require("./white_label_tenant_db");
 const logic=require("./white_label_tenant");
 const hybrid=require("./white_label_hybrid_quote");
+const wlClients=require("./white_label_clients");
+const wlClientsDb=require("./white_label_clients_db");
 const wlCollectionDb=require("./white_label_collection_db");
 const wlCollection=require("./white_label_collection");
 
@@ -186,7 +188,8 @@ function register({app,db,requireAuth,requireRole,signSession,verifySession,
       res.setHeader("Cache-Control","no-store");
       res.json({points:points.map(p=>({
         id:p.id,code:p.code,name:p.name,cep:p.cep,city:p.city,state:p.state,
-        address:p.address,number:p.number,active:p.active
+        address:p.address,number:p.number,active:p.active,
+        ...(req.wl.account.role==="WL_MASTER"?{pointCommissionPercent:Number(p.commission_percent||0)}:{})
       }))});
     }catch(error){safeError(res,error,"Não foi possível consultar as unidades.");}
   });
@@ -207,6 +210,65 @@ function register({app,db,requireAuth,requireRole,signSession,verifySession,
       if(!updated)return res.status(404).json({error:"Unidade não encontrada nesta transportadora."});
       res.json({ok:true,id:updated.id});
     }catch(error){safeError(res,error,"Não foi possível atualizar a unidade.");}
+  });
+
+  // Cliente fixo sempre pertence a uma transportadora; operadores só acessam seu ponto.
+  app.get("/api/wl/clients",authenticate,async(req,res)=>{
+    try{
+      const scope=req.wl.account.role==="WL_OPERATOR"?req.wl.account.point_id:null;
+      const rows=await wlClientsDb.listClients(pool,req.wl.carrier.id,scope);
+      res.setHeader("Cache-Control","private,no-store");
+      res.json({clients:rows.map(row=>wlClients.publicClient(row,req.wl.account.role==="WL_MASTER"))});
+    }catch(error){safeError(res,error,"Não foi possível consultar os clientes.");}
+  });
+  app.post("/api/wl/clients",authenticate,blockNewUsersUntilPasswordChanged,async(req,res)=>{
+    try{
+      const master=req.wl.account.role==="WL_MASTER";
+      if(!master&&req.body?.pointCommissionOverride!=null&&req.body.pointCommissionOverride!=="")
+        return res.status(403).json({error:"Comissões especiais só podem ser definidas pelo MASTER."});
+      const data=wlClients.normalizeClient(master?req.body:{...req.body,
+        pointId:req.wl.account.point_id,pointCommissionOverride:null,active:true});
+      const count=await wlClientsDb.listClients(pool,req.wl.carrier.id,
+        master?null:req.wl.account.point_id);
+      if(count.length>=300)return res.status(409).json({error:"Limite de 300 clientes cadastrados por visualização."});
+      const created=await wlClientsDb.createClient(pool,req.wl.carrier.id,req.wl.account.id,
+        data,master?data.pointId:req.wl.account.point_id,master);
+      res.setHeader("Cache-Control","no-store");
+      res.status(201).json({ok:true,client:wlClients.publicClient(created,master)});
+    }catch(error){safeError(res,error,"Não foi possível cadastrar o cliente fixo.");}
+  });
+  app.put("/api/wl/clients/:id",authenticate,blockNewUsersUntilPasswordChanged,async(req,res)=>{
+    if(!safeId(req.params.id))return res.status(400).json({error:"Identificador de cliente inválido."});
+    try{
+      const master=req.wl.account.role==="WL_MASTER";
+      if(!master&&req.body?.pointCommissionOverride!=null&&req.body.pointCommissionOverride!=="")
+        return res.status(403).json({error:"Comissões especiais só podem ser definidas pelo MASTER."});
+      const data=wlClients.normalizeClient(master?req.body:{...req.body,
+        pointId:req.wl.account.point_id,pointCommissionOverride:null,active:true});
+      const client=await wlClientsDb.updateClient(pool,req.wl.carrier.id,req.params.id,
+        master?null:req.wl.account.point_id,data,master?data.pointId:req.wl.account.point_id,master);
+      if(!client)return res.status(404).json({error:"Cliente não encontrado nesta unidade."});
+      res.setHeader("Cache-Control","no-store");
+      res.json({ok:true,client:wlClients.publicClient(client,master)});
+    }catch(error){safeError(res,error,"Não foi possível atualizar o cliente.");}
+  });
+  app.patch("/api/wl/clients/:id/status",authenticate,wlMaster,blockNewUsersUntilPasswordChanged,async(req,res)=>{
+    if(!safeId(req.params.id)||typeof req.body?.active!=="boolean")
+      return res.status(400).json({error:"Informe identificador e situação válidos."});
+    try{
+      const row=await wlClientsDb.setClientActive(pool,req.wl.carrier.id,req.params.id,req.body.active);
+      if(!row)return res.status(404).json({error:"Cliente não encontrado."});
+      res.json({ok:true,id:row.id,active:req.body.active});
+    }catch(error){safeError(res,error,"Não foi possível alterar o cliente.");}
+  });
+  app.patch("/api/wl/points/:id/commission",authenticate,wlMaster,blockNewUsersUntilPasswordChanged,async(req,res)=>{
+    if(!safeId(req.params.id))return res.status(400).json({error:"Unidade inválida."});
+    try{
+      const rate=wlClients.percent(req.body?.pointCommissionPercent,"Comissão padrão do ponto");
+      const point=await wlClientsDb.setPointCommission(pool,req.wl.carrier.id,req.params.id,rate);
+      if(!point)return res.status(404).json({error:"Ponto ativo não encontrado nesta transportadora."});
+      res.json({ok:true,id:point.id,pointCommissionPercent:Number(point.commission_percent)});
+    }catch(error){safeError(res,error,"Não foi possível atualizar a comissão do ponto.");}
   });
 
   // Coletas internas White Label: não envolvem postagem, etiqueta, carteira ou split.
@@ -308,6 +370,22 @@ function register({app,db,requireAuth,requireRole,signSession,verifySession,
     try{
       // Dimensões reais são obrigatórias para a consulta à rede.
       const args=hybrid.validateHybridQuote(req.query);
+      const master=req.wl.account.role==="WL_MASTER";
+      const clientId=String(req.query.clientId||"").trim();
+      if(clientId&&!safeId(clientId))return res.status(400).json({error:"Cliente fixo inválido."});
+      const client=clientId?await wlClientsDb.getClient(pool,req.wl.carrier.id,clientId,
+        master?null:req.wl.account.point_id):null;
+      if(clientId&&(!client||!client.active))return res.status(404).json({error:"Cliente inativo ou não encontrado nesta unidade."});
+      const chosenPointId=String(req.query.pointId||"").trim();
+      if(master&&chosenPointId&&!safeId(chosenPointId))
+        return res.status(400).json({error:"Ponto inválido."});
+      if(master&&client&&chosenPointId&&chosenPointId!==client.point_id)
+        return res.status(400).json({error:"O ponto escolhido não corresponde ao cliente fixo."});
+      const pointId=master?(client?client.point_id:(chosenPointId||null)):req.wl.account.point_id;
+      const point=pointId?await wlClientsDb.getPoint(pool,req.wl.carrier.id,pointId):null;
+      if(pointId&&(!point||!point.active))return res.status(404).json({error:"Ponto de origem não encontrado ou inativo."});
+      const commission=client?.point_commission_override!=null
+        ?Number(client.point_commission_override):Number(point?.commission_percent||0);
       const rows=await wlDb.quoteTariffs(pool,req.wl.carrier.id,args);
       const own=rows.map(rate=>logic.pricedTariff(rate,req.wl.carrier,args.weight)).filter(Boolean);
       let integrated={status:"UNAVAILABLE",options:[]};
@@ -321,13 +399,19 @@ function register({app,db,requireAuth,requireRole,signSession,verifySession,
       const networkOptions=integrated?.status==="AVAILABLE" && Array.isArray(integrated.options)
         ? integrated.options : [];
       const brand=logic.publicBrand(req.wl.carrier);
-      const options=hybrid.mergeHybridOptions(own,networkOptions,brand,req.wl.account.role==="WL_MASTER");
+      // Primeiro calcula a comissão contratual da Postal e da rede.
+      // Depois divide exclusivamente a fatia White Label entre ponto e MASTER.
+      const combined=hybrid.mergeHybridOptions(own,networkOptions,brand,true);
+      const options=combined.map(option=>wlClients.allocateCommission(option,pointId?commission:0,master));
       res.setHeader("Cache-Control","private,no-store");
       res.json({
         brand,simulation:true,shippingEnabled:false,paymentsEnabled:false,
         integrated:{status:["AVAILABLE","NONE"].includes(integrated?.status)?integrated.status:"UNAVAILABLE",
           count:networkOptions.length},
         count:{own:own.length,integrated:networkOptions.length},
+        client:client?{id:client.id,name:client.name}:null,
+        ...(master?{commercial:{pointName:point?.name||"",pointCommissionPercent:pointId?commission:0,
+          basis:"PARCELA_WHITE_LABEL",financialProjection:true}}:{}),
         options
       });
     }catch(error){safeError(res,error,"Não foi possível simular esta cotação.");}
