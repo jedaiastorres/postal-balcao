@@ -159,3 +159,31 @@ dialog .action-row{display:flex;gap:10px;flex-wrap:wrap}
   .wl-login-card h1{font-size:26px}
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+/* Logos de transportadoras: mesmo formato de 100 × 40 do Postal Balcão. */
+.wl-content .quote-option > .wl-quote-carrier-profile{
+  display:flex;flex-direction:row;align-items:center;gap:16px;min-width:0;flex:1;
+}
+.wl-content .wl-quote-carrier-copy{
+  display:flex;flex-direction:column;gap:5px;min-width:0;align-items:flex-start;
+}
+.wl-content .wl-quote-carrier-copy strong{font-size:15px;overflow-wrap:anywhere}
+.wl-content .wl-quote-carrier-copy span{overflow-wrap:anywhere}
+.wl-content .wl-quote-carrier-mark{
+  flex:0 0 118px;width:118px;height:62px;display:flex;
+  align-items:center;justify-content:center;border-radius:12px;
+  background:#fff;border:1px solid var(--line);overflow:hidden;
+}
+.wl-content .wl-quote-carrier-logo{
+  display:block;width:100px;height:40px;object-fit:contain;object-position:center;
+}
+.wl-content .wl-quote-carrier-fallback{
+  display:flex;align-items:center;justify-content:center;width:100px;height:40px;
+  color:var(--brand);font-weight:900;font-size:18px;letter-spacing:1px;
+}
+@media(max-width:580px){
+  .wl-content .quote-option > .wl-quote-carrier-profile{width:100%;gap:12px}
+  .wl-content .wl-quote-carrier-mark{flex-basis:88px;width:88px;height:54px}
+  .wl-content .wl-quote-carrier-logo{width:76px;height:34px}
+  .wl-content .wl-quote-carrier-fallback{width:76px;height:34px}
+}
