@@ -29,14 +29,27 @@ function applyBrand(brand){
   state.brand=brand;
   document.title=(brand.name||"Transportadora")+" · White Label";
   $("#brandTitle").textContent=brand.name;
+  $("#loginBrandTitle").textContent=brand.name;
+  $("#headerBrandTitle").textContent=String(brand.name||"WHITE LABEL").toUpperCase();
   document.documentElement.style.setProperty("--brand",brand.primary||"#d7083b");
   document.documentElement.style.setProperty("--brand-dark",brand.secondary||"#222638");
+  const rgb=(brand.primary||"#d7083b").match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if(rgb){
+    const channels=rgb.slice(1).map(x=>parseInt(x,16)/255);
+    const linear=channels.map(x=>x<=0.04045?x/12.92:((x+0.055)/1.055)**2.4);
+    const luminance=0.2126*linear[0]+0.7152*linear[1]+0.0722*linear[2];
+    document.documentElement.style.setProperty("--on-brand",luminance>0.20?"#20232d":"#ffffff");
+  }
   $("#welcomeSubtitle").textContent=(brand.baseCity||"")+" / "+(brand.baseState||"")+" · Rotas e gestão White Label";
-  if(brand.logoUrl&&/^https:\/\/[^\s]+$/i.test(brand.logoUrl)){
-    $("#brandLogo").src=brand.logoUrl;
-    $("#brandLogo").classList.remove("hidden");
-    $("#brandIcon").classList.add("hidden");
-    $("#brandLogo").onerror=()=>{$("#brandLogo").classList.add("hidden");$("#brandIcon").classList.remove("hidden");};
+  for(const [imgId,iconId] of [["brandLogo","brandIcon"],["loginBrandLogo","loginBrandIcon"]]){
+    const img=$("#"+imgId),icon=$("#"+iconId);
+    const hasLogo=Boolean(brand.logoUrl&&/^https:\/\/[^\s]+$/i.test(brand.logoUrl));
+    img.classList.toggle("hidden",!hasLogo);
+    icon.classList.toggle("hidden",hasLogo);
+    if(hasLogo){
+      img.src=brand.logoUrl;
+      img.onerror=()=>{img.classList.add("hidden");icon.classList.remove("hidden");};
+    } else img.removeAttribute("src");
   }
   $("#brandNameInput").value=brand.name||"";
   $("#brandLogoInput").value=brand.logoUrl||"";
@@ -63,11 +76,14 @@ async function loadBrand(){
 }
 function showAuth(account,csrf,finance){
   state.account=account;state.csrf=csrf||"";state.finance=finance||null;
-  $("#loginPanel").classList.add("hidden");
+  $("#loginShell").classList.add("hidden");
   $("#dashboard").classList.remove("hidden");
   $("#logoutBtn").classList.remove("hidden");
+  $("#sidebarEmail").textContent=account.email||"—";
+  $("#sidebarRole").textContent=account.role==="WL_MASTER"?"MASTER da transportadora":"Operador do ponto";
   $("#welcomeName").textContent="Painel "+(state.brand?.name||"White Label");
-  $("#roleTag").textContent=account.role==="WL_MASTER"?"MASTER da transportadora":"Operador";
+  $("#roleTag").textContent=account.role==="WL_MASTER"?"M":"O";
+  $("#roleTag").title=account.role==="WL_MASTER"?"MASTER da transportadora":"Operador";
   $$(".master-only").forEach(element=>element.classList.toggle("hidden",account.role!=="WL_MASTER"));
   $("#passwordPanel").classList.toggle("hidden",!account.mustChangePassword);
   $("#walletStatus").textContent=finance?.walletConfigured
@@ -81,11 +97,35 @@ function activate(name){
   if(["users","finance","points"].includes(name)){
     if(state.account?.role!=="WL_MASTER")return;
   }
-  $$(".tab").forEach(btn=>btn.classList.toggle("active",btn.dataset.tab===name));
-  $$(".tab-panel").forEach(panel=>panel.classList.toggle("hidden",panel.dataset.panel!==name));
+  const titles={overview:"Dashboard",points:"Unidades e Pontos",tariffs:"Rotas e Preços",
+    quotes:"Simular Frete",users:"Equipe",brand:"Minha Marca",finance:"Carteira e Repasses"};
+  $(".tab").forEach(btn=>{
+    const active=btn.dataset.tab===name;
+    btn.classList.toggle("active",active);
+    if(active)btn.setAttribute("aria-current","page");
+    else btn.removeAttribute("aria-current");
+  });
+  $(".tab-panel").forEach(panel=>panel.classList.toggle("hidden",panel.dataset.panel!==name));
+  $("#wlPageTitle").textContent=titles[name]||"Dashboard";
+  closeMobileMenu();
+  window.scrollTo({top:0,behavior:"smooth"});
   errorText("");
 }
-$$(".tab").forEach(btn=>btn.addEventListener("click",()=>activate(btn.dataset.tab)));
+function closeMobileMenu(){
+  $("#wlNavigation").classList.remove("open");
+  $("#wlBackdrop").classList.add("hidden");
+  $("#wlMobileMenu").setAttribute("aria-expanded","false");
+}
+$("#wlMobileMenu").addEventListener("click",()=>{
+  const open=!$("#wlNavigation").classList.contains("open");
+  $("#wlNavigation").classList.toggle("open",open);
+  $("#wlBackdrop").classList.toggle("hidden",!open);
+  $("#wlMobileMenu").setAttribute("aria-expanded",String(open));
+});
+$("#wlBackdrop").addEventListener("click",closeMobileMenu);
+document.addEventListener("keydown",event=>{if(event.key==="Escape")closeMobileMenu();});
+window.addEventListener("resize",()=>{if(window.innerWidth>820)closeMobileMenu();});
+$(".tab").forEach(btn=>btn.addEventListener("click",()=>activate(btn.dataset.tab)));
 $("#loginForm").addEventListener("submit",async event=>{
   event.preventDefault();errorText("");
   const btn=event.currentTarget.querySelector("button");
