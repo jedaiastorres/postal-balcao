@@ -65,7 +65,8 @@ test("cartão mantém nome, serviço, prazo, valor e comissão ao lado da logo",
   assert.match(js,/class="wl-quote-carrier-profile"/);
   assert.match(js,/'<strong>'\+carrier\+'<\/strong><span>'\+service/);
   assert.match(js,/money\(option\.total\)/);
-  assert.match(js,/option\.partnerShare/);
+  assert.match(js,/option\.masterShare/);
+  assert.match(js,/option\.pointShare/);
   assert.match(css,/\.wl-quote-carrier-logo\{[\s\S]*?width:100px;height:40px/);
   assert.match(css,/@media\(max-width:580px\)/);
   assert.doesNotMatch(html+js,/ConectEnvios/i);
