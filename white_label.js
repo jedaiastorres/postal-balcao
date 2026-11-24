@@ -16,6 +16,7 @@ function normalizeWhiteLabelCarrier(input){
   const asaasWalletId=String(data.asaasWalletId||"").trim();
   const postalFeePercent=Number(data.postalFeePercent??0);
   const postalFeeFixed=Number(data.postalFeeFixed??0);
+  const integratedCommissionPercent=Number(data.integratedCommissionPercent??0);
   const logoUrl=String(data.logoUrl||"").trim();
   const brandPrimary=String(data.brandPrimary||"#d7083b").trim();
   const brandSecondary=String(data.brandSecondary||"#222638").trim();
@@ -31,6 +32,7 @@ function normalizeWhiteLabelCarrier(input){
   if(asaasWalletId&&!/^[A-Za-z0-9_-]{4,128}$/.test(asaasWalletId))throw bad("Identificador da carteira Asaas inválido.");
   if(!Number.isFinite(postalFeePercent)||postalFeePercent<0||postalFeePercent>50||
      !Number.isFinite(postalFeeFixed)||postalFeeFixed<0||postalFeeFixed>10000)throw bad("Taxa Postal fora do intervalo permitido.");
+  if(!Number.isFinite(integratedCommissionPercent)||integratedCommissionPercent<0||integratedCommissionPercent>40)throw bad("Comissão integrada deve estar entre 0% e 40%.");
   if(Math.round(postalFeePercent*100)===0&&Math.round(postalFeeFixed*100)===0)throw bad("Configure uma taxa Postal maior que zero (percentual ou valor fixo).");
   if(!/^(#[0-9a-fA-F]{6})$/.test(brandPrimary)||!/^(#[0-9a-fA-F]{6})$/.test(brandSecondary))throw bad("As cores devem ser códigos hexadecimais.");
   if(logoUrl&&(!/^https:\/\/[^\s/]+(?:\/[^\s]*)?$/.test(logoUrl)||logoUrl.length>500))throw bad("A logomarca precisa ter uma URL HTTPS válida.");
@@ -38,6 +40,7 @@ function normalizeWhiteLabelCarrier(input){
   return {code,brandName,legalName,cnpj,adminName,adminEmail,adminPhone,baseCity,baseState,
     asaasWalletId,postalFeePercent:Math.round(postalFeePercent*100)/100,
     postalFeeFixed:Math.round(postalFeeFixed*100)/100,
+    integratedCommissionPercent:Math.round(integratedCommissionPercent*100)/100,
     logoUrl,brandPrimary,brandSecondary,notes};
 }
 function whiteLabelCarrierDTO(row){
@@ -48,6 +51,7 @@ function whiteLabelCarrierDTO(row){
     asaasWalletId:row.asaas_wallet_id||"",
     postalFeePercent:Number(row.postal_fee_percent||0),
     postalFeeFixed:Number(row.postal_fee_fixed||0),
+    integratedCommissionPercent:Number(row.integrated_commission_percent||0),
     logoUrl:row.logo_url||"",brandPrimary:row.brand_primary||"#d7083b",
     brandSecondary:row.brand_secondary||"#222638",notes:row.notes||"",
     status:row.status,createdAt:row.created_at,updatedAt:row.updated_at,

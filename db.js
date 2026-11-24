@@ -63,6 +63,7 @@ async function initDb() {
       asaas_wallet_id TEXT,
       postal_fee_percent NUMERIC(6,2) NOT NULL DEFAULT 0 CHECK (postal_fee_percent BETWEEN 0 AND 50),
       postal_fee_fixed NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (postal_fee_fixed BETWEEN 0 AND 10000),
+      integrated_commission_percent NUMERIC(6,2) NOT NULL DEFAULT 0 CHECK (integrated_commission_percent BETWEEN 0 AND 40),
       logo_url TEXT NOT NULL DEFAULT '',
       brand_primary TEXT NOT NULL DEFAULT '#d7083b',
       brand_secondary TEXT NOT NULL DEFAULT '#222638',
@@ -360,6 +361,8 @@ async function initDb() {
   `);
 
   await pool.query(`
+    ALTER TABLE white_label_carriers ADD COLUMN IF NOT EXISTS integrated_commission_percent
+      NUMERIC(6,2) NOT NULL DEFAULT 0 CHECK (integrated_commission_percent BETWEEN 0 AND 40);
     ALTER TABLE stores ADD COLUMN IF NOT EXISTS asaas_wallet_id TEXT;
     ALTER TABLE stores ADD COLUMN IF NOT EXISTS quote_origin_cep TEXT;
     ALTER TABLE stores ADD COLUMN IF NOT EXISTS operational_hub JSONB NOT NULL DEFAULT '{}'::jsonb;
@@ -1254,14 +1257,14 @@ async function createWhiteLabelCarrier(carrier,adminUserId){
     `INSERT INTO white_label_carriers (
        id,code,brand_name,legal_name,cnpj,admin_name,admin_email,admin_phone,
        base_city,base_state,asaas_wallet_id,postal_fee_percent,postal_fee_fixed,
-       logo_url,brand_primary,brand_secondary,notes,status,created_by
+       logo_url,brand_primary,brand_secondary,notes,integrated_commission_percent,status,created_by
      ) VALUES (
-       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'DRAFT',$18
+       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'DRAFT',$19
      ) RETURNING *`,
     [require("crypto").randomUUID(),carrier.code,carrier.brandName,carrier.legalName,carrier.cnpj,
      carrier.adminName,carrier.adminEmail,carrier.adminPhone,carrier.baseCity,carrier.baseState,
      carrier.asaasWalletId||null,carrier.postalFeePercent,carrier.postalFeeFixed,carrier.logoUrl,
-     carrier.brandPrimary,carrier.brandSecondary,carrier.notes,adminUserId||null]
+     carrier.brandPrimary,carrier.brandSecondary,carrier.notes,carrier.integratedCommissionPercent,adminUserId||null]
   );
   return rows[0];
 }
@@ -1273,12 +1276,13 @@ async function updateWhiteLabelCarrier(id,carrier){
        base_city=$9,base_state=$10,asaas_wallet_id=$11,
        postal_fee_percent=$12,postal_fee_fixed=$13,
        logo_url=$14,brand_primary=$15,brand_secondary=$16,notes=$17,
+        integrated_commission_percent=$18,
        updated_at=NOW()
      WHERE id=$1 AND status='DRAFT' RETURNING *`,
     [id,carrier.code,carrier.brandName,carrier.legalName,carrier.cnpj,
      carrier.adminName,carrier.adminEmail,carrier.adminPhone,carrier.baseCity,carrier.baseState,
      carrier.asaasWalletId||null,carrier.postalFeePercent,carrier.postalFeeFixed,carrier.logoUrl,
-     carrier.brandPrimary,carrier.brandSecondary,carrier.notes]
+     carrier.brandPrimary,carrier.brandSecondary,carrier.notes,carrier.integratedCommissionPercent]
   );
   return rows[0]||null;
 }

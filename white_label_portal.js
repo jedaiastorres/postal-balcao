@@ -4,10 +4,11 @@ const path=require("node:path");
 const crypto=require("node:crypto");
 const wlDb=require("./white_label_tenant_db");
 const logic=require("./white_label_tenant");
+const hybrid=require("./white_label_hybrid_quote");
 
 function register({app,db,requireAuth,requireRole,signSession,verifySession,
                    parseCookies,hashPassword,verifyPassword,checkLoginRate,
-                   recordLoginFailure,clearLoginFailures,audit}){
+                   recordLoginFailure,clearLoginFailures,audit,quoteIntegrated}){
   const pool=db.pool;
   const text=value=>String(value??"").trim();
   const carrierCode=value=>text(value).toUpperCase();
@@ -25,6 +26,7 @@ function register({app,db,requireAuth,requireRole,signSession,verifySession,
     "; HttpOnly; SameSite=Lax; Path=/api/wl; Max-Age="+maxAge+
     (process.env.NODE_ENV==="production"?"; Secure":"");
   const rateMap=new Map();
+  const hybridQuoteRate=new Map();
   const publicLimiter=(req,res,next)=>{
     const key=String(req.ip||"unknown").slice(0,100);
     const now=Date.now();
@@ -236,15 +238,43 @@ function register({app,db,requireAuth,requireRole,signSession,verifySession,
     }catch(error){safeError(res,error,"Não foi possível atualizar a rota.");}
   });
   app.get("/api/wl/quote",authenticate,async(req,res)=>{
+    const accountId=String(req.wl.account.id);
+    const now=Date.now();
+    const previous=hybridQuoteRate.get(accountId);
+    const entry=!previous || now-previous.start>=60000 ? {start:now,count:0} : previous;
+    entry.count++;
+    hybridQuoteRate.set(accountId,entry);
+    if(hybridQuoteRate.size>2500)hybridQuoteRate.clear();
+    if(entry.count>12){
+      res.setHeader("Retry-After",String(Math.max(1,Math.ceil((60000-(now-entry.start))/1000))));
+      return res.status(429).json({error:"Muitas cotações. Aguarde um minuto antes de consultar novamente."});
+    }
     try{
-      const args=logic.validateQuote(req.query);
+      // Dimensões reais são obrigatórias para a consulta à rede.
+      const args=hybrid.validateHybridQuote(req.query);
       const rows=await wlDb.quoteTariffs(pool,req.wl.carrier.id,args);
-      const options=rows.map(rate=>logic.pricedTariff(rate,req.wl.carrier,args.weight)).filter(Boolean);
-      res.setHeader("Cache-Control","no-store");
-      res.json({brand:logic.publicBrand(req.wl.carrier),simulation:true,paymentsEnabled:false,
-        options:options.map(x=>req.wl.account.role==="WL_MASTER"?x:{
-          id:x.id,name:x.name,total:x.total,days:x.days,estimated:true})});
-    }catch(error){safeError(res,error,"Não foi possível simular a rota.");}
+      const own=rows.map(rate=>logic.pricedTariff(rate,req.wl.carrier,args.weight)).filter(Boolean);
+      let integrated={status:"UNAVAILABLE",options:[]};
+      try{
+        if(typeof quoteIntegrated==="function"){
+          integrated=await quoteIntegrated(args,req.wl.carrier);
+        }
+      }catch(error){
+        console.warn("WL_INTEGRATED_QUOTE_UNAVAILABLE",error.status||error.code||error.name||"unknown");
+      }
+      const networkOptions=integrated?.status==="AVAILABLE" && Array.isArray(integrated.options)
+        ? integrated.options : [];
+      const brand=logic.publicBrand(req.wl.carrier);
+      const options=hybrid.mergeHybridOptions(own,networkOptions,brand,req.wl.account.role==="WL_MASTER");
+      res.setHeader("Cache-Control","private,no-store");
+      res.json({
+        brand,simulation:true,shippingEnabled:false,paymentsEnabled:false,
+        integrated:{status:["AVAILABLE","NONE"].includes(integrated?.status)?integrated.status:"UNAVAILABLE",
+          count:networkOptions.length},
+        count:{own:own.length,integrated:networkOptions.length},
+        options
+      });
+    }catch(error){safeError(res,error,"Não foi possível simular esta cotação.");}
   });
 
   app.get("/api/wl/users",authenticate,wlMaster,async(req,res)=>{

@@ -24,6 +24,7 @@ const providerServiceMapping = require("./provider_service_mapping");
 const whiteLabel = require("./white_label");
 const whiteLabelTenantDb = require("./white_label_tenant_db");
 const whiteLabelPortal = require("./white_label_portal");
+const whiteLabelHybrid = require("./white_label_hybrid_quote");
 const operationalMetrics = require("./operational_metrics");
 const postalOperations = require("./postal_operations");
 const postalRegional = require("./postal_regional");
@@ -42,6 +43,7 @@ const CONECTENVIO_MULTI_QUOTE_PROBE = String(process.env.CONECTENVIO_MULTI_QUOTE
 const CONECTENVIO_QUOTE_CACHE_TTL_MS = Math.max(5000, Math.min(120000, Number(process.env.CONECTENVIO_QUOTE_CACHE_TTL_MS || 45000)));
 const CONECTENVIO_QUOTE_CONCURRENCY = Math.max(1, Math.min(8, Number(process.env.CONECTENVIO_QUOTE_CONCURRENCY || 4)));
 const providerQuoteCache = new Map();
+let wlIntegratedQuoteInFlight = 0;
 const regionalCepCache = new Map();
 const shipmentCreationLocks = new Map();
 
@@ -4162,7 +4164,32 @@ app.patch("/api/admin/white-label-carriers/:id",requireAuth,requireRole("ADMIN")
 // Portal independente com cookies, contas e isolamento próprios de White Label.
 whiteLabelPortal.register({
   app,db,requireAuth,requireRole,signSession,verifySession,parseCookies,
-  hashPassword,verifyPassword,checkLoginRate,recordLoginFailure,clearLoginFailures,audit
+  hashPassword,verifyPassword,checkLoginRate,recordLoginFailure,clearLoginFailures,audit,
+  quoteIntegrated:async (args,carrier)=>{
+    // Reutiliza a mesma conta de integração e cache do Balcão, mas recalcula
+    // a venda pela política comercial específica deste parceiro (não em cache).
+    if(!TOKEN || wlIntegratedQuoteInFlight>=10){
+      return {status:"UNAVAILABLE",options:[]};
+    }
+    wlIntegratedQuoteInFlight++;
+    try{
+      const quoted=await fetchProviderQuoteCached(args.origin,args.destination,{
+        weightGrams:args.weight,length:args.length,width:args.width,height:args.height
+      });
+      if(quoted.data?.error===true)return {status:"NONE",options:[]};
+      const partnerCommissionRate=quotePricing.pointCommissionRate(
+        {commission_percent:Number(carrier.integrated_commission_percent||0)},0);
+      const priced=normalizeQuote(quoted.data,partnerCommissionRate);
+      const options=whiteLabelHybrid.sanitizeIntegratedOptions(priced);
+      return {status:options.length?"AVAILABLE":"NONE",options};
+    }catch(error){
+      if(error.status===422)return {status:"NONE",options:[]};
+      console.warn("WL_PROVIDER_QUOTE_FAIL",error.status||error.name||"network");
+      return {status:"UNAVAILABLE",options:[]};
+    }finally{
+      wlIntegratedQuoteInFlight--;
+    }
+  }
 });
 
 app.get("/api/admin/stores", requireAuth, requireRole("ADMIN"), async (_req, res) => {
