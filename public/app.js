@@ -39,6 +39,7 @@ const viewMap = {
   orders: { el: "#ordersView", title: "Meus Fretes" },
   inventory: { el: "#inventoryView", title: "Produtos & Estoque" },
   master: { el: "#masterView", title: "Painel Master" },
+  whiteLabel: { el: "#masterView", title: "Transportadoras White Label" },
   supervisor: { el: "#supervisorView", title: "Supervisão da Rede" },
   clientHome: { el: "#clientHomeView", title: "Minha Postal" },
   clientOrders: { el: "#clientOrdersView", title: "Pedidos" },
@@ -170,7 +171,9 @@ function showApp(user) {
   if (managementAnalytics) loadManagementAnalytics();
 
   const params = new URLSearchParams(window.location.search);
-  if (!params.get("payment") && user?.role === "STORE_CLERK") {
+  if (!params.get("payment") && params.get("view")==="whiteLabel" && user?.role==="ADMIN") {
+    navigate("whiteLabel");
+  } else if (!params.get("payment") && user?.role === "STORE_CLERK") {
     navigate("quote");
   }
   if (params.get("payment")) {
@@ -274,7 +277,7 @@ $("#changePasswordForm")?.addEventListener("submit",async event=>{
 });
 
 function navigate(name) {
-  if (name === "master" && state.user?.role !== "ADMIN") {
+  if (["master","whiteLabel"].includes(name) && state.user?.role !== "ADMIN") {
     toast("Área exclusiva da administração Postal.", "error");
     return;
   }
@@ -339,7 +342,7 @@ function navigate(name) {
   if (name === "storeUsers") loadStoreUsers();
   if (name === "cash") loadCash();
   if (name === "supervisor") loadSupervisor();
-  if (name === "master" && state.user?.role === "ADMIN") loadMaster();
+  if (["master","whiteLabel"].includes(name) && state.user?.role === "ADMIN") loadMaster();
   if (name === "clientHome") window.PostalClient?.loadClientHome?.();
   if (name === "clientOrders") window.PostalClient?.loadOperations?.();
   if (name === "clientProfile") window.PostalClient?.loadProfile?.();
@@ -348,7 +351,11 @@ function navigate(name) {
   if (name === "collections") window.PostalClient?.loadCollections?.().catch(error=>toast(error.message,"error"));
   if (name === "referrals") window.PostalClient?.loadReferrals?.();
   if (name === "clients") window.PostalClient?.loadPointClients?.();
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  if (name === "whiteLabel") {
+    window.requestAnimationFrame(()=>$("#whiteLabelSection")?.scrollIntoView({behavior:"smooth",block:"start"}));
+  } else {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 }
 
 $$(".nav-item").forEach(btn => btn.addEventListener("click", () => navigate(btn.dataset.view)));
