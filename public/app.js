@@ -2589,9 +2589,29 @@ function renderWhiteLabels(){
       <small>CNPJ: ${escapeHtml(carrier.cnpj)} · Contato: ${escapeHtml(carrier.adminName)}</small>
       <small>Remuneração Postal: <strong>${escapeHtml(fees)}</strong></small>
       <small>Asaas: ${carrier.asaasWalletId?"Wallet informada (não ativa)":"Carteira pendente"}</small>
-      <div class="white-label-actions"><button class="ghost" type="button" data-edit-white-label="${escapeHtml(carrier.id)}">Editar cadastro</button></div>
+      <div class="white-label-actions">
+        <button class="ghost" type="button" data-edit-white-label="${escapeHtml(carrier.id)}">Editar cadastro</button>
+        <button class="primary" type="button" data-provision-white-label="${escapeHtml(carrier.id)}">Gerar / redefinir acesso</button>
+        <a class="ghost link-like" href="/wl/${encodeURIComponent(carrier.code)}" target="_blank" rel="noopener">Abrir painel</a>
+      </div>
     </div>`;
   }).join(""):'<div class="empty-state">Nenhuma transportadora cadastrada. Preencha o formulário ao lado para registrar sua primeira empresa White Label.</div>';
+  host.querySelectorAll("[data-provision-white-label]").forEach(button=>button.addEventListener("click",async()=>{
+    const carrier=state.whiteLabelCarriers.find(item=>item.id===button.dataset.provisionWhiteLabel);
+    if(!carrier)return;
+    if(!window.confirm("Gerar ou redefinir senha do MASTER White Label de "+carrier.brandName+"? Se ele já possuir acesso, a senha anterior deixará de funcionar."))return;
+    button.disabled=true;
+    try{
+      const result=await api("/api/admin/white-label-carriers/"+encodeURIComponent(carrier.id)+"/provision",{
+        method:"POST",body:"{}"
+      });
+      const credential="Portal: "+new URL(result.loginUrl,location.origin).href+"\\n"+
+        "E-mail: "+result.email+"\\n"+"Senha temporária: "+result.temporaryPassword;
+      window.prompt("Copie as credenciais e envie ao parceiro por canal seguro. A senha aparece apenas agora:",credential);
+      toast("Acesso MASTER White Label criado. O parceiro precisará alterar a senha no primeiro login.");
+    }catch(error){toast(error.message||"Não foi possível gerar o acesso.","error");}
+    finally{button.disabled=false;}
+  }));
   host.querySelectorAll("[data-edit-white-label]").forEach(button=>button.addEventListener("click",()=>{
     const carrier=state.whiteLabelCarriers.find(item=>item.id===button.dataset.editWhiteLabel);
     if(!carrier)return;
