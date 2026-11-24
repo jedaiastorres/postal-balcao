@@ -38,8 +38,25 @@ function applyBrand(brand){
     $("#brandIcon").classList.add("hidden");
     $("#brandLogo").onerror=()=>{$("#brandLogo").classList.add("hidden");$("#brandIcon").classList.remove("hidden");};
   }
+  $("#brandNameInput").value=brand.name||"";
+  $("#brandLogoInput").value=brand.logoUrl||"";
+  $("#brandPrimaryInput").value=brand.primary||"#d7083b";
+  $("#brandSecondaryInput").value=brand.secondary||"#222638";
   $("#brandPreview").innerHTML='<div class="big-brand"><strong>'+esc(brand.name)+'</strong><span>'+esc(brand.baseCity)+' / '+esc(brand.baseState)+'</span></div><div><small>Cor principal</small><span class="swatch" style="background:'+esc(brand.primary)+'"></span><code>'+esc(brand.primary)+'</code></div><div><small>Cor secundária</small><span class="swatch" style="background:'+esc(brand.secondary)+'"></span><code>'+esc(brand.secondary)+'</code></div>';
 }
+$("#brandForm").addEventListener("submit",async event=>{
+  event.preventDefault();errorText("");
+  const button=event.currentTarget.querySelector("button");button.disabled=true;
+  try {
+    const result=await api("/api/wl/brand",{method:"PATCH",body:JSON.stringify({
+      name:$("#brandNameInput").value,
+      logoUrl:$("#brandLogoInput").value,
+      primary:$("#brandPrimaryInput").value,
+      secondary:$("#brandSecondaryInput").value
+    })});
+    applyBrand(result.brand);
+  }catch(error){errorText(error.message);}finally{button.disabled=false;}
+});
 async function loadBrand(){
   const response=await api("/api/wl/public/"+encodeURIComponent(code));
   applyBrand(response.brand);
