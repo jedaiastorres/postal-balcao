@@ -273,6 +273,33 @@ $("#tariffForm").addEventListener("submit",async event=>{
     await loadRoutes();
   }catch(error){errorText(error.message);}finally{button.disabled=false;}
 });
+// Mesmo catálogo local de logomarcas utilizado nas cotações do Postal Balcão.
+// Não confiar em URL arbitrária recebida de APIs de frete.
+function quoteCarrierLogo(option){
+  if(option?.source==="OWN"){
+    const ownLogo=String(state.brand?.logoUrl||"").trim();
+    return /^https:\/\/[^\s"'<>]+$/i.test(ownLogo)?ownLogo:"";
+  }
+  const local=globalThis.PostalBrand?.carrierLogo?.(option?.carrier)||"";
+  return /^\/assets\/brands\/[a-z0-9-]+\.(?:svg|png)$/i.test(local)?local:"";
+}
+function quoteCarrierMark(option){
+  const name=String(option?.carrier||state.brand?.name||"Transportadora");
+  const initials=name.trim().split(/\s+/).slice(0,2).map(part=>part.charAt(0)).join("").toUpperCase()||"TR";
+  const fallback='<span class="wl-quote-carrier-fallback'+(quoteCarrierLogo(option)?' hidden':'')+'" aria-hidden="true">'+esc(initials)+'</span>';
+  const src=quoteCarrierLogo(option);
+  return '<span class="wl-quote-carrier-mark">'+
+    (src?'<img class="wl-quote-carrier-logo" src="'+esc(src)+'" alt="Logomarca de '+esc(name)+'" width="100" height="40" loading="lazy" decoding="async">':"")+
+    fallback+'</span>';
+}
+function activateQuoteLogoFallbacks(){
+  $$("#quoteResults .wl-quote-carrier-logo").forEach(img=>{
+    img.addEventListener("error",()=>{
+      img.classList.add("hidden");
+      img.parentElement?.querySelector(".wl-quote-carrier-fallback")?.classList.remove("hidden");
+    },{once:true});
+  });
+}
 $("#quoteForm").addEventListener("submit",async event=>{
   event.preventDefault();errorText("");
   const button=event.currentTarget.querySelector('button[type="submit"]');
@@ -310,12 +337,14 @@ $("#quoteForm").addEventListener("submit",async event=>{
           const deadline=Number(option.days)>0?Number(option.days)+" dia(s) previstos":"Prazo sob consulta";
           const earning=state.account.role==="WL_MASTER" && option.partnerShare!=null
             ?'<small>Participação da sua empresa (estimativa): '+money(option.partnerShare)+'</small>':"";
-          return '<div class="list-item quote-option"><div><small class="quote-source">'+
-            esc(type)+'</small><strong>'+carrier+'</strong><span>'+service+
-            '</span><small>'+esc(deadline)+'</small></div>'+
+          return '<div class="list-item quote-option"><div class="wl-quote-carrier-profile">'+
+            quoteCarrierMark(option)+
+            '<div class="wl-quote-carrier-copy"><small class="quote-source">'+esc(type)+'</small>'+
+            '<strong>'+carrier+'</strong><span>'+service+'</span><small>'+esc(deadline)+'</small></div></div>'+
             '<div class="list-price"><strong>'+money(option.total)+'</strong>'+earning+'</div></div>';
         }).join("")
       :'<div class="empty">Nenhuma opção disponível para os dados informados. Verifique as rotas e tente novamente.</div>';
+    activateQuoteLogoFallbacks();
   }catch(error){
     $("#quoteResults").textContent="";
     $("#quoteComparisonStatus").textContent="";
