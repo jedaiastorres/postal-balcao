@@ -43,6 +43,18 @@ function pricedTariff(rate,carrier,weight) {
   return {id:rate.id,name:rate.name,total,days:Number(rate.days),
     partnerShare:round(total-postal),postalShare:postal,estimated:true};
 }
+function normalizeBrand(value={}) {
+  const name=String(value.name||"").trim();
+  const logoUrl=String(value.logoUrl||"").trim();
+  const primary=String(value.primary||"").trim();
+  const secondary=String(value.secondary||"").trim();
+  if(name.length<3||name.length>90)throw fail("Nome comercial deve ter 3 a 90 caracteres.");
+  if(!/^#[A-Fa-f0-9]{6}$/.test(primary)||!/^#[A-Fa-f0-9]{6}$/.test(secondary))
+    throw fail("Cores devem utilizar o formato #RRGGBB.");
+  if(logoUrl && (logoUrl.length>500 || !/^https:\/\/[^\s/@]+(?:\/[^\s]*)?$/i.test(logoUrl)))
+    throw fail("Informe URL de logomarca HTTPS válida, sem credenciais.");
+  return {name,logoUrl,primary,secondary};
+}
 function publicBrand(carrier){
   return {code:carrier.code,name:carrier.brand_name,
     logoUrl:carrier.logo_url||"",primary:carrier.brand_primary||"#d7083b",
@@ -50,4 +62,4 @@ function publicBrand(carrier){
     baseCity:carrier.base_city,baseState:carrier.base_state,
     homologation:true,shippingEnabled:false,paymentEnabled:false};
 }
-module.exports={normalizeTariff,validateQuote,pricedTariff,publicBrand};
+module.exports={normalizeTariff,validateQuote,pricedTariff,publicBrand,normalizeBrand};
