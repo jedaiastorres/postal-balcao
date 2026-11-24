@@ -2,7 +2,7 @@
 const $=selector=>document.querySelector(selector);
 const $$=selector=>[...document.querySelectorAll(selector)];
 const code=decodeURIComponent(location.pathname.split("/").filter(Boolean).at(-1)||"").toUpperCase();
-const state={csrf:"",account:null,brand:null,routes:[],points:[],collections:[],collectionRequestKey:null,finance:null};
+const state={csrf:"",account:null,brand:null,routes:[],points:[],clients:[],collections:[],collectionRequestKey:null,finance:null};
 const money=value=>new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(Number(value||0));
 const esc=value=>String(value??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");
 const digit=value=>String(value||"").replace(/\D/g,"");
@@ -92,13 +92,13 @@ function showAuth(account,csrf,finance){
     :"Carteira Asaas pendente. O MASTER Postal deve configurar e verificar a conta.";
   activate("overview");
   loadRoutes();
-  loadPoints().then(()=>{if(account.role==="WL_MASTER")loadUsers();loadCollections();});
+  loadPoints().then(()=>{if(account.role==="WL_MASTER")loadUsers();loadCollections();loadClients();});
 }
 function activate(name){
   if(["users","finance","points"].includes(name)){
     if(state.account?.role!=="WL_MASTER")return;
   }
-  const titles={overview:"Dashboard",points:"Unidades e Pontos",collections:"Coletas",tariffs:"Rotas e Preços",
+  const titles={overview:"Dashboard",points:"Unidades e Pontos",collections:"Coletas",clients:"Clientes Fixos",tariffs:"Rotas e Preços",
     quotes:"Simular Frete",users:"Equipe",brand:"Minha Marca",finance:"Carteira e Repasses"};
   $$(".tab").forEach(btn=>{
     const active=btn.dataset.tab===name;
@@ -160,6 +160,156 @@ $("#passwordForm").addEventListener("submit",async event=>{
     location.href="/wl/"+encodeURIComponent(code);
   }catch(error){errorText(error.message);button.disabled=false;}
 });
+
+function selectOptions(items,first,selected){
+  return '<option value="">'+esc(first)+'</option>'+items.map(item=>
+    '<option value="'+esc(item.id)+'"'+(item.id===selected?' selected':'')+'>'+
+    esc(item.name)+' · '+esc(item.city||item.pointName||"")+'</option>').join("");
+}
+function refreshClientPointSelectors(){
+  for(const [id,label] of [
+    ["wlClientPoint","Cliente direto do MASTER White Label"],
+    ["wlQuotePoint","Venda direta do MASTER White Label"],
+    ["wlPointCommissionPoint","Selecione a unidade"]
+  ]){
+    const node=$("#"+id),current=node.value;
+    node.innerHTML=selectOptions(state.points.filter(p=>p.active),label,current);
+    if(current&&state.points.some(p=>p.active&&p.id===current))node.value=current;
+  }
+}
+function refreshFixedClientSelectors(){
+  const clients=state.clients.filter(c=>c.active);
+  for(const [id,empty] of [
+    ["wlQuoteClient","Cotação avulsa / sem cliente cadastrado"],
+    ["wlCollectionClient","Preencher manualmente"]
+  ]){
+    const node=$("#"+id),current=node.value;
+    node.innerHTML=selectOptions(clients,empty,current);
+    if(current&&clients.some(c=>c.id===current))node.value=current;
+  }
+}
+function resetFixedClientForm(){
+  $("#wlClientForm").reset();
+  $("#wlClientId").value="";
+  $("#wlClientPoint").value="";
+  $("#wlClientCommissionOverride").value="";
+}
+function renderClients(){
+  const master=state.account?.role==="WL_MASTER";
+  $("#wlClientsList").innerHTML=state.clients.length?state.clients.map(c=>{
+    const point=c.pointName||"Cliente direto";
+    const commission=master?(c.pointId
+      ?'<small>Comissão ponto: '+(c.pointCommissionOverride==null
+          ?Number(c.pointCommissionDefault||0).toLocaleString("pt-BR",{maximumFractionDigits:2})+"% (padrão)"
+          :Number(c.pointCommissionOverride).toLocaleString("pt-BR",{maximumFractionDigits:2})+"% (especial)")+
+        ' da parcela White Label</small>':""):"";
+    return '<div class="list-item wl-fixed-client-item"><div><strong>'+esc(c.name)+'</strong>'+
+      '<span>'+esc(point)+' · '+esc(c.city||"Sem endereço")+' · '+esc(c.phone||"Sem telefone")+'</span>'+
+      '<small>'+esc(c.document||"Sem CPF/CNPJ")+' · '+(c.active?"Ativo":"Inativo")+'</small>'+
+      commission+'</div><div class="list-price"><button class="ghost" type="button" data-client-edit="'+esc(c.id)+'">Editar</button>'+
+      (master?'<button class="ghost" type="button" data-client-status="'+esc(c.id)+'" data-active="'+(c.active?"false":"true")+'">'+(c.active?"Desativar":"Reativar")+'</button>':"")+
+      '</div></div>';
+  }).join(""):'<div class="empty">Nenhum cliente fixo cadastrado nesta unidade.</div>';
+  refreshFixedClientSelectors();
+}
+async function loadClients(){
+  try{
+    const result=await api("/api/wl/clients");
+    state.clients=Array.isArray(result.clients)?result.clients:[];
+    renderClients();
+  }catch(error){errorText(error.message);}
+}
+$("#wlRefreshClients").addEventListener("click",loadClients);
+$("#wlClearClient").addEventListener("click",resetFixedClientForm);
+$("#wlClientsList").addEventListener("click",async event=>{
+  const edit=event.target.closest("[data-client-edit]");
+  if(edit){
+    const c=state.clients.find(item=>item.id===edit.dataset.clientEdit);
+    if(!c)return;
+    for(const [input,key] of [["wlClientId","id"],["wlClientName","name"],
+      ["wlClientDocument","document"],["wlClientPhone","phone"],["wlClientEmail","email"],
+      ["wlClientPoint","pointId"],["wlClientStreet","street"],["wlClientNumber","number"],
+      ["wlClientNeighborhood","neighborhood"],["wlClientCep","cep"],["wlClientCity","city"],
+      ["wlClientState","state"],["wlClientNotes","notes"]]){
+      $("#"+input).value=c[key]||"";
+    }
+    $("#wlClientCommissionOverride").value=c.pointCommissionOverride==null?"":c.pointCommissionOverride;
+    $("#wlClientForm").scrollIntoView({behavior:"smooth",block:"start"});
+    return;
+  }
+  const toggle=event.target.closest("[data-client-status]");
+  if(toggle){
+    if(!confirm("Alterar a situação deste cliente fixo?"))return;
+    toggle.disabled=true;
+    try{
+      await api("/api/wl/clients/"+encodeURIComponent(toggle.dataset.clientStatus)+"/status",{
+        method:"PATCH",body:JSON.stringify({active:toggle.dataset.active==="true"})});
+      await loadClients();
+    }catch(error){errorText(error.message);toggle.disabled=false;}
+  }
+});
+$("#wlClientForm").addEventListener("submit",async event=>{
+  event.preventDefault();errorText("");
+  const btn=event.currentTarget.querySelector('button[type="submit"]');btn.disabled=true;
+  const master=state.account?.role==="WL_MASTER";
+  const id=$("#wlClientId").value;
+  const data={name:$("#wlClientName").value,document:$("#wlClientDocument").value,
+    phone:$("#wlClientPhone").value,email:$("#wlClientEmail").value,
+    street:$("#wlClientStreet").value,number:$("#wlClientNumber").value,
+    neighborhood:$("#wlClientNeighborhood").value,cep:$("#wlClientCep").value,
+    city:$("#wlClientCity").value,state:$("#wlClientState").value,
+    notes:$("#wlClientNotes").value};
+  if(master){
+    data.pointId=$("#wlClientPoint").value||null;
+    data.pointCommissionOverride=$("#wlClientCommissionOverride").value||null;
+    data.active=state.clients.find(item=>item.id===id)?.active!==false;
+  }
+  try{
+    await api(id?"/api/wl/clients/"+encodeURIComponent(id):"/api/wl/clients",{
+      method:id?"PUT":"POST",body:JSON.stringify(data)});
+    resetFixedClientForm();
+    await loadClients();
+  }catch(error){errorText(error.message);}finally{btn.disabled=false;}
+});
+$("#wlPointCommissionPoint").addEventListener("change",()=>{
+  const point=state.points.find(p=>p.id===$("#wlPointCommissionPoint").value);
+  $("#wlPointCommissionRate").value=point?.pointCommissionPercent??0;
+});
+$("#wlPointCommissionForm").addEventListener("submit",async event=>{
+  event.preventDefault();errorText("");
+  const pointId=$("#wlPointCommissionPoint").value;
+  if(!pointId){errorText("Selecione um ponto para ajustar a comissão.");return;}
+  const btn=event.currentTarget.querySelector('button[type="submit"]');btn.disabled=true;
+  try{
+    const saved=await api("/api/wl/points/"+encodeURIComponent(pointId)+"/commission",{
+      method:"PATCH",body:JSON.stringify({pointCommissionPercent:Number($("#wlPointCommissionRate").value)})});
+    const point=state.points.find(p=>p.id===pointId);
+    if(point)point.pointCommissionPercent=saved.pointCommissionPercent;
+    await loadClients();
+  }catch(error){errorText(error.message);}finally{btn.disabled=false;}
+});
+$("#wlQuoteClient").addEventListener("change",()=>{
+  const c=state.clients.find(x=>x.id===$("#wlQuoteClient").value);
+  if(!c)return;
+  if(c.cep&&c.cep.length===8)$("#quoteOrigin").value=c.cep.replace(/^(\d{5})(\d{3})$/,"$1-$2");
+  if(state.account?.role==="WL_MASTER")$("#wlQuotePoint").value=c.pointId||"";
+});
+$("#wlQuotePoint").addEventListener("change",()=>{
+  const c=state.clients.find(x=>x.id===$("#wlQuoteClient").value);
+  if(c&&c.pointId!==($("#wlQuotePoint").value||null))$("#wlQuoteClient").value="";
+});
+$("#wlCollectionClient").addEventListener("change",()=>{
+  const c=state.clients.find(x=>x.id===$("#wlCollectionClient").value);
+  if(!c)return;
+  for(const [target,key] of [["wlCollectionName","name"],["wlCollectionPhone","phone"],
+    ["wlCollectionDocument","document"],["wlCollectionStreet","street"],
+    ["wlCollectionNumber","number"],["wlCollectionNeighborhood","neighborhood"],
+    ["wlCollectionCep","cep"],["wlCollectionCity","city"],["wlCollectionState","state"]]){
+    $("#"+target).value=c[key]||"";
+  }
+  if(state.account?.role==="WL_MASTER")$("#wlCollectionPoint").value=c.pointId||"";
+});
+
 const collectionLabels={REQUESTED:"Solicitada",ASSIGNED:"Atribuída",IN_ROUTE:"Em rota",COLLECTED:"Coletada",CANCELED:"Cancelada"};
 const collectionDate=value=>{
   if(!value)return "A combinar";
@@ -292,6 +442,7 @@ $("#wlCollectionsList").addEventListener("click",async event=>{
 function renderPoints(){
   $("#statPoints").textContent=state.points.length;
   refreshCollectionPointSelect();
+  refreshClientPointSelectors();
   const select=$("#employeePoint");
   select.innerHTML='<option value="">Selecione uma unidade ativa</option>'+
     state.points.filter(point=>point.active).map(point=>
@@ -445,7 +596,9 @@ $("#quoteForm").addEventListener("submit",async event=>{
     length:$("#quoteLength").value,
     width:$("#quoteWidth").value,
     height:$("#quoteHeight").value,
-    declaredValue:$("#quoteDeclaredValue").value||"0"
+    declaredValue:$("#quoteDeclaredValue").value||"0",
+    clientId:$("#wlQuoteClient").value||"",
+    ...(state.account.role==="WL_MASTER"?{pointId:$("#wlQuotePoint").value||""}:{})
   });
   try {
     const result=await api("/api/wl/quote?"+params);
@@ -467,8 +620,13 @@ $("#quoteForm").addEventListener("submit",async event=>{
           const service=esc(option.name||"Serviço");
           const type=own?"Rota própria":"Transportadora integrada";
           const deadline=Number(option.days)>0?Number(option.days)+" dia(s) previstos":"Prazo sob consulta";
-          const earning=state.account.role==="WL_MASTER" && option.partnerShare!=null
-            ?'<small>Participação da sua empresa (estimativa): '+money(option.partnerShare)+'</small>':"";
+          const earning=state.account.role==="WL_MASTER" && option.masterShare!=null
+            ?'<small>MASTER White Label: '+money(option.masterShare)+'</small>'+
+              '<small>Ponto parceiro: '+money(option.pointShare||0)+'</small>'+
+              (option.postalShare!=null
+                ?'<small>Postal (rota própria): '+money(option.postalShare)+'</small>'
+                :'<small>Rede integrada: margem Postal e custo do provedor apurados internamente.</small>')
+            :"";
           return '<div class="list-item quote-option"><div class="wl-quote-carrier-profile">'+
             quoteCarrierMark(option)+
             '<div class="wl-quote-carrier-copy"><small class="quote-source">'+esc(type)+'</small>'+
