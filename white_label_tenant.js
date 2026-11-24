@@ -43,6 +43,21 @@ function pricedTariff(rate,carrier,weight) {
   return {id:rate.id,name:rate.name,total,days:Number(rate.days),
     partnerShare:round(total-postal),postalShare:postal,estimated:true};
 }
+function normalizePoint(value={}) {
+  const code=String(value.code||"").trim().toUpperCase();
+  const name=String(value.name||"").trim();
+  const cep=digit(value.cep);
+  const city=String(value.city||"").trim();
+  const state=String(value.state||"").trim().toUpperCase();
+  const address=String(value.address||"").trim();
+  const number=String(value.number||"").trim();
+  if(!/^[A-Z0-9][A-Z0-9_-]{2,29}$/.test(code))throw fail("Código da unidade inválido.");
+  if(name.length<3||name.length>100)throw fail("Nome da unidade deve conter 3 a 100 caracteres.");
+  if(cep.length!==8)throw fail("CEP da unidade deve conter 8 dígitos.");
+  if(city.length<2||city.length>100||!/^[A-Z]{2}$/.test(state))throw fail("Informe cidade e UF da unidade.");
+  if(address.length<3||address.length>160||number.length>20)throw fail("Informe endereço e número válidos.");
+  return {code,name,cep,city,state,address,number,active:value.active!==false};
+}
 function normalizeBrand(value={}) {
   const name=String(value.name||"").trim();
   const logoUrl=String(value.logoUrl||"").trim();
@@ -62,4 +77,4 @@ function publicBrand(carrier){
     baseCity:carrier.base_city,baseState:carrier.base_state,
     homologation:true,shippingEnabled:false,paymentEnabled:false};
 }
-module.exports={normalizeTariff,validateQuote,pricedTariff,publicBrand,normalizeBrand};
+module.exports={normalizeTariff,validateQuote,pricedTariff,publicBrand,normalizeBrand,normalizePoint};
