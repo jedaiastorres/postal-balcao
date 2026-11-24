@@ -98,7 +98,7 @@ test("clientes White Label nunca recebem login Postal nem acessam operações de
  assert.match(portal,/Path=\/api\/wl\/customer/);
  assert.match(portal,/account\.carrier_id/); // current admin auth still checks tenant
  assert.match(portal,/getClient\(pool,req\.wlCustomer\.carrier\.id,account\.client_id\)/);
- assert.match(portal,/client\.point_commission_override!=null/);
+ assert.match(portal,/client\?\.point_commission_override!=null/);
  assert.match(portal,/authenticateCustomer/);
  assert.match(portal,/!crypto\.timingSafeEqual/);
  assert.match(portal,/fiscal-lookup",authenticateCustomer/);
