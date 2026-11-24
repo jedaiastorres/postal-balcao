@@ -235,24 +235,52 @@ $("#tariffForm").addEventListener("submit",async event=>{
 });
 $("#quoteForm").addEventListener("submit",async event=>{
   event.preventDefault();errorText("");
-  $("#quoteResults").textContent="Calculando...";
+  const button=event.currentTarget.querySelector('button[type="submit"]');
+  button.disabled=true;
+  $("#quoteResults").textContent="Consultando as rotas próprias e as transportadoras da rede...";
+  $("#quoteComparisonStatus").textContent="";
   const params=new URLSearchParams({
     origin:digit($("#quoteOrigin").value),
     destination:digit($("#quoteDestination").value),
-    weight:$("#quoteWeight").value
+    weight:$("#quoteWeight").value,
+    length:$("#quoteLength").value,
+    width:$("#quoteWidth").value,
+    height:$("#quoteHeight").value,
+    declaredValue:$("#quoteDeclaredValue").value||"0"
   });
   try {
     const result=await api("/api/wl/quote?"+params);
-    const options=result.options||[];
+    const options=Array.isArray(result.options)?result.options:[];
+    const ownCount=Number(result.count?.own||0);
+    const integratedCount=Number(result.count?.integrated||0);
+    const stateText=result.integrated?.status==="UNAVAILABLE"
+      ?"Rede integrada temporariamente indisponível. As tarifas próprias continuam disponíveis."
+      :result.integrated?.status==="NONE"
+      ?"A rede integrada não apresentou tarifas para este trajeto, peso e dimensões."
+      :"Opções da rede integrada consultadas em tempo real.";
+    $("#quoteComparisonStatus").textContent=
+      ownCount+" rota(s) própria(s) · "+integratedCount+" opção(ões) integrada(s). "+stateText;
     $("#quoteResults").innerHTML=options.length
-      ?'<p class="note">Simulação: não gera etiqueta nem pagamento.</p>'+options.map(option=>
-        '<div class="list-item"><div><strong>'+esc(option.name)+'</strong><span>'+
-        option.days+' dia(s) previstos</span></div><div class="list-price"><strong>'+
-        money(option.total)+'</strong>'+
-        (state.account.role==="WL_MASTER" ? '<small>Repasse Postal estimado: '+money(option.postalShare)+'</small>':"")+
-        '</div></div>').join("")
-      :'<div class="empty">Nenhuma tarifa ativa atende a estes CEPs e ao peso informado.</div>';
-  }catch(error){$("#quoteResults").textContent="";errorText(error.message);}
+      ?'<p class="note">Simulação sem pagamento ou emissão. O valor exibido é o preço final estimado de venda.</p>'+
+        options.map(option=>{
+          const own=option.source==="OWN";
+          const carrier=esc(option.carrier||state.brand?.name||"Transportadora");
+          const service=esc(option.name||"Serviço");
+          const type=own?"Rota própria":"Transportadora integrada";
+          const deadline=Number(option.days)>0?Number(option.days)+" dia(s) previstos":"Prazo sob consulta";
+          const earning=state.account.role==="WL_MASTER" && option.partnerShare!=null
+            ?'<small>Participação da sua empresa (estimativa): '+money(option.partnerShare)+'</small>':"";
+          return '<div class="list-item quote-option"><div><small class="quote-source">'+
+            esc(type)+'</small><strong>'+carrier+'</strong><span>'+service+
+            '</span><small>'+esc(deadline)+'</small></div>'+
+            '<div class="list-price"><strong>'+money(option.total)+'</strong>'+earning+'</div></div>';
+        }).join("")
+      :'<div class="empty">Nenhuma opção disponível para os dados informados. Verifique as rotas e tente novamente.</div>';
+  }catch(error){
+    $("#quoteResults").textContent="";
+    $("#quoteComparisonStatus").textContent="";
+    errorText(error.message);
+  }finally{button.disabled=false;}
 });
 async function loadUsers(){
   try{
