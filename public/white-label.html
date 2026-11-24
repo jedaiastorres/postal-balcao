@@ -7,9 +7,9 @@
   <title>Portal de Transportadora · White Label</title>
   <meta name="theme-color" content="#d7083b">
   <link rel="stylesheet" href="/styles.css?v=1.19.0">
-  <link rel="stylesheet" href="/white-label.css?v=1.4.0">
+  <link rel="stylesheet" href="/white-label.css?v=1.5.0">
   <script defer src="/branding.js"></script>
-  <script defer src="/white-label.js?v=1.4.0"></script>
+  <script defer src="/white-label.js?v=1.5.0"></script>
 </head>
 <body>
   <div id="errorPanel" role="alert" aria-live="assertive" class="alert hidden"></div>
@@ -45,7 +45,7 @@
       <div class="nav-section">FINANCEIRO</div>
       <nav class="sidebar-group" aria-label="Finanças"><button class="tab nav-item master-only" data-tab="finance" type="button"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="3"/></svg></span>Carteira e Repasses</button></nav>
       <div class="nav-section">ADMINISTRAÇÃO</div>
-      <nav class="sidebar-group" aria-label="Administração"><button class="tab nav-item master-only" data-tab="users" type="button"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><circle cx="9" cy="7" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 4a3 3 0 0 1 0 6M21 21v-3a6 6 0 0 0-4-5"/></svg></span>Equipe</button><button class="tab nav-item" data-tab="brand" type="button"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M12 3 3 9v12h18V9L12 3Z"/><path d="M9 21v-9h6v9"/><path d="M3 9h18"/></svg></span>Minha Marca</button></nav>
+      <nav class="sidebar-group" aria-label="Administração"><button class="tab nav-item" data-tab="clients" type="button"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><circle cx="9" cy="7" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 4a3 3 0 0 1 0 6M21 21v-3a6 6 0 0 0-4-5"/></svg></span>Clientes Fixos</button><button class="tab nav-item master-only" data-tab="users" type="button"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><circle cx="9" cy="7" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 4a3 3 0 0 1 0 6M21 21v-3a6 6 0 0 0-4-5"/></svg></span>Equipe</button><button class="tab nav-item" data-tab="brand" type="button"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M12 3 3 9v12h18V9L12 3Z"/><path d="M9 21v-9h6v9"/><path d="M3 9h18"/></svg></span>Minha Marca</button></nav>
       <div class="sidebar-foot">
         <div class="partner-mini">
           <strong id="sidebarRole">Transportadora parceira</strong>
@@ -100,6 +100,15 @@
             <div class="wide action-row"><button class="primary" type="submit">Salvar unidade</button><button class="ghost" id="resetPoint" type="button">Limpar</button></div>
           </form>
         </article>
+        <article class="card master-only">
+          <h2>Comissão padrão de cada ponto</h2>
+          <p>O percentual do ponto incide <strong>somente sobre a participação comercial do White Label</strong>. O restante pertence ao MASTER da transportadora. A remuneração da Postal não é reduzida.</p>
+          <form id="wlPointCommissionForm" class="fields grid-form">
+            <label>Ponto<select id="wlPointCommissionPoint" required><option value="">Selecione a unidade</option></select></label>
+            <label>Comissão do ponto (% da parcela White Label)<input id="wlPointCommissionRate" type="number" min="0" max="100" step="0.01" value="0" required></label>
+            <div class="wide"><button type="submit" class="primary">Salvar comissão padrão</button></div>
+          </form>
+        </article>
         <article class="card"><div class="section-head"><h2>Pontos cadastrados</h2><button id="reloadPoints" class="ghost" type="button">Atualizar</button></div><div id="pointsList" class="list">Nenhum ponto cadastrado.</div></article>
       </section>
       <section class="tab-panel hidden" data-panel="collections">
@@ -107,6 +116,7 @@
           <div class="section-head"><div><span class="eyebrow">PRIMEIRA MILHA</span><h2>Nova ordem de coleta</h2></div></div>
           <p>Registre a solicitação recebida do cliente, atribua uma unidade e acompanhe até a retirada. Esta etapa é operacional: não gera frete, etiqueta, débito nem repasse automático.</p>
           <form id="wlCollectionForm" class="fields grid-form">
+            <label class="wide">Usar cliente fixo (opcional)<select id="wlCollectionClient"><option value="">Preencher manualmente</option></select></label>
             <label>Nome do cliente*<input id="wlCollectionName" maxlength="160" autocomplete="name" required></label>
             <label>Telefone com DDD*<input id="wlCollectionPhone" inputmode="tel" maxlength="18" autocomplete="tel" required></label>
             <label>CPF/CNPJ (opcional)<input id="wlCollectionDocument" inputmode="numeric" maxlength="20"></label>
@@ -169,6 +179,9 @@
         <article class="card">
           <h2>Cotação combinada</h2><p>Compare suas rotas próprias com as transportadoras integradas à rede. Os preços são calculados no servidor, com comissão definida pelo MASTER Postal. A consulta é apenas informativa: nenhuma etiqueta ou cobrança será gerada.</p>
           <form id="quoteForm" class="fields grid-form">
+            <label class="wide">Cliente fixo (opcional)<select id="wlQuoteClient"><option value="">Cotação avulsa / sem cliente cadastrado</option></select></label>
+            <label class="wide master-only">Ponto da venda (opcional)<select id="wlQuotePoint"><option value="">Venda direta do MASTER White Label</option></select></label>
+            <p class="wide note">A seleção do cliente ou do ponto altera somente a divisão estimada da parcela White Label, sem cobrar duas vezes nem mudar a taxa da Postal.</p>
             <label>CEP de origem<input id="quoteOrigin" required inputmode="numeric" maxlength="9" placeholder="68500-000"></label>
             <label>CEP de destino<input id="quoteDestination" required inputmode="numeric" maxlength="9" placeholder="68515-000"></label>
             <label>Peso do volume (g)<input id="quoteWeight" required type="number" min="1" max="30000" step="1" value="1000"></label>
@@ -182,6 +195,38 @@
           <div id="quoteComparisonStatus" class="note" role="status" aria-live="polite"></div>
           <div id="quoteResults" class="list"></div>
           <div class="action-row wl-quote-pickup-link"><button id="wlQuoteCollectionShortcut" type="button" class="ghost">+ Criar ordem de coleta</button></div>
+        </article>
+      </section>
+      <section class="tab-panel hidden" data-panel="clients">
+        <article class="card">
+          <span class="eyebrow">RELACIONAMENTO</span><h2>Cadastro de clientes fixos</h2>
+          <p>Cadastre clientes frequentes para reutilizar endereço e calcular a comissão correspondente ao ponto, ao MASTER da transportadora e à Postal, sem duplicar participações.</p>
+          <form id="wlClientForm" class="fields grid-form">
+            <input id="wlClientId" type="hidden">
+            <label class="wide">Nome / razão social*<input id="wlClientName" maxlength="160" required></label>
+            <label>CPF/CNPJ<input id="wlClientDocument" inputmode="numeric" maxlength="20"></label>
+            <label>Telefone com DDD<input id="wlClientPhone" inputmode="tel" maxlength="18"></label>
+            <label class="wide">E-mail<input id="wlClientEmail" type="email" maxlength="160"></label>
+            <label class="wide master-only">Ponto responsável<select id="wlClientPoint"><option value="">Cliente direto do MASTER White Label</option></select></label>
+            <label class="wide master-only">Comissão especial do ponto (% da participação White Label, opcional)
+              <input id="wlClientCommissionOverride" type="number" min="0" max="100" step="0.01" placeholder="Vazio = percentual padrão do ponto">
+              <small>Não altera a participação contratual da Postal. A comissão é retirada apenas da parcela White Label.</small>
+            </label>
+            <label class="wide">Rua / avenida<input id="wlClientStreet" maxlength="160"></label>
+            <label>Número<input id="wlClientNumber" maxlength="20"></label>
+            <label>Bairro<input id="wlClientNeighborhood" maxlength="100"></label>
+            <label>CEP<input id="wlClientCep" inputmode="numeric" maxlength="9"></label>
+            <label>Cidade<input id="wlClientCity" maxlength="100"></label>
+            <label>UF<input id="wlClientState" maxlength="2"></label>
+            <label class="wide">Observações<input id="wlClientNotes" maxlength="1000"></label>
+            <div class="wide action-row"><button class="primary" type="submit">Salvar cliente</button>
+              <button id="wlClearClient" class="ghost" type="button">Limpar</button></div>
+          </form>
+        </article>
+        <article class="card">
+          <div class="section-head"><h2>Clientes cadastrados</h2><button id="wlRefreshClients" class="ghost" type="button">Atualizar</button></div>
+          <p class="note">O MASTER visualiza a carteira da transportadora. O operador visualiza somente clientes de sua unidade.</p>
+          <div id="wlClientsList" class="list"><div class="empty">Nenhum cliente cadastrado.</div></div>
         </article>
       </section>
       <section class="tab-panel hidden" data-panel="users">
