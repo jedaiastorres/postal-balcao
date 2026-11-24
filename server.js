@@ -4165,6 +4165,7 @@ app.patch("/api/admin/white-label-carriers/:id",requireAuth,requireRole("ADMIN")
 whiteLabelPortal.register({
   app,db,requireAuth,requireRole,signSession,verifySession,parseCookies,
   hashPassword,verifyPassword,checkLoginRate,recordLoginFailure,clearLoginFailures,audit,
+  lookupFiscalDocument,
   quoteIntegrated:async (args,carrier)=>{
     // Reutiliza a mesma conta de integração e cache do Balcão, mas recalcula
     // a venda pela política comercial específica deste parceiro (não em cache).
@@ -4870,7 +4871,7 @@ app.post("/api/integrations/v1/inventory/receive", requireIntegrationAuth, async
 // A busca de conteúdo fiscal por chave requer um provedor autorizado. Sem credenciais,
 // não tenta consultar portais públicos protegidos por CAPTCHA nem inventa dados fiscais.
 // Contrato do adaptador seguro: POST JSON {type,key,purpose}, resposta JSON {document:{...}}.
-app.post("/api/fiscal-documents/lookup", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","CLIENT"), async (req,res)=>{
+async function lookupFiscalDocument(req,res,wlCustomerDocument){
   const type=String(req.body?.type||"").toUpperCase();
   const key=cleanDigits(req.body?.key);
   if(!["NFE","DCE"].includes(type) || key.length!==44 || key.slice(20,22)!==(type==="NFE"?"55":"99")){
@@ -4911,9 +4912,10 @@ app.post("/api/fiscal-documents/lookup", requireAuth, requireRole("ADMIN","SUPER
       return res.status(502).json({error:"Os dados recebidos não correspondem à chave solicitada."});
     }
     // Clientes não podem consultar documentos de terceiros sem vínculo fiscal próprio.
-    if(req.user?.role==="CLIENT"){
-      const account=await clientDb.getCustomerAccount(req.user.userId);
-      const personalDocument=cleanDigits(account?.document);
+    if(req.user?.role==="CLIENT"||wlCustomerDocument!==undefined){
+      const document=wlCustomerDocument!==undefined?wlCustomerDocument:
+        (await clientDb.getCustomerAccount(req.user.userId))?.document;
+      const personalDocument=cleanDigits(document);
       const permitted=[cleanDigits(doc.sender?.document),cleanDigits(doc.recipient?.document)];
       if(!personalDocument || !permitted.includes(personalDocument)){
         return res.status(403).json({error:"A consulta da chave requer documento fiscal vinculado à conta. Importe seu XML ou preencha manualmente."});
@@ -4943,7 +4945,10 @@ app.post("/api/fiscal-documents/lookup", requireAuth, requireRole("ADMIN","SUPER
     console.warn("fiscal lookup failed",String(error?.name||"UnknownError"));
     return res.status(502).json({error:"Não foi possível concluir a consulta autorizada. Importe o XML ou preencha manualmente."});
   }
-});
+}
+app.post("/api/fiscal-documents/lookup",
+  requireAuth,requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","CLIENT"),
+  (req,res)=>lookupFiscalDocument(req,res));
 
 app.get("/api/orders", requireAuth, requireRole("ADMIN","SUPERVISOR","STORE_OWNER","STORE_CLERK","OPS"), async (req, res) => {
   try {
