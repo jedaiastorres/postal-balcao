@@ -2,7 +2,7 @@
 const $=selector=>document.querySelector(selector);
 const $$=selector=>[...document.querySelectorAll(selector)];
 const code=decodeURIComponent(location.pathname.split("/").filter(Boolean).at(-1)||"").toUpperCase();
-const state={csrf:"",account:null,brand:null,routes:[],finance:null};
+const state={csrf:"",account:null,brand:null,routes:[],points:[],finance:null};
 const money=value=>new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(Number(value||0));
 const esc=value=>String(value??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");
 const digit=value=>String(value||"").replace(/\D/g,"");
@@ -75,10 +75,10 @@ function showAuth(account,csrf,finance){
     :"Carteira Asaas pendente. O MASTER Postal deve configurar e verificar a conta.";
   activate("overview");
   loadRoutes();
-  if(account.role==="WL_MASTER")loadUsers();
+  loadPoints().then(()=>{if(account.role==="WL_MASTER")loadUsers();});
 }
 function activate(name){
-  if(name==="users"||name==="finance"){
+  if(["users","finance","points"].includes(name)){
     if(state.account?.role!=="WL_MASTER")return;
   }
   $$(".tab").forEach(btn=>btn.classList.toggle("active",btn.dataset.tab===name));
@@ -117,6 +117,60 @@ $("#passwordForm").addEventListener("submit",async event=>{
     alert("Senha alterada. Entre novamente com a nova senha.");
     location.href="/wl/"+encodeURIComponent(code);
   }catch(error){errorText(error.message);button.disabled=false;}
+});
+function renderPoints(){
+  $("#statPoints").textContent=state.points.length;
+  const select=$("#employeePoint");
+  select.innerHTML='<option value="">Selecione uma unidade ativa</option>'+
+    state.points.filter(point=>point.active).map(point=>
+      '<option value="'+esc(point.id)+'">'+esc(point.name)+' · '+esc(point.city)+'/'+esc(point.state)+'</option>'
+    ).join("");
+  $("#pointsList").innerHTML=state.points.length?state.points.map(point=>
+    '<div class="list-item"><div><strong>'+esc(point.name)+'</strong><span>'+
+    esc(point.code)+' · '+esc(cep(point.cep))+' · '+esc(point.city)+'/'+esc(point.state)+
+    '</span><small>'+esc(point.address)+', '+esc(point.number)+' · '+(point.active?"Ativo":"Inativo")+
+    '</small></div><div class="list-price"><button class="ghost" type="button" data-edit-point="'+esc(point.id)+'">Editar</button></div></div>'
+  ).join(""):'<div class="empty">Nenhum ponto cadastrado.</div>';
+  $("#pointsList [data-edit-point]").forEach(button=>button.addEventListener("click",()=>{
+    const point=state.points.find(item=>item.id===button.dataset.editPoint);
+    if(!point)return;
+    for(const [id,key] of [["pointId","id"],["pointCode","code"],["pointName","name"],
+      ["pointCep","cep"],["pointCity","city"],["pointState","state"],
+      ["pointAddress","address"],["pointNumber","number"]]){
+      $("#"+id).value=point[key];
+    }
+    $("#pointActive").checked=point.active;
+    $("#pointForm").scrollIntoView({behavior:"smooth",block:"start"});
+  }));
+}
+async function loadPoints(){
+  try{
+    const result=await api("/api/wl/points");
+    state.points=result.points||[];
+    renderPoints();
+  }catch(error){errorText(error.message);}
+}
+$("#reloadPoints").addEventListener("click",loadPoints);
+$("#resetPoint").addEventListener("click",()=>{
+  $("#pointForm").reset();$("#pointId").value="";
+});
+$("#pointForm").addEventListener("submit",async event=>{
+  event.preventDefault();errorText("");
+  const btn=event.currentTarget.querySelector('button[type="submit"]');btn.disabled=true;
+  const id=$("#pointId").value;
+  const data={
+    code:$("#pointCode").value,name:$("#pointName").value,
+    cep:digit($("#pointCep").value),city:$("#pointCity").value,
+    state:$("#pointState").value,address:$("#pointAddress").value,
+    number:$("#pointNumber").value,active:$("#pointActive").checked
+  };
+  try{
+    await api(id?"/api/wl/points/"+encodeURIComponent(id):"/api/wl/points",{
+      method:id?"PUT":"POST",body:JSON.stringify(data)
+    });
+    $("#pointForm").reset();$("#pointId").value="";
+    await loadPoints();
+  }catch(error){errorText(error.message);}finally{btn.disabled=false;}
 });
 function routeLine(route){
   const left=esc(cep(route.originStart))+"–"+esc(cep(route.originEnd));
@@ -205,7 +259,8 @@ async function loadUsers(){
     const data=await api("/api/wl/users");
     $("#userList").innerHTML=data.users.map(user=>
       '<div class="list-item"><div><strong>'+esc(user.name)+'</strong><span>'+esc(user.email)+'</span>'+
-      '<small>'+(user.role==="WL_MASTER"?"MASTER":"Operador")+'</small></div><div class="list-price">'+
+      '<small>'+(user.role==="WL_MASTER"?"MASTER":"Operador")+
+      (user.pointId?" · "+esc(state.points.find(p=>p.id===user.pointId)?.name||"Unidade vinculada"):"")+'</small></div><div class="list-price">'+
       '<span>'+(user.active?"Ativo":"Suspenso")+'</span>'+
       (user.role==="WL_OPERATOR"?'<button class="ghost" data-user="'+esc(user.id)+'" data-active="'+(user.active?"false":"true")+'" type="button">'+
        (user.active?"Suspender":"Reativar")+'</button>':"")+'</div></div>'
@@ -229,7 +284,7 @@ $("#userForm").addEventListener("submit",async event=>{
   const button=event.currentTarget.querySelector("button");button.disabled=true;
   try{
     const result=await api("/api/wl/users",{method:"POST",body:JSON.stringify({
-      name:$("#employeeName").value,email:$("#employeeEmail").value
+      name:$("#employeeName").value,email:$("#employeeEmail").value,pointId:$("#employeePoint").value
     })});
     credentials("Portal: "+location.href+"\nE-mail: "+result.user.email+"\nSenha temporária: "+result.temporaryPassword);
     event.currentTarget.reset();await loadUsers();
