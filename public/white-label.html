@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Portal de Transportadora · White Label</title>
+  <link rel="stylesheet" href="/white-label.css">
+  <script defer src="/white-label.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <img id="brandLogo" alt="" class="hidden" referrerpolicy="no-referrer">
+      <div class="brand-icon" id="brandIcon">WL</div>
+      <div><span class="brand-caption">PORTAL DE TRANSPORTADORA</span><strong id="brandTitle">White Label</strong></div>
+    </div>
+    <div class="top-right"><span class="status">AMBIENTE DE HOMOLOGAÇÃO</span><button id="logoutBtn" class="ghost hidden" type="button">Sair</button></div>
+  </header>
+  <main class="layout">
+    <section id="errorPanel" role="alert" class="alert hidden"></section>
+    <section id="loginPanel" class="login card">
+      <span class="eyebrow">ACESSO EXCLUSIVO</span>
+      <h1>Bem-vindo ao painel da transportadora</h1>
+      <p>Gerencie suas rotas, tarifas e equipe, com dados separados de outras empresas. Por segurança, seu primeiro acesso exige troca de senha.</p>
+      <form id="loginForm" class="fields">
+        <label>E-mail<input id="loginEmail" type="email" autocomplete="username" required></label>
+        <label>Senha<input id="loginPassword" type="password" autocomplete="current-password" required></label>
+        <button class="primary" type="submit">Entrar no painel</button>
+      </form>
+    </section>
+    <section id="dashboard" class="hidden">
+      <div class="intro">
+        <div><span class="eyebrow">SISTEMA PERSONALIZADO</span><h1 id="welcomeName">Painel da transportadora</h1><p id="welcomeSubtitle">Rotas, tarifas e usuários com identidade própria.</p></div>
+        <span id="roleTag" class="role"></span>
+      </div>
+      <section id="passwordPanel" class="card password-panel hidden">
+        <h2>Proteja seu primeiro acesso</h2>
+        <p>Troque a senha temporária antes de cadastrar rotas ou colaboradores.</p>
+        <form id="passwordForm" class="fields">
+          <label>Senha atual<input id="oldPassword" type="password" autocomplete="current-password" required></label>
+          <label>Nova senha (12+ caracteres, letra maiúscula, número e símbolo)<input id="newPassword" type="password" autocomplete="new-password" minlength="12" required></label>
+          <button class="primary" type="submit">Salvar senha e entrar novamente</button>
+        </form>
+      </section>
+      <nav class="tabs" aria-label="Áreas da transportadora">
+        <button class="tab active" type="button" data-tab="overview">Visão geral</button>
+        <button class="tab" type="button" data-tab="tariffs">Rotas e preços</button>
+        <button class="tab" type="button" data-tab="quotes">Simular frete</button>
+        <button class="tab master-only" type="button" data-tab="users">Equipe</button>
+        <button class="tab" type="button" data-tab="brand">Minha marca</button>
+        <button class="tab master-only" type="button" data-tab="finance">Financeiro</button>
+      </nav>
+      <section class="tab-panel" data-panel="overview">
+        <div class="cards">
+          <article class="card stat"><small>Rotas cadastradas</small><strong id="statRoutes">0</strong><span>Faixas de CEP personalizadas</span></article>
+          <article class="card stat"><small>Rotas disponíveis para simular</small><strong id="statActiveRoutes">0</strong><span>Consulta sem emissão real</span></article>
+          <article class="card stat"><small>Ambiente</small><strong>Homologação</strong><span>Fretes e pagamentos desativados</span></article>
+        </div>
+        <div class="card"><h2>Operação independente em preparação</h2>
+          <p>As tarifas e a equipe cadastradas neste portal pertencem somente à sua transportadora. Esta fase permite configurar, simular e revisar; a emissão de etiquetas e a movimentação financeira só serão liberadas após a homologação.</p></div>
+      </section>
+      <section class="tab-panel hidden" data-panel="tariffs">
+        <article class="card">
+          <h2>Cadastrar rota e tarifa</h2><p>Informe faixas de CEP reais (de/até), peso em gramas e prazo em dias. O preço exibido na simulação é calculado pela tabela da sua empresa.</p>
+          <form id="tariffForm" class="fields grid-form">
+            <input type="hidden" id="tariffId">
+            <label class="wide">Nome da rota<input id="routeName" required maxlength="100" placeholder="Marabá → Parauapebas"></label>
+            <label>CEP origem: início<input id="originStart" inputmode="numeric" maxlength="9" placeholder="68500-000" required></label>
+            <label>CEP origem: fim<input id="originEnd" inputmode="numeric" maxlength="9" placeholder="68599-999" required></label>
+            <label>CEP destino: início<input id="destinationStart" inputmode="numeric" maxlength="9" required></label>
+            <label>CEP destino: fim<input id="destinationEnd" inputmode="numeric" maxlength="9" required></label>
+            <label>Peso mínimo (g)<input id="minWeight" type="number" min="1" max="30000" step="1" value="1" required></label>
+            <label>Peso máximo (g)<input id="maxWeight" type="number" min="1" max="30000" step="1" value="30000" required></label>
+            <label>Preço base (R$)<input id="routePrice" type="number" min="0.01" max="100000" step="0.01" required></label>
+            <label>Adicional por kg (R$)<input id="routePerKg" type="number" min="0" max="10000" step="0.01" value="0" required></label>
+            <label>Prazo (dias)<input id="routeDays" type="number" min="1" max="90" step="1" value="2" required></label>
+            <label class="check"><input id="routeActive" type="checkbox" checked> Disponível para simulações</label>
+            <div class="wide action-row"><button class="primary" type="submit">Salvar rota</button><button class="ghost" id="resetTariff" type="button">Limpar</button></div>
+          </form>
+        </article>
+        <article class="card"><div class="section-head"><h2>Rotas cadastradas</h2><button class="ghost" id="reloadRoutes" type="button">Atualizar</button></div><div id="routesList" class="list">Nenhuma rota cadastrada.</div></article>
+      </section>
+      <section class="tab-panel hidden" data-panel="quotes">
+        <article class="card">
+          <h2>Simular frete</h2><p>Simulação exclusiva da sua tabela. Nenhuma postagem ou cobrança será efetuada.</p>
+          <form id="quoteForm" class="fields grid-form">
+            <label>CEP de origem<input id="quoteOrigin" required inputmode="numeric" maxlength="9" placeholder="68500-000"></label>
+            <label>CEP de destino<input id="quoteDestination" required inputmode="numeric" maxlength="9" placeholder="68515-000"></label>
+            <label>Peso do volume (g)<input id="quoteWeight" required type="number" min="1" max="30000" step="1" value="1000"></label>
+            <div class="wide"><button class="primary" type="submit">Calcular</button></div>
+          </form>
+          <div id="quoteResults" class="list"></div>
+        </article>
+      </section>
+      <section class="tab-panel hidden" data-panel="users">
+        <article class="card"><h2>Usuários da sua transportadora</h2>
+          <p>Cadastre colaboradores com permissão para consultar rotas e simular fretes. Apenas o MASTER pode alterar tarifas, administrar pessoas e consultar o financeiro.</p>
+          <form id="userForm" class="fields grid-form">
+            <label>Nome do colaborador<input id="employeeName" required maxlength="100"></label>
+            <label>E-mail<input id="employeeEmail" type="email" required maxlength="160"></label>
+            <div class="wide"><button class="primary" type="submit">Criar acesso do colaborador</button></div>
+          </form>
+          <div id="userList" class="list"></div>
+        </article>
+      </section>
+      <section class="tab-panel hidden" data-panel="brand">
+        <article class="card"><h2>Identidade da sua empresa</h2>
+          <p>Nome, logomarca e cores são configurados no cadastro da transportadora pelo MASTER Postal. A identidade já é aplicada a este portal.</p>
+          <div id="brandPreview" class="brand-preview"></div>
+          <p class="note">O rastreamento, as etiquetas e os comprovantes com esta marca entrarão na próxima fase, após testes de emissão e isolamento.</p>
+        </article>
+      </section>
+      <section class="tab-panel hidden" data-panel="finance">
+        <article class="card"><h2>Carteira e repasses</h2>
+          <p id="walletStatus">Verificando configuração...</p>
+          <div class="finance-note"><strong>Transações financeiras desativadas.</strong><p>A remuneração da Postal será calculada conforme o contrato, mas nenhum PIX, split ou cobrança será realizado até a homologação dos pagamentos e conciliação de fretes.</p></div>
+        </article>
+      </section>
+    </section>
+  </main>
+  <footer>Plataforma White Label · Operação e pagamentos sujeitos à homologação</footer>
+  <dialog id="credentialsDialog"><h2>Acesso criado</h2><p>Copie as credenciais e envie por canal seguro. A senha não poderá ser consultada novamente.</p><pre id="credentialText"></pre><div class="action-row"><button class="primary" id="copyCredentials" type="button">Copiar credenciais</button><button class="ghost" id="closeCredentials" type="button">Fechar</button></div></dialog>
+</body>
+</html>
