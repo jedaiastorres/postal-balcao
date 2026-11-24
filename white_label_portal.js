@@ -5,6 +5,8 @@ const crypto=require("node:crypto");
 const wlDb=require("./white_label_tenant_db");
 const logic=require("./white_label_tenant");
 const hybrid=require("./white_label_hybrid_quote");
+const wlCollectionDb=require("./white_label_collection_db");
+const wlCollection=require("./white_label_collection");
 
 function register({app,db,requireAuth,requireRole,signSession,verifySession,
                    parseCookies,hashPassword,verifyPassword,checkLoginRate,
@@ -205,6 +207,60 @@ function register({app,db,requireAuth,requireRole,signSession,verifySession,
       if(!updated)return res.status(404).json({error:"Unidade não encontrada nesta transportadora."});
       res.json({ok:true,id:updated.id});
     }catch(error){safeError(res,error,"Não foi possível atualizar a unidade.");}
+  });
+
+  // Coletas internas White Label: não envolvem postagem, etiqueta, carteira ou split.
+  // Toda consulta e alteração usa carrier_id da sessão; operadores ficam limitados ao próprio ponto.
+  app.get("/api/wl/collections",authenticate,async(req,res)=>{
+    try{
+      const scope=req.wl.account.role==="WL_OPERATOR"?req.wl.account.point_id:null;
+      const rows=await wlCollectionDb.listCollections(pool,req.wl.carrier.id,scope,150);
+      res.setHeader("Cache-Control","private,no-store");
+      res.json({collections:rows.map(wlCollection.publicCollection),financialEnabled:false,
+        message:"Ordens operacionais, sem cobrança, emissão ou repasse automático."});
+    }catch(error){safeError(res,error,"Não foi possível consultar as coletas.");}
+  });
+  app.post("/api/wl/collections",authenticate,blockNewUsersUntilPasswordChanged,async(req,res)=>{
+    try{
+      const data=wlCollection.normalizeCollection(req.body);
+      const pointId=req.wl.account.role==="WL_OPERATOR"?req.wl.account.point_id:data.pointId;
+      if(req.wl.account.role==="WL_OPERATOR"&&!pointId)
+        return res.status(403).json({error:"Operador sem unidade de coleta."});
+      const result=await wlCollectionDb.createCollection(
+        pool,req.wl.carrier.id,req.wl.account.id,data,pointId);
+      res.setHeader("Cache-Control","no-store");
+      res.status(result.created?201:200).json({ok:true,created:result.created,
+        collection:wlCollection.publicCollection(result.row),financialEnabled:false});
+    }catch(error){safeError(res,error,"Não foi possível registrar a coleta.");}
+  });
+  app.patch("/api/wl/collections/:id/assign",
+    authenticate,wlMaster,blockNewUsersUntilPasswordChanged,async(req,res)=>{
+    if(!safeId(req.params.id)||!safeId(req.body?.pointId))
+      return res.status(400).json({error:"Informe coleta e unidade válidas."});
+    const driverName=text(req.body?.driverName);
+    if(driverName.length>100)
+      return res.status(400).json({error:"Nome do responsável deve ter até 100 caracteres."});
+    try{
+      const row=await wlCollectionDb.assignCollection(
+        pool,req.wl.carrier.id,req.params.id,req.body.pointId,driverName);
+      if(!row)return res.status(409).json({error:"Coleta não encontrada, já em rota ou unidade indisponível."});
+      res.setHeader("Cache-Control","no-store");
+      res.json({ok:true,collection:wlCollection.publicCollection(row)});
+    }catch(error){safeError(res,error,"Não foi possível atribuir a coleta.");}
+  });
+  app.patch("/api/wl/collections/:id/status",
+    authenticate,blockNewUsersUntilPasswordChanged,async(req,res)=>{
+    if(!safeId(req.params.id))return res.status(400).json({error:"Identificador de coleta inválido."});
+    try{
+      const status=String(req.body?.status||"").toUpperCase();
+      const previous=wlCollection.allowedPrior(status,req.wl.account.role);
+      const scope=req.wl.account.role==="WL_OPERATOR"?req.wl.account.point_id:null;
+      const row=await wlCollectionDb.transitionCollection(
+        pool,req.wl.carrier.id,req.params.id,scope,status,previous);
+      if(!row)return res.status(409).json({error:"Coleta indisponível ou alteração de situação não permitida."});
+      res.setHeader("Cache-Control","no-store");
+      res.json({ok:true,collection:wlCollection.publicCollection(row)});
+    }catch(error){safeError(res,error,"Não foi possível atualizar a coleta.");}
   });
 
   app.get("/api/wl/routes",authenticate,async(req,res)=>{
