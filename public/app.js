@@ -40,6 +40,7 @@ const viewMap = {
   inventory: { el: "#inventoryView", title: "Produtos & Estoque" },
   master: { el: "#masterView", title: "Painel Master" },
   whiteLabel: { el: "#masterView", title: "Transportadoras White Label" },
+  network: { el: "#masterView", title: "Rede Integrada" },
   supervisor: { el: "#supervisorView", title: "Supervisão da Rede" },
   clientHome: { el: "#clientHomeView", title: "Minha Postal" },
   clientOrders: { el: "#clientOrdersView", title: "Pedidos" },
@@ -277,7 +278,7 @@ $("#changePasswordForm")?.addEventListener("submit",async event=>{
 });
 
 function navigate(name) {
-  if (["master","whiteLabel"].includes(name) && state.user?.role !== "ADMIN") {
+  if (["master","whiteLabel","network"].includes(name) && state.user?.role !== "ADMIN") {
     toast("Área exclusiva da administração Postal.", "error");
     return;
   }
@@ -342,7 +343,12 @@ function navigate(name) {
   if (name === "storeUsers") loadStoreUsers();
   if (name === "cash") loadCash();
   if (name === "supervisor") loadSupervisor();
-  if (["master","whiteLabel"].includes(name) && state.user?.role === "ADMIN") loadMaster();
+  if (["master","whiteLabel","network"].includes(name) && state.user?.role === "ADMIN") loadMaster();
+  if(name==="network"&&state.user?.role==="ADMIN"&&window.InterlineNetwork){
+    const root=$("#postalNetworkRoot");
+    if(!state.networkPanel)state.networkPanel=window.InterlineNetwork.mount(root,{prefix:"/api/admin/network",request:api});
+    else void state.networkPanel.refresh();
+  }
   if (name === "clientHome") window.PostalClient?.loadClientHome?.();
   if (name === "clientOrders") window.PostalClient?.loadOperations?.();
   if (name === "clientProfile") window.PostalClient?.loadProfile?.();
@@ -353,6 +359,8 @@ function navigate(name) {
   if (name === "clients") window.PostalClient?.loadPointClients?.();
   if (name === "whiteLabel") {
     window.requestAnimationFrame(()=>$("#whiteLabelSection")?.scrollIntoView({behavior:"smooth",block:"start"}));
+  } else if(name==="network"){
+    window.requestAnimationFrame(()=>$("#postalNetworkSection")?.scrollIntoView({behavior:"smooth",block:"start"}));
   } else {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
