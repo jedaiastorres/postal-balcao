@@ -85,6 +85,7 @@
         <div class="nav-section">ADMINISTRAÇÃO POSTAL</div>
         <nav>
           <button class="nav-item master-only hidden" data-view="master"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="m3 6 4 4 5-7 5 7 4-4-2 12H5zM5 22h14"/></svg></span> Painel Master</button>
+          <button class="nav-item master-only hidden" data-view="network" title="Rede integrada de transporte"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="7" r="3"/><circle cx="19" cy="7" r="3"/><circle cx="12" cy="19" r="3"/><path d="M7 9l4 7m6-7-4 7M8 7h8"/></svg></span> Rede Integrada</button>
           <button class="nav-item master-only hidden" data-view="whiteLabel" title="Cadastro de transportadoras White Label"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><path d="M13 17h8M17 13v8"/></svg></span> White Label</button>
           <button class="nav-item supervisor-only hidden" data-view="supervisor"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="m12 2 9 4v6c0 5-9 10-9 10S3 17 3 12V6zM8 12l3 3 5-6"/></svg></span> Supervisão da Rede</button>
         </nav>
@@ -897,6 +898,8 @@
           <div><span>Receita Postal</span><strong id="masterPostalRevenue">R$ 0,00</strong></div>
         </div>
 
+        <article class="panel master-section" id="postalNetworkSection"><div id="postalNetworkRoot" aria-label="Rede integrada de operadores e transportadoras"></div></article>
+
         <article class="panel master-section white-label-section" id="whiteLabelSection">
           <div class="panel-head">
             <div><span class="eyebrow">NOVA MODALIDADE · MASTER</span><h3>Transportadoras White Label</h3>
@@ -1417,8 +1420,10 @@
 
   <script src="/point_rules.js"></script>
   <script src="/branding.js"></script>
+  <link rel="stylesheet" href="/interline-network.css?v=1.0.0">
   <script src="/fiscal_document.js?v=1.17.0"></script>
-  <script src="/app.js?v=1.20.0"></script>
+  <script src="/interline-network.js?v=1.0.0"></script>
+  <script src="/app.js?v=1.21.0"></script>
   <script src="/client.js?v=1.18.0"></script>
 </body>
 </html>
