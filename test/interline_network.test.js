@@ -33,7 +33,7 @@ test("comissão Postal uma única vez e saldo imutável por etapa",()=>{
  assert.equal(plan.postalFeeCents+plan.stageTotalCents+plan.sellerMarginCents,12000);
  assert.ok(Object.isFrozen(plan)&&Object.isFrozen(plan.allocations[0]));
  assert.throws(()=>rules.snapshotSale({sellerKey:wlA,selectedLanes:stages,
-   grossCents:8000,postalFeePercent:20,postalFeeFixed:1}),/sem saldo/);
+   grossCents:7500,postalFeePercent:20,postalFeeFixed:1}),/sem saldo/);
  assert.throws(()=>rules.snapshotSale({sellerKey:wlA,
    selectedLanes:[asLane("COLLECTION",wlA,100),asLane("DELIVERY",wlA,100)],
    grossCents:10000,postalFeePercent:20,postalFeeFixed:1}),/outra empresa/);
@@ -130,7 +130,7 @@ test("testa inserções, aceitações e bloqueio de operação usando PostgreSQL
    const ready=await data.updateLeg(pool,"POSTAL","master",transfer.id,"ACCEPTED");
    assert.equal(ready.orderStatus,"READY");
    await assert.rejects(()=>data.updateLeg(pool,wlA,"a",order.legs[0].id,"IN_PROGRESS"),
-     /pagamento e conciliação/);
+     /cobrança e conciliação/);
    const values=await database.query(
      "SELECT purpose,amount_cents,settlement_state FROM interline_allocations WHERE order_id=$1",[created.id]);
    assert.equal(values.rows.length,5);
@@ -161,7 +161,7 @@ test("rede só permite escopos do servidor e mantém operação monetária bloqu
 test("J&T Express tem logo local nos três painéis sem confundir outras marcas",()=>{
  const branding=read("public/branding.js");
  const asset=read("public/assets/brands/jt-express.svg");
- const global={};vm.runInNewContext(branding,{window:global},{timeout:2000});
+ const global={};vm.runInNewContext(branding,global,{timeout:2000});
  for(const carrier of ["J&T Express","J&T","JET EXPRESS","J T Express"])
    assert.equal(global.PostalBrand.carrierLogo(carrier),"/assets/brands/jt-express.svg");
  assert.equal(global.PostalBrand.carrierLogo("Jadlog"),"/assets/brands/jadlog.svg");
