@@ -48,7 +48,7 @@ test("menu mobile abre, fecha ao navegar ou ESC e respeita permissões MASTER",(
   assert.match(js,/function closeMobileMenu\(\)/);
   assert.match(js,/event\.key==="Escape"/);
   assert.match(js,/btn\.setAttribute\("aria-current","page"\)/);
-  assert.match(js,/\["users","finance","points"\]\.includes\(name\)/);
+  assert.match(js,/\["users","finance","points","network"\]\.includes\(name\)/);
   assert.match(js,/account\.role!=="WL_MASTER"/);
 });
 test("nova estrutura não mexe no contrato de APIs, fretes e pagamentos",()=>{
