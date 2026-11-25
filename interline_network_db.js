@@ -239,6 +239,8 @@ async function updateLeg(pool,key,userId,legId,nextStatus,proof){
   if(["CANCELED","NEEDS_REPLAN"].includes(leg.order_status))
     throw conflict("Operação suspensa ou cancelada.");
   rules.completeAllowed(leg.status,nextStatus);
+  if(["IN_PROGRESS","COMPLETED"].includes(nextStatus)&&leg.payment_status!=="RECEIVED")
+    throw conflict("A execução física só pode começar após a cobrança e conciliação financeira.");
   const evidence=String(proof||"").trim();
   if(nextStatus==="COMPLETED"&&(evidence.length<6||evidence.length>200))
     throw conflict("Informe protocolo ou comprovante de execução (6 a 200 caracteres).");
