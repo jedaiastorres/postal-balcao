@@ -49,7 +49,8 @@ async function track(code){
   $("#trackingForm").setAttribute("aria-busy","true");
   $("#trackingResult").classList.add("hidden");
   try{
-    const response=await fetch("/api/public/rastreio/"+encodeURIComponent(clean),{headers:{"accept":"application/json"},signal:AbortSignal.timeout(20000)});
+    const endpoint=/^NET[A-F0-9]{17}$/i.test(clean)?"/api/public/network-tracking/":"/api/public/rastreio/";
+    const response=await fetch(endpoint+encodeURIComponent(clean),{headers:{"accept":"application/json"},signal:AbortSignal.timeout(20000)});
     const data=await response.json().catch(()=>({}));
     if(!response.ok) throw new Error(data.error||"Não foi possível consultar o rastreio.");
     $("#trackingCode").value=data.trackingCode||clean;

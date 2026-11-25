@@ -96,10 +96,10 @@ function showAuth(account,csrf,finance){
   loadPoints().then(()=>{if(account.role==="WL_MASTER")loadUsers();loadCollections();loadClients();});
 }
 function activate(name){
-  if(["users","finance","points"].includes(name)){
+  if(["users","finance","points","network"].includes(name)){
     if(state.account?.role!=="WL_MASTER")return;
   }
-  const titles={overview:"Dashboard",points:"Unidades e Pontos",collections:"Coletas",clients:"Clientes Fixos",tariffs:"Rotas e Preços",
+  const titles={overview:"Dashboard",points:"Unidades e Pontos",collections:"Coletas",clients:"Clientes Fixos",network:"Rede Integrada",tariffs:"Rotas e Preços",
     quotes:"Simular Frete",users:"Equipe",brand:"Minha Marca",finance:"Carteira e Repasses"};
   $$(".tab").forEach(btn=>{
     const active=btn.dataset.tab===name;
@@ -110,6 +110,14 @@ function activate(name){
   $$(".tab-panel").forEach(panel=>panel.classList.toggle("hidden",panel.dataset.panel!==name));
   $("#wlPageTitle").textContent=titles[name]||"Dashboard";
   if(name==="collections"&&state.account)void loadCollections();
+  if(name==="network"&&state.account?.role==="WL_MASTER"){
+    const root=$("#wlNetworkRoot");
+    if(window.InterlineNetwork){
+      if(!state.networkPanel)state.networkPanel=window.InterlineNetwork.mount(root,{
+        prefix:"/api/wl/network",request:api});
+      else void state.networkPanel.refresh();
+    }
+  }
   closeMobileMenu();
   window.scrollTo({top:0,behavior:"smooth"});
   errorText("");

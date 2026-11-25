@@ -7,7 +7,7 @@ const src=fs.readFileSync(require.resolve("../public/white-label.js"),"utf8");
 
 function mockDom(){
   const elements=new Map();
-  const buttons=["overview","points","tariffs","quotes","collections","clients","users","brand","finance"];
+  const buttons=["overview","points","tariffs","quotes","collections","clients","network","users","brand","finance"];
   function element(id){
     if(!elements.has(id)){
       const set=new Set(id==="dashboard"?["hidden"]:id==="loginShell"?[]:["hidden"]);

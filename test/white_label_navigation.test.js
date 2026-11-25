@@ -18,8 +18,8 @@ test("cadastro White Label fica dentro da tela MASTER e não na carteira de clie
 test("menu White Label é exclusivo do MASTER com navegação funcional",()=>{
   assert.match(html, /class="nav-item master-only hidden" data-view="whiteLabel"/);
   assert.match(app, /whiteLabel: \{ el: "#masterView", title: "Transportadoras White Label" \}/);
-  assert.match(app, /\["master","whiteLabel"\]\.includes\(name\) && state\.user\?\.role !== "ADMIN"/);
-  assert.match(app, /\["master","whiteLabel"\]\.includes\(name\) && state\.user\?\.role === "ADMIN"\) loadMaster\(\)/);
+  assert.match(app, /\["master","whiteLabel","network"\]\.includes\(name\) && state\.user\?\.role !== "ADMIN"/);
+  assert.match(app, /\["master","whiteLabel","network"\]\.includes\(name\) && state\.user\?\.role === "ADMIN"\) loadMaster\(\)/);
   assert.match(app, /name === "whiteLabel"[\s\S]*?whiteLabelSection/);
   assert.match(app, /params\.get\("view"\)==="whiteLabel"/);
   assert.match(app, /void loadWhiteLabels\(\)/);

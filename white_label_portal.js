@@ -12,6 +12,8 @@ const wlCustomer=require("./white_label_customer");
 const bulkShipping=require("./bulk_shipping");
 const wlCollectionDb=require("./white_label_collection_db");
 const wlCollection=require("./white_label_collection");
+const interlineApi=require("./interline_network_api");
+const interlineRules=require("./interline_network");
 
 function register({app,db,requireAuth,requireRole,signSession,verifySession,
                    parseCookies,hashPassword,verifyPassword,checkLoginRate,
@@ -546,6 +548,20 @@ function register({app,db,requireAuth,requireRole,signSession,verifySession,
       res.setHeader("Cache-Control","no-store");
       res.json({ok:true,collection:wlCollection.publicCollection(row)});
     }catch(error){safeError(res,error,"Não foi possível atualizar a coleta.");}
+  });
+
+  // Participação voluntária na rede. O MASTER White Label só gerencia sua empresa.
+  interlineApi.install({
+    app,pool,prefix:"/api/wl/network",
+    auth:[authenticate,wlMaster,blockNewUsersUntilPasswordChanged],
+    resolve:req=>({
+      key:interlineRules.ownerKey("WHITE_LABEL",req.wl.carrier.id),
+      carrierId:req.wl.carrier.id,
+      name:req.wl.carrier.brand_name||req.wl.carrier.legal_name,
+      userId:String(req.wl.account.id),
+      postalFeePercent:Number(req.wl.carrier.postal_fee_percent||0),
+      postalFeeFixed:Number(req.wl.carrier.postal_fee_fixed||0)
+    })
   });
 
   app.get("/api/wl/routes",authenticate,async(req,res)=>{

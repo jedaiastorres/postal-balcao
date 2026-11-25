@@ -50,3 +50,23 @@ O tenant (transportadora), a unidade, o cliente e o pedido sempre têm escopo pe
 ## Critérios para liberar paridade integral
 
 A equivalência só estará concluída quando todos os módulos marcados como **Pendente** estiverem implementados, com testes E2E por papel, dois tenants diferentes, falha de provedor, concorrência, cobrança, split, reprocessamento e estorno. Até lá, o cliente pode cotar e preparar dados, mas **não emitir ou pagar** pelo White Label.
+
+
+## Rede integrada Postal + White Label — marco 2026-11-25
+
+Modelo comercial aprovado: **a empresa que vende mantém o cliente, a cobrança e a responsabilidade comercial**. A Postal recebe a comissão contratada (uma única vez), mesmo quando outra empresa faz a coleta, transferência ou entrega. Os operadores só participam após adesão e aceitação voluntária.
+
+Implementado neste marco:
+- Cadastro de participação na rede por MASTER (opt-in), nunca por operador/cliente; a Postal opta em seu próprio MASTER.
+- Serviços e preços ofertados para **COLETA**, **TRANSFERÊNCIA** e **ENTREGA**, com faixas de CEP, pesos, horas e valores; o preço da etapa pertence ao operador escolhido.
+- Busca compartilhada de serviços em CEPs comuns, com propostas envolvendo duas ou três etapas e ao menos uma empresa executora diferente da vendedora.
+- Confirmação de aceite por cada transportadora, rejeição, cancelamento e acompanhamento das etapas por vendedor, executor e MASTER Postal.
+- Identificador de rastreio reservado por pedido, histórico de alterações e congelamento de composição comercial em centavos: venda bruta = comissão Postal + soma das etapas + margem do vendedor.
+- Controles para não misturar empresas, impedir alterações de etapas de outras transportadoras, evitar duplicidade da mesma proposta e impedir início de execução sem pagamento efetivamente conciliado.
+- Logomarca J&T Express fornecida pelo usuário, mapeada no catálogo compartilhado de imagens de cotações.
+
+**Pagamento real ainda bloqueado:** o Postal Balcão possui credencial Asaas central, mas o modelo comercial adotado requer que **a conta da empresa vendedora emita a cobrança**, com recebedores autorizados. Antes de produzir efeitos financeiros, precisamos de credencial/API da empresa vendedora ou mecanismo aprovado de subconta, wallets verificadas para cada executora, split habilitado, webhook de pagamento e de liquidação, estorno parcial/total, divergências, conciliação e tratamento de falhas. O uso de walletId isolado não autoriza debitar cliente. O código de rede não executa cobranças, repasses ou emissão automática.
+
+Regra Asaas a integrar na próxima etapa: a carteira emissora não deve constar como recebedora do próprio split; cada recebedor recebe valor fixo efetivo somente até o líquido de taxas Asaas, e eventual divergência bloqueia conciliação. O lançamento de receita de etapa executada só poderá ser reconhecido após evento de execução com prova e liquidação validada.
+
+A rede integrada **não deve receber acesso a carteiras ou chaves de API de terceiros**; informações financeiras internas são exibidas apenas à empresa vendedora e ao MASTER Postal. Na próxima etapa, disponibilizar rastreio público apropriado e conciliação por webhooks; até lá a operação interempresas fica em estágio de contratação/aceite.

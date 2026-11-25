@@ -4,6 +4,9 @@
   const logos = {"postal": "postal.svg", "correios": "correios.svg", "jadlog": "jadlog.svg", "azul": "azul-cargo.png", "loggi": "loggi.svg", "fedex": "fedex.svg", "ups": "ups.svg", "dhl": "dhl.svg"};
   function carrierLogo(name) {
     const text = String(name || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    // ConectEnvios pode retornar "J&T", "J&T Express" ou "JET Express".
+    if(/\bj\s*[&+]\s*t\b|\bj\s+t\s+express\b|\bjtexpress\b|\bjet\s*express\b/.test(text))
+      return "/assets/brands/jt-express.svg";
     const key = Object.keys(logos).find(key => key === "ups" ? /\bups\b/.test(text) : text.includes(key));
     return key ? "/assets/brands/" + logos[key] : "";
   }
