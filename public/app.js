@@ -1008,41 +1008,34 @@ function updateQuoteAddonsTotal(){
 
 function renderShipmentCatalog(){
   const hosts=["#addonsCatalog","#quoteAddonsCatalog"].map(sel=>$(sel)).filter(Boolean);
-  // Mostrar todos os itens ativos do MASTER, inclusive os ainda não vendáveis.
-  // O backend continua validando preço e saldo antes de gerar pedidos.
-  const items=(state.catalog||[]).filter(item=>item.itemType==="PRODUCT" || item.itemType==="SERVICE");
+  const items=(state.catalog||[]).filter(item=>Number(item.unitPrice||0)>0 &&
+    (item.itemType==="SERVICE" || (!item.trackStock || Number(item.availableQuantity||0)>0)));
   for(const host of hosts){
     if(!items.length) {
-      host.innerHTML='<div class="empty-state">Não há produtos ou serviços ativos no catálogo. Cadastre ou ative os itens no Painel Master.</div>';
+      host.innerHTML='<div class="empty-state">Ainda não há itens disponíveis. O MASTER deve cadastrar preços e o ponto precisa receber as embalagens no estoque.</div>';
       continue;
     }
     host.innerHTML="";
     items.forEach(item=>{
       const row=document.createElement("div");
       row.className="addon-item";
-      const priceReady=Number(item.unitPrice||0)>0;
-      const stockReady=!item.trackStock || Number(item.availableQuantity||0)>0;
-      const sellable=priceReady && stockReady;
-      const current=sellable?Number(state.selectedAddons.get(item.code)||0):0;
+      const current=Number(state.selectedAddons.get(item.code)||0);
       const stockText=item.itemType==="PRODUCT"
         ? (item.trackStock?`${Number(item.availableQuantity||0)} disponível(is)`:"Sem controle de estoque")
         :"Serviço";
-      if(!sellable)row.classList.add("addon-unavailable");
-      const unavailableReason=!priceReady?"Preço de venda pendente no MASTER":"Estoque indisponível neste ponto";
       row.innerHTML=`
         <div class="addon-main">
           <span class="addon-type">${item.itemType==="PRODUCT"?"EMBALAGEM / PRODUTO":"SERVIÇO"} · ${escapeHtml(item.category||"")}</span>
           <strong>${escapeHtml(item.name)}</strong>
           <small>${escapeHtml(item.description||stockText)}</small>
-          ${!sellable?`<small class="addon-unavailable-reason" role="status">${escapeHtml(unavailableReason)}</small>`:""}
         </div>
         <div class="addon-stock">${escapeHtml(stockText)}</div>
-        <div class="addon-price">${priceReady?money(item.unitPrice):"Preço pendente"}</div>
+        <div class="addon-price">${money(item.unitPrice)}</div>
         <label class="addon-qty">Qtd.
-          <input type="number" min="0" step="1" value="${current}" ${sellable?"":"disabled"} aria-label="Quantidade de ${escapeHtml(item.name)}" />
+          <input type="number" min="0" step="1" value="${current}" aria-label="Quantidade de ${escapeHtml(item.name)}" />
         </label>`;
       const input=row.querySelector("input");
-      input.max=item.trackStock?String(Math.max(0,Number(item.availableQuantity||0))):"999";
+      input.max=item.trackStock?String(item.availableQuantity||0):"999";
       input.addEventListener("input",()=>{
         let qty=Math.max(0,Math.min(999,Math.floor(Number(input.value||0))));
         if(item.trackStock)qty=Math.min(qty,Number(item.availableQuantity||0));
