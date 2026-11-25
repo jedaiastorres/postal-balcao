@@ -313,5 +313,41 @@ function publicOrder(row,key){
  }
  return result;
 }
+async function publicTracking(pool,trackingCode){
+ const code=String(trackingCode||"").toUpperCase();
+ if(!/^NET[A-F0-9]{17}$/.test(code))return null;
+ const {rows}=await pool.query(
+  "SELECT o.tracking_code,o.origin_cep,o.destination_cep,o.weight,o.created_at,"+
+  "o.updated_at,o.status,m.display_name AS seller_brand "+
+  "FROM interline_orders o JOIN interline_members m ON m.operator_key=o.seller_key "+
+  "WHERE o.tracking_code=$1 LIMIT 1",[code]);
+ const o=rows[0];
+ if(!o)return null;
+ const legs=await pool.query(
+  "SELECT stage,status,updated_at FROM interline_order_legs "+
+  "WHERE order_id=(SELECT id FROM interline_orders WHERE tracking_code=$1) "+
+  "ORDER BY position ASC",[code]);
+ const label={PENDING_ACCEPTANCE:"Aguardando confirmação das transportadoras",
+   READY:"Etapas confirmadas — aguardando pagamento",
+   IN_PROGRESS:"Envio em movimentação",COMPLETED:"Entrega concluída",
+   NEEDS_REPLAN:"Rota em reprogramação",CANCELED:"Solicitação cancelada"};
+ const stages={COLLECTION:"Coleta",TRANSFER:"Transferência",DELIVERY:"Entrega"};
+ const status={OFFERED:"solicitada",ACCEPTED:"aceita",
+   IN_PROGRESS:"em andamento",COMPLETED:"concluída",REJECTED:"recusada"};
+ return {
+   trackingCode:o.tracking_code,carrier:o.seller_brand,
+   service:"Rede logística compartilhada",statusLabel:label[o.status]||"Em acompanhamento",
+   origin:{cep:o.origin_cep},destination:{cep:o.destination_cep},
+   package:{volumeCount:1,weightKg:Number(o.weight)/1000},
+   updatedAt:o.updated_at,
+   events:[
+     {description:"Solicitação registrada na rede",date:o.created_at},
+     ...legs.rows.filter(x=>x.status!=="OFFERED").map(x=>({
+       description:(stages[x.stage]||"Etapa")+" "+(status[x.status]||"atualizada"),
+       date:x.updated_at
+     }))
+   ].sort((a,b)=>new Date(b.date)-new Date(a.date))
+ };
+}
 module.exports={init,ensureMember,member,setOptIn,listLanes,addLane,toggleLane,discover,
- requestService,listOrders,updateLeg,cancelOrder,publicOrder};
+ requestService,listOrders,updateLeg,cancelOrder,publicOrder,publicTracking};
