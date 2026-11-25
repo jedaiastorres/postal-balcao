@@ -115,6 +115,14 @@ test("testa inserções, aceitações e bloqueio de operação usando PostgreSQL
    const second=await data.requestService(pool,wlA,"usuario-a",request,{percent:20,fixed:1});
    assert.equal(second.created,false);
    assert.equal(second.id,created.id);
+   const publicView=await data.publicTracking(pool,created.trackingCode);
+   assert.equal(publicView.carrier,"Transportadora A");
+   assert.equal(publicView.trackingCode,created.trackingCode);
+   assert.equal(publicView.statusLabel,"Aguardando confirmação das transportadoras");
+   assert.equal(publicView.sender,undefined);
+   assert.equal(publicView.recipient,undefined);
+   assert.equal(publicView.paymentStatus,undefined);
+   assert.equal(await data.publicTracking(pool,"NET00000000000000000"),null);
    const order=(await data.listOrders(pool,wlA))[0];
    const postal=(await data.listOrders(pool,"POSTAL"))[0];
    assert.equal(postal.id,order.id);
@@ -155,6 +163,8 @@ test("rede só permite escopos do servidor e mantém operação monetária bloqu
  assert.match(db,/UNIQUE\(seller_key,request_key\)/);
  assert.match(db,/CHECK\(gross_cents=postal_commission_cents\+seller_margin_cents\+stage_total_cents\)/);
  assert.match(db,/INSERT INTO interline_audit/);
+ assert.match(read("public/rastreio.js"),/\/api\/public\/network-tracking\//);
+ assert.match(server,/\/api\/public\/network-tracking\/:code/);
  assert.doesNotMatch(api,/createCheckout\(|issueLabel\(|asaasFetch\(/);
  new vm.Script(api);new vm.Script(db);new vm.Script(read("public/interline-network.js"));
 });
