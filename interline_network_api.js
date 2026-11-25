@@ -100,16 +100,40 @@ function install({app,pool,prefix,auth,resolve}){
  });
  route("get","/finance",async(req,owner)=>{
    await makeIdentity(owner);
-   return {ready:false,charging:false,splitActive:false,
+   // Read-only onboarding diagnostics: never permit a charge from this endpoint.
+   const asaas=require("./asaas");
+   const environment=asaas.environmentInfo();
+   const isPostal=owner.key==="POSTAL";
+   let walletRegistered=false;
+   if(!isPostal&&owner.carrierId){
+     const carrier=await pool.query(
+       "SELECT asaas_wallet_id FROM white_label_carriers WHERE id=$1 LIMIT 1",
+       [owner.carrierId]);
+     walletRegistered=Boolean(String(carrier.rows[0]?.asaas_wallet_id||"").trim());
+   }
+   const checks=[
+     {key:"issuer_account",label:"Conta emissora Asaas individual da empresa vendedora",done:false,
+       detail:"Exige credencial vinculada ao vendedor e validação autenticada por empresa."},
+     {key:"recipient_wallet",label:"Carteira de recebimento White Label cadastrada",done:isPostal||walletRegistered,
+       detail:isPostal?"A Postal é a operadora principal.":walletRegistered?
+         "Identificador cadastrado; titularidade e consentimento ainda precisam de validação.":
+         "Cadastre o wallet ID do parceiro no MASTER."},
+     {key:"production_environment",label:"Ambiente Asaas de produção identificado",
+       done:environment.keyEnvironment==="production"&&environment.urlEnvironment==="production",
+       detail:"A identificação da configuração não comprova autorização para split."},
+     {key:"authenticated_webhook",label:"Token do webhook configurado",
+       done:asaas.webhookConfigured(),
+       detail:"Ainda é necessário confirmar recebimento, assinatura e idempotência dos eventos."},
+     {key:"split_contract",label:"Regras de split e aceite dos participantes homologados",done:false,
+       detail:"Confirmar comissão Postal, remuneração dos executores, limites e tarifas."},
+     {key:"refund_reconciliation",label:"Estorno, chargeback e conciliação financeira homologados",done:false,
+       detail:"Validar no ambiente de testes antes da primeira cobrança real."}
+   ];
+   return {ready:false,charging:false,splitActive:false,settlementsEnabled:false,
      checkoutAccountOwner:owner.key,
-     requirements:[
-       "Asaas habilitado e credenciais específicas da empresa vendedora",
-       "Wallet IDs dos participantes com consentimento de cada recebedor",
-       "Habilitação do split e comparação com o líquido pós-tarifas",
-       "Idempotência de cobranças e webhooks autenticados",
-       "Fluxos de cancelamento, estorno, divergência e reconciliação",
-       "Contrato e remuneração confirmados antes do pagamento"
-     ]};
+     environment:{keyEnvironment:environment.keyEnvironment,urlEnvironment:environment.urlEnvironment},
+     checks,completedChecks:checks.filter(c=>c.done).length,totalChecks:checks.length,
+     warning:"Diagnóstico de preparação. Nenhuma cobrança ou transferência real foi habilitada."};
  });
 }
 module.exports={install};
