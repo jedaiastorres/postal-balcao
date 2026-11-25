@@ -224,8 +224,8 @@ async function requestService(pool,sellerKey,userId,request,postalTerms){
 }
 async function listOrders(pool,key){
  const {rows}=await pool.query(orderSelect+
-  " WHERE o.seller_key=$1 OR EXISTS(SELECT 1 FROM interline_order_legs x "+
-  "WHERE x.order_id=o.id AND x.operator_key=$1) ORDER BY o.created_at DESC LIMIT 150",[key]);
+  " WHERE ($2::boolean=TRUE OR o.seller_key=$1 OR EXISTS(SELECT 1 FROM interline_order_legs x "+
+  "WHERE x.order_id=o.id AND x.operator_key=$1)) ORDER BY o.created_at DESC LIMIT 150",[key,key==="POSTAL"]);
  return rows;
 }
 async function updateLeg(pool,key,userId,legId,nextStatus,proof){
