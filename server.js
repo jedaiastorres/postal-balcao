@@ -25,6 +25,7 @@ const whiteLabel = require("./white_label");
 const whiteLabelTenantDb = require("./white_label_tenant_db");
 const whiteLabelPortal = require("./white_label_portal");
 const whiteLabelHybrid = require("./white_label_hybrid_quote");
+const interlineApi=require("./interline_network_api");
 const operationalMetrics = require("./operational_metrics");
 const postalOperations = require("./postal_operations");
 const postalRegional = require("./postal_regional");
@@ -4159,6 +4160,14 @@ app.patch("/api/admin/white-label-carriers/:id",requireAuth,requireRole("ADMIN")
     console.error("white label update error:",error.code||error.name);
     res.status(503).json({error:"Não foi possível atualizar o cadastro White Label."});
   }
+});
+
+// A Postal participa como operadora da rede e audita todas as solicitações.
+interlineApi.install({
+  app,pool:db.pool,prefix:"/api/admin/network",
+  auth:[requireAuth,requireRole("ADMIN")],
+  resolve:req=>({key:"POSTAL",name:"Postal Serviços",
+    userId:String(req.user.userId),postalFeePercent:0,postalFeeFixed:0})
 });
 
 // Portal independente com cookies, contas e isolamento próprios de White Label.
